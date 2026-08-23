@@ -62,14 +62,65 @@ button:focus-visible {
     margin: 1rem auto;
 }
 
-.calendar-placeholder {
-    display: grid;
-    min-height: 28rem;
-    place-items: center;
-    border: 2px dashed #b5beb7;
+.calendar {
+    overflow: hidden;
+    border: 1px solid #b5beb7;
     border-radius: 0.75rem;
     background: #ffffff;
-    color: #68736a;
+    box-shadow: 0 0.25rem 1rem rgb(31 41 34 / 8%);
+}
+
+.weekday-grid,
+.month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekday-grid {
+    background: #e8eee9;
+    border-bottom: 1px solid #b5beb7;
+}
+
+.weekday {
+    min-width: 0;
+    padding: 0.7rem 0.25rem;
+    color: #405046;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.month-grid {
+    gap: 1px;
+    background: #d6ddd7;
+}
+
+.calendar-date {
+    min-width: 0;
+    min-height: clamp(3.75rem, 10vw, 7.5rem);
+    padding: 0.6rem;
+    background: #ffffff;
+    font-variant-numeric: tabular-nums;
+}
+
+.calendar-date.outside-month {
+    background: #f1f3f1;
+    color: #8a938c;
+}
+
+.date-number {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 50%;
+}
+
+.calendar-date.today .date-number {
+    background: #425a48;
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 0 0 3px #dce7de;
 }
 
 #blazor-error-ui {
@@ -135,8 +186,17 @@ button:focus-visible {
 }
 
 @media (max-width: 36rem) {
+    .calendar-shell {
+        padding: 1.25rem 0.6rem;
+    }
+
+    .calendar-shell h1 {
+        margin-bottom: 1.25rem;
+    }
+
     .month-navigation {
         grid-template-columns: 1fr 1fr;
+        gap: 0.65rem;
     }
 
     .month-navigation strong {
@@ -144,7 +204,19 @@ button:focus-visible {
         grid-row: 1;
     }
 
-    .calendar-placeholder {
-        min-height: 22rem;
+    .weekday {
+        padding-block: 0.55rem;
+        font-size: 0.72rem;
+    }
+
+    .calendar-date {
+        min-height: 3.6rem;
+        padding: 0.35rem;
+    }
+
+    .date-number {
+        width: 1.75rem;
+        height: 1.75rem;
+        font-size: 0.9rem;
     }
 }

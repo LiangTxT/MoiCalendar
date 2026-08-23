@@ -7,25 +7,72 @@
 
     <nav class="month-navigation" aria-label="月份导航">
         <button type="button" @onclick="ShowPreviousMonth" aria-label="上一个月">&lt; 上一月</button>
-        <strong aria-live="polite">@CurrentMonthText</strong>
+        <strong aria-live="polite">@MonthTitle</strong>
         <button type="button" @onclick="ShowNextMonth" aria-label="下一个月">下一月 &gt;</button>
     </nav>
 
     <button class="today-button" type="button" @onclick="ShowToday">今天</button>
 
-    <section class="calendar-placeholder" aria-label="日历占位区域">
-        <span>[ 日历占位区域 ]</span>
+    <section class="calendar" aria-label="@($"{MonthTitle}日历")">
+        <div class="weekday-grid" role="row">
+            @foreach (var weekday in monthView.WeekdayLabels)
+            {
+                <div class="weekday" role="columnheader">@weekday</div>
+            }
+        </div>
+
+        <div class="month-grid" role="grid">
+            @foreach (var date in monthView.Dates)
+            {
+                <div class="@GetDateClass(date)"
+                     role="gridcell"
+                     aria-label="@date.Date.ToString("yyyy-MM-dd")"
+                     aria-current="@(date.IsToday ? "date" : null)">
+                    <span class="date-number">@date.DayNumber</span>
+                </div>
+            }
+        </div>
     </section>
 </main>
 
 @code {
-    private CalendarMonth displayedMonth = CalendarMonth.FromDate(DateOnly.FromDateTime(DateTime.Today));
+    private DateOnly today;
+    private CalendarMonthView monthView = null!;
 
-    private string CurrentMonthText => $"{displayedMonth.Year}年{displayedMonth.Month}月";
+    private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
-    private void ShowPreviousMonth() => displayedMonth = displayedMonth.Previous();
+    protected override void OnInitialized()
+    {
+        today = DateOnly.FromDateTime(DateTime.Today);
+        ShowMonth(CalendarMonth.FromDate(today));
+    }
 
-    private void ShowNextMonth() => displayedMonth = displayedMonth.Next();
+    private void ShowPreviousMonth() => ShowMonth(monthView.Month.Previous());
 
-    private void ShowToday() => displayedMonth = CalendarMonth.FromDate(DateOnly.FromDateTime(DateTime.Today));
+    private void ShowNextMonth() => ShowMonth(monthView.Month.Next());
+
+    private void ShowToday()
+    {
+        today = DateOnly.FromDateTime(DateTime.Today);
+        ShowMonth(CalendarMonth.FromDate(today));
+    }
+
+    private void ShowMonth(CalendarMonth month) => monthView = month.CreateView(today);
+
+    private static string GetDateClass(CalendarDateCell date)
+    {
+        var classes = "calendar-date";
+
+        if (!date.IsInActiveMonth)
+        {
+            classes += " outside-month";
+        }
+
+        if (date.IsToday)
+        {
+            classes += " today";
+        }
+
+        return classes;
+    }
 }
