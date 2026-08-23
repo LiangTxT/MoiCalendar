@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MoiCalendar.App/MoiCalendar.App.csproj" />
+    <Project Path="src/MoiCalendar.Core/MoiCalendar.Core.csproj" />
+    <Project Path="src/MoiCalendar.Storage/MoiCalendar.Storage.csproj" />
+    <Project Path="src/MoiCalendar.Sync/MoiCalendar.Sync.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MoiCalendar.Tests/MoiCalendar.Tests.csproj" />
+  </Folder>
+</Solution>

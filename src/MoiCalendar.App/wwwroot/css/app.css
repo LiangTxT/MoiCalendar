@@ -1,0 +1,150 @@
+:root {
+    color: #1f2922;
+    background: #f5f7f3;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-synthesis: none;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+}
+
+button {
+    border: 1px solid #9eaaa1;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0.65rem 0.9rem;
+}
+
+button:hover {
+    background: #edf2ed;
+}
+
+button:focus-visible {
+    outline: 3px solid #8eac96;
+    outline-offset: 2px;
+}
+
+.calendar-shell {
+    width: min(72rem, 100%);
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.calendar-shell h1 {
+    margin: 0 0 2rem;
+    text-align: center;
+}
+
+.month-navigation {
+    display: grid;
+    grid-template-columns: minmax(7rem, auto) minmax(8rem, 1fr) minmax(7rem, auto);
+    align-items: center;
+    gap: 1rem;
+}
+
+.month-navigation strong {
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+.today-button {
+    display: block;
+    margin: 1rem auto;
+}
+
+.calendar-placeholder {
+    display: grid;
+    min-height: 28rem;
+    place-items: center;
+    border: 2px dashed #b5beb7;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    color: #68736a;
+}
+
+#blazor-error-ui {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    display: none;
+    padding: 0.8rem 1rem;
+    border-radius: 0.5rem;
+    background: #fff1cc;
+    box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 15%);
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    position: absolute;
+    right: 0.75rem;
+    cursor: pointer;
+}
+
+.blazor-error-boundary {
+    padding: 1rem;
+    background: #a52828;
+    color: #ffffff;
+}
+
+.blazor-error-boundary::after {
+    content: "应用发生了意外错误。";
+}
+
+.loading-progress {
+    position: absolute;
+    display: block;
+    width: 8rem;
+    height: 8rem;
+    inset: 20vh 0 auto;
+    margin: 0 auto;
+}
+
+.loading-progress circle {
+    fill: none;
+    stroke: #dce2dd;
+    stroke-width: 0.6rem;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+}
+
+.loading-progress circle:last-child {
+    stroke: #425a48;
+    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
+    transition: stroke-dasharray 0.05s ease-in-out;
+}
+
+.loading-progress-text {
+    position: absolute;
+    inset: calc(20vh + 3.25rem) 0 auto;
+    text-align: center;
+}
+
+.loading-progress-text::after {
+    content: var(--blazor-load-percentage-text, "加载中");
+}
+
+@media (max-width: 36rem) {
+    .month-navigation {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .month-navigation strong {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
+
+    .calendar-placeholder {
+        min-height: 22rem;
+    }
+}

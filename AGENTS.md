@@ -43,28 +43,32 @@
 src/
   MoiCalendar.App/
   MoiCalendar.Core/
-  MoiCalendar.Infrastructure/
+  MoiCalendar.Storage/
+  MoiCalendar.Sync/
 
 tests/
-  MoiCalendar.Core.Tests/
-  MoiCalendar.Infrastructure.Tests/
+  MoiCalendar.Tests/
 ```
 
 项目职责：
 
 - `MoiCalendar.App`：Blazor WebAssembly PWA、Razor 页面与组件、UI 状态、PWA 静态资源以及依赖注入组合入口。
-- `MoiCalendar.Core`：领域模型、应用服务、持久化接口、同步抽象、同步引擎及与基础设施无关的业务规则。
-- `MoiCalendar.Infrastructure`：IndexedDB、JavaScript interop，以及未来的 OneDrive 和 WebDAV 适配器。
+- `MoiCalendar.Core`：领域模型、应用服务、持久化接口及与基础设施无关的业务规则。
+- `MoiCalendar.Storage`：未来的 IndexedDB 和 JavaScript interop 实现；当前初始脚手架阶段保持为空。
+- `MoiCalendar.Sync`：未来的同步抽象、同步引擎以及 OneDrive 和 WebDAV 适配器；当前里程碑不实现同步。
+- `MoiCalendar.Tests`：当前解决方案的自动化测试。
 
 依赖方向：
 
 ```text
-MoiCalendar.Core           -> 不依赖其他项目
-MoiCalendar.Infrastructure -> MoiCalendar.Core
-MoiCalendar.App            -> MoiCalendar.Core + MoiCalendar.Infrastructure
+MoiCalendar.Core    -> 不依赖其他项目
+MoiCalendar.Storage -> MoiCalendar.Core
+MoiCalendar.Sync    -> MoiCalendar.Core
+MoiCalendar.App     -> MoiCalendar.Core；将来仅在组合入口引用 Storage 和 Sync
+MoiCalendar.Tests   -> 被测试的项目
 ```
 
-`MoiCalendar.App` 对 Infrastructure 的引用只能用于应用启动和依赖注入注册。Razor 页面与组件不得直接使用 Infrastructure 中的具体实现。
+`MoiCalendar.App` 对 Storage 或 Sync 的引用只能用于应用启动和依赖注入注册。Razor 页面与组件不得直接使用其中的具体实现。
 
 推荐调用路径：
 
@@ -103,7 +107,7 @@ Sync Engine
 ## 本地持久化边界
 
 - UI 应调用 Core 中的应用服务，而不是调用 IndexedDB 包装器。
-- Core 中定义仓储接口；Infrastructure 提供 IndexedDB 实现。
+- Core 中定义仓储接口；Storage 提供 IndexedDB 实现。
 - IndexedDB 的 JavaScript interop、object store 名称、索引和迁移细节不得泄漏到 UI 或领域模型。
 - 业务数据更新和对应的本地变更记录应尽可能在同一个 IndexedDB 事务中完成。
 - 删除需要保留可供未来同步使用的删除标记，不能默认立即彻底移除所有痕迹。

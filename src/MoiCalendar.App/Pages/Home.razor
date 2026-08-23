@@ -1,0 +1,31 @@
+@page "/"
+
+<PageTitle>MoiCalendar</PageTitle>
+
+<main class="calendar-shell">
+    <h1>MoiCalendar</h1>
+
+    <nav class="month-navigation" aria-label="月份导航">
+        <button type="button" @onclick="ShowPreviousMonth" aria-label="上一个月">&lt; 上一月</button>
+        <strong aria-live="polite">@CurrentMonthText</strong>
+        <button type="button" @onclick="ShowNextMonth" aria-label="下一个月">下一月 &gt;</button>
+    </nav>
+
+    <button class="today-button" type="button" @onclick="ShowToday">今天</button>
+
+    <section class="calendar-placeholder" aria-label="日历占位区域">
+        <span>[ 日历占位区域 ]</span>
+    </section>
+</main>
+
+@code {
+    private CalendarMonth displayedMonth = CalendarMonth.FromDate(DateOnly.FromDateTime(DateTime.Today));
+
+    private string CurrentMonthText => $"{displayedMonth.Year}年{displayedMonth.Month}月";
+
+    private void ShowPreviousMonth() => displayedMonth = displayedMonth.Previous();
+
+    private void ShowNextMonth() => displayedMonth = displayedMonth.Next();
+
+    private void ShowToday() => displayedMonth = CalendarMonth.FromDate(DateOnly.FromDateTime(DateTime.Today));
+}
