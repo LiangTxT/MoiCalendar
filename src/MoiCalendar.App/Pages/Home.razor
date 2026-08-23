@@ -1,4 +1,5 @@
 @page "/"
+@inject CalendarEventService EventService
 
 <PageTitle>MoiCalendar</PageTitle>
 
@@ -6,12 +7,12 @@
     <h1>MoiCalendar</h1>
 
     <nav class="month-navigation" aria-label="月份导航">
-        <button type="button" @onclick="ShowPreviousMonth" aria-label="上一个月">&lt; 上一月</button>
+        <button type="button" @onclick="ShowPreviousMonthAsync" aria-label="上一个月">&lt; 上一月</button>
         <strong aria-live="polite">@MonthTitle</strong>
-        <button type="button" @onclick="ShowNextMonth" aria-label="下一个月">下一月 &gt;</button>
+        <button type="button" @onclick="ShowNextMonthAsync" aria-label="下一个月">下一月 &gt;</button>
     </nav>
 
-    <button class="today-button" type="button" @onclick="ShowToday">今天</button>
+    <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
 
     <section class="calendar" aria-label="@($"{MonthTitle}日历")">
         <div class="weekday-grid" role="row">
@@ -26,38 +27,241 @@
             {
                 <div class="@GetDateClass(date)"
                      role="gridcell"
+                     tabindex="0"
                      aria-label="@date.Date.ToString("yyyy-MM-dd")"
-                     aria-current="@(date.IsToday ? "date" : null)">
+                     aria-current="@(date.IsToday ? "date" : null)"
+                     @onclick="() => OpenCreateEditor(date.Date)"
+                     @onkeydown="args => HandleDateKey(args, date.Date)">
                     <span class="date-number">@date.DayNumber</span>
+
+                    <div class="day-events">
+                        @foreach (var calendarEvent in monthEvents.GetEvents(date.Date))
+                        {
+                            <button class="event-chip"
+                                    type="button"
+                                    title="@calendarEvent.Title"
+                                    @onclick="() => OpenEventEditorAsync(calendarEvent.Id)"
+                                    @onclick:stopPropagation="true">
+                                <span class="event-time">@calendarEvent.TimeLabel</span>
+                                <span class="event-title">@calendarEvent.Title</span>
+                            </button>
+                        }
+                    </div>
                 </div>
             }
         </div>
     </section>
 </main>
 
+@if (editor is not null)
+{
+    <div class="editor-backdrop" @onclick="CloseEditor">
+        <section class="event-editor"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="event-editor-title"
+                 @onclick:stopPropagation="true">
+            <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : "编辑事件")</h2>
+
+            <form @onsubmit="SaveEventAsync" @onsubmit:preventDefault="true">
+                <label for="event-title">标题</label>
+                <input id="event-title"
+                       type="text"
+                       maxlength="200"
+                       required
+                       autofocus
+                       @bind="editor.Title"
+                       @bind:event="oninput" />
+
+                <label class="checkbox-field" for="event-all-day">
+                    <input id="event-all-day"
+                           type="checkbox"
+                           checked="@editor.IsAllDay"
+                           @onchange="ChangeAllDay" />
+                    全天
+                </label>
+
+                <div class="date-time-fields">
+                    <div>
+                        <label for="event-start">@(editor.IsAllDay ? "开始日期" : "开始日期/时间")</label>
+                        <input id="event-start"
+                               type="@EditorInputType"
+                               required
+                               @bind="editor.StartInput"
+                               @bind:event="oninput" />
+                    </div>
+                    <div>
+                        <label for="event-end">@(editor.IsAllDay ? "结束日期（不含）" : "结束日期/时间")</label>
+                        <input id="event-end"
+                               type="@EditorInputType"
+                               required
+                               @bind="editor.EndInput"
+                               @bind:event="oninput" />
+                    </div>
+                </div>
+
+                <label for="event-location">地点</label>
+                <input id="event-location"
+                       type="text"
+                       maxlength="300"
+                       @bind="editor.Location"
+                       @bind:event="oninput" />
+
+                <label for="event-description">描述</label>
+                <textarea id="event-description"
+                          rows="4"
+                          maxlength="4000"
+                          @bind="editor.Description"
+                          @bind:event="oninput"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(editorError))
+                {
+                    <p class="editor-error" role="alert">@editorError</p>
+                }
+
+                <footer class="editor-actions">
+                    @if (editingEventId is not null)
+                    {
+                        <button class="danger-button" type="button" @onclick="DeleteEventAsync">删除</button>
+                    }
+                    <span class="action-spacer"></span>
+                    <button type="button" @onclick="CloseEditor">取消</button>
+                    <button class="primary-button" type="submit">保存</button>
+                </footer>
+            </form>
+        </section>
+    </div>
+}
+
 @code {
     private DateOnly today;
+    private string displayTimeZoneId = TimeZoneInfo.Utc.Id;
     private CalendarMonthView monthView = null!;
+    private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
+    private CalendarEventDraft? editor;
+    private Guid? editingEventId;
+    private string? editorError;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
-    protected override void OnInitialized()
+    private string EditorInputType => editor?.IsAllDay == true ? "date" : "datetime-local";
+
+    protected override async Task OnInitializedAsync()
     {
         today = DateOnly.FromDateTime(DateTime.Today);
-        ShowMonth(CalendarMonth.FromDate(today));
+        displayTimeZoneId = TimeZoneInfo.Local.Id;
+        monthView = CalendarMonth.FromDate(today).CreateView(today);
+        await LoadEventsAsync();
     }
 
-    private void ShowPreviousMonth() => ShowMonth(monthView.Month.Previous());
+    private Task ShowPreviousMonthAsync() => ShowMonthAsync(monthView.Month.Previous());
 
-    private void ShowNextMonth() => ShowMonth(monthView.Month.Next());
+    private Task ShowNextMonthAsync() => ShowMonthAsync(monthView.Month.Next());
 
-    private void ShowToday()
+    private Task ShowTodayAsync()
     {
         today = DateOnly.FromDateTime(DateTime.Today);
-        ShowMonth(CalendarMonth.FromDate(today));
+        return ShowMonthAsync(CalendarMonth.FromDate(today));
     }
 
-    private void ShowMonth(CalendarMonth month) => monthView = month.CreateView(today);
+    private async Task ShowMonthAsync(CalendarMonth month)
+    {
+        monthView = month.CreateView(today);
+        await LoadEventsAsync();
+    }
+
+    private Task LoadEventsAsync() => LoadEventsCoreAsync();
+
+    private async Task LoadEventsCoreAsync()
+    {
+        monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+    }
+
+    private void OpenCreateEditor(DateOnly date)
+    {
+        editingEventId = null;
+        editorError = null;
+        editor = EventService.CreateDraft(date, displayTimeZoneId);
+    }
+
+    private async Task OpenEventEditorAsync(Guid id)
+    {
+        var calendarEvent = await EventService.GetByIdAsync(id);
+        if (calendarEvent is null)
+        {
+            return;
+        }
+
+        editingEventId = id;
+        editorError = null;
+        editor = EventService.CreateDraft(calendarEvent);
+    }
+
+    private void ChangeAllDay(ChangeEventArgs args)
+    {
+        if (editor is not null && args.Value is bool isAllDay)
+        {
+            editor.SetAllDay(isAllDay);
+        }
+    }
+
+    private void HandleDateKey(KeyboardEventArgs args, DateOnly date)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            OpenCreateEditor(date);
+        }
+    }
+
+    private async Task SaveEventAsync()
+    {
+        if (editor is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (editingEventId is Guid id)
+            {
+                await EventService.UpdateAsync(id, editor);
+            }
+            else
+            {
+                await EventService.CreateAsync(editor);
+            }
+
+            CloseEditor();
+            await LoadEventsAsync();
+        }
+        catch (ArgumentException exception)
+        {
+            editorError = exception.Message;
+        }
+        catch (KeyNotFoundException exception)
+        {
+            editorError = exception.Message;
+        }
+    }
+
+    private async Task DeleteEventAsync()
+    {
+        if (editingEventId is not Guid id)
+        {
+            return;
+        }
+
+        await EventService.DeleteAsync(id);
+        CloseEditor();
+        await LoadEventsAsync();
+    }
+
+    private void CloseEditor()
+    {
+        editor = null;
+        editingEventId = null;
+        editorError = null;
+    }
 
     private static string GetDateClass(CalendarDateCell date)
     {

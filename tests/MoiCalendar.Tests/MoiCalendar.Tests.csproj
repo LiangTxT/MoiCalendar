@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MoiCalendar.Core\MoiCalendar.Core.csproj" />
+    <ProjectReference Include="..\..\src\MoiCalendar.Storage\MoiCalendar.Storage.csproj" />
   </ItemGroup>
 
 </Project>

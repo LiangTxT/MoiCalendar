@@ -54,7 +54,7 @@ tests/
 
 - `MoiCalendar.App`：Blazor WebAssembly PWA、Razor 页面与组件、UI 状态、PWA 静态资源以及依赖注入组合入口。
 - `MoiCalendar.Core`：领域模型、应用服务、持久化接口及与基础设施无关的业务规则。
-- `MoiCalendar.Storage`：未来的 IndexedDB 和 JavaScript interop 实现；当前初始脚手架阶段保持为空。
+- `MoiCalendar.Storage`：当前提供内存仓储实现，未来在相同接口后增加 IndexedDB 和 JavaScript interop 实现。
 - `MoiCalendar.Sync`：未来的同步抽象、同步引擎以及 OneDrive 和 WebDAV 适配器；当前里程碑不实现同步。
 - `MoiCalendar.Tests`：当前解决方案的自动化测试。
 
