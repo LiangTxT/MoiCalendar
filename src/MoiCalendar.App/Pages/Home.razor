@@ -14,6 +14,11 @@
 
     <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
 
+    @if (!string.IsNullOrWhiteSpace(storageError))
+    {
+        <p class="storage-error" role="alert">@storageError</p>
+    }
+
     <section class="calendar" aria-label="@($"{MonthTitle}日历")">
         <div class="weekday-grid" role="row">
             @foreach (var weekday in monthView.WeekdayLabels)
@@ -141,6 +146,7 @@
     private CalendarEventDraft? editor;
     private Guid? editingEventId;
     private string? editorError;
+    private string? storageError;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
@@ -170,11 +176,18 @@
         await LoadEventsAsync();
     }
 
-    private Task LoadEventsAsync() => LoadEventsCoreAsync();
-
-    private async Task LoadEventsCoreAsync()
+    private async Task LoadEventsAsync()
     {
-        monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+        try
+        {
+            monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+            storageError = null;
+        }
+        catch (EventRepositoryException exception)
+        {
+            monthEvents = CalendarMonthEventView.Empty;
+            storageError = exception.Message;
+        }
     }
 
     private void OpenCreateEditor(DateOnly date)
@@ -186,15 +199,22 @@
 
     private async Task OpenEventEditorAsync(Guid id)
     {
-        var calendarEvent = await EventService.GetByIdAsync(id);
-        if (calendarEvent is null)
+        try
         {
-            return;
-        }
+            var calendarEvent = await EventService.GetByIdAsync(id);
+            if (calendarEvent is null)
+            {
+                return;
+            }
 
-        editingEventId = id;
-        editorError = null;
-        editor = EventService.CreateDraft(calendarEvent);
+            editingEventId = id;
+            editorError = null;
+            editor = EventService.CreateDraft(calendarEvent);
+        }
+        catch (EventRepositoryException exception)
+        {
+            storageError = exception.Message;
+        }
     }
 
     private void ChangeAllDay(ChangeEventArgs args)
@@ -242,6 +262,10 @@
         {
             editorError = exception.Message;
         }
+        catch (EventRepositoryException exception)
+        {
+            editorError = exception.Message;
+        }
     }
 
     private async Task DeleteEventAsync()
@@ -251,9 +275,16 @@
             return;
         }
 
-        await EventService.DeleteAsync(id);
-        CloseEditor();
-        await LoadEventsAsync();
+        try
+        {
+            await EventService.DeleteAsync(id);
+            CloseEditor();
+            await LoadEventsAsync();
+        }
+        catch (EventRepositoryException exception)
+        {
+            editorError = exception.Message;
+        }
     }
 
     private void CloseEditor()
