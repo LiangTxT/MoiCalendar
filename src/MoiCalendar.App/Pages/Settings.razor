@@ -1,0 +1,70 @@
+@page "/settings"
+@using MoiCalendar.Sync
+@inject ISyncProviderSelection ProviderSelection
+
+<PageTitle>同步设置 | MoiCalendar</PageTitle>
+
+<main class="settings-shell">
+    <h1>同步</h1>
+
+    <fieldset class="settings-group">
+        <legend>提供商</legend>
+
+        <label>
+            <input type="radio"
+                   name="sync-provider"
+                   checked="@(selectedProvider == SyncProviderType.None)"
+                   @onchange="() => SelectProviderAsync(SyncProviderType.None)" />
+            无
+        </label>
+
+        <label>
+            <input type="radio"
+                   name="sync-provider"
+                   checked="@(selectedProvider == SyncProviderType.OneDrive)"
+                   @onchange="() => SelectProviderAsync(SyncProviderType.OneDrive)" />
+            OneDrive
+        </label>
+
+        <label>
+            <input type="radio"
+                   name="sync-provider"
+                   checked="@(selectedProvider == SyncProviderType.WebDav)"
+                   @onchange="() => SelectProviderAsync(SyncProviderType.WebDav)" />
+            WebDAV
+        </label>
+    </fieldset>
+
+    <p class="settings-note">
+        当前仅提供同步架构和提供商选择；OneDrive、WebDAV、身份验证及实际同步尚未启用。
+    </p>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <p class="settings-status" role="status">@statusMessage</p>
+    }
+</main>
+
+@code {
+    private SyncProviderType selectedProvider;
+    private string? statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var configuration = await ProviderSelection.GetAsync();
+        selectedProvider = configuration.ProviderType;
+    }
+
+    private async Task SelectProviderAsync(SyncProviderType providerType)
+    {
+        await ProviderSelection.SelectAsync(providerType);
+        selectedProvider = providerType;
+        statusMessage = providerType switch
+        {
+            SyncProviderType.None => "已选择不使用同步。",
+            SyncProviderType.OneDrive => "已选择 OneDrive；连接功能尚未实现。",
+            SyncProviderType.WebDav => "已选择 WebDAV；连接功能尚未实现。",
+            _ => null
+        };
+    }
+}

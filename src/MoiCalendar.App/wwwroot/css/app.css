@@ -15,6 +15,33 @@ body {
     min-height: 100vh;
 }
 
+.app-navigation {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #d6ddd7;
+    background: #ffffff;
+}
+
+.app-navigation a {
+    padding: 0.5rem 0.85rem;
+    border-radius: 0.45rem;
+    color: #405046;
+    text-decoration: none;
+}
+
+.app-navigation a:hover,
+.app-navigation a.active {
+    background: #dfeadf;
+    color: #294031;
+}
+
+.app-navigation a:focus-visible {
+    outline: 3px solid #8eac96;
+    outline-offset: 2px;
+}
+
 button {
     border: 1px solid #9eaaa1;
     border-radius: 0.5rem;
@@ -286,6 +313,58 @@ button:focus-visible {
 .danger-button {
     border-color: #c99090;
     color: #9b2222;
+}
+
+.settings-shell {
+    width: min(38rem, 100%);
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.settings-shell h1 {
+    margin: 0 0 1.5rem;
+}
+
+.settings-group {
+    display: grid;
+    gap: 0.8rem;
+    padding: 1.25rem;
+    border: 1px solid #b5beb7;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.settings-group legend {
+    padding-inline: 0.35rem;
+    font-weight: 700;
+}
+
+.settings-group label {
+    display: flex;
+    gap: 0.65rem;
+    align-items: center;
+}
+
+.settings-group input {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.settings-note,
+.settings-status {
+    margin: 1rem 0 0;
+    padding: 0.8rem 1rem;
+    border-radius: 0.5rem;
+}
+
+.settings-note {
+    background: #eef2ee;
+    color: #405046;
+}
+
+.settings-status {
+    border: 1px solid #a9bbaa;
+    background: #f5faf5;
 }
 
 #blazor-error-ui {

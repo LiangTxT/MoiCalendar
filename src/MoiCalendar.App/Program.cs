@@ -4,6 +4,7 @@ using MoiCalendar.App;
 using MoiCalendar.App.Configuration;
 using MoiCalendar.Core;
 using MoiCalendar.Storage;
+using MoiCalendar.Sync;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -18,5 +19,6 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
 builder.Services.AddScoped<CalendarEventService>();
+builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 
 await builder.Build().RunAsync();
