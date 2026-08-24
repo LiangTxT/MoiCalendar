@@ -104,6 +104,21 @@ Sync Engine
 15. 重要改动后必须运行相关测试。
 16. 完成任务前必须构建解决方案。
 
+## 托管独立性（Hosting Independence）
+
+以下部署规则是永久约束：
+
+1. MoiCalendar 必须保持独立于任何托管提供商。
+2. 应用、领域、存储和同步代码不得依赖 Azure、Cloudflare、Netlify 或其他托管提供商。
+3. 托管提供商只负责发布 Blazor WebAssembly 的静态输出。
+4. 提供商专用的部署配置必须保留在应用逻辑之外。
+5. MoiCalendar 身份验证不得使用托管提供商专用的身份验证功能。
+6. Microsoft 身份验证必须直接使用 Microsoft Identity Platform。
+7. OneDrive 访问必须直接使用 Microsoft Graph。
+8. WebDAV 访问必须通过 `ISyncStorageProvider`。
+9. 更换托管提供商不得要求修改日历逻辑或同步逻辑。
+10. 优先使用基于标准的浏览器功能，而不是托管提供商专用服务。
+
 ## 本地持久化边界
 
 - UI 应调用 Core 中的应用服务，而不是调用 IndexedDB 包装器。
