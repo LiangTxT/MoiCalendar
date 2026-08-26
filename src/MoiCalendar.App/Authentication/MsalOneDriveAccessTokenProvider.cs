@@ -14,7 +14,7 @@ public sealed class MsalOneDriveAccessTokenProvider(IAccessTokenProvider accessT
         var result = await accessTokenProvider.RequestAccessToken(
             new AccessTokenRequestOptions
             {
-                Scopes = [OneDriveGraphSettings.AppFolderScope]
+                Scopes = OneDriveGraphSettings.GetRequestedScopes()
             });
 
         cancellationToken.ThrowIfCancellationRequested();

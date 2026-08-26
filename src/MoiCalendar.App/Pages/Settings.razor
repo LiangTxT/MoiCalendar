@@ -46,6 +46,11 @@
     <section class="settings-card" aria-labelledby="onedrive-heading">
         <h2 id="onedrive-heading">OneDrive</h2>
 
+        <p class="settings-status failure" role="alert">
+            临时初始化模式已启用：登录期间会请求整个个人 OneDrive 的读写权限。
+            App Folder 初始化成功后必须立即撤销此临时权限。
+        </p>
+
         @if (!isAuthenticationConfigured)
         {
             <p class="settings-note">

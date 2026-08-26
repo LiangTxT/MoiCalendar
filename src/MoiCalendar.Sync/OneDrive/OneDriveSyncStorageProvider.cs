@@ -15,6 +15,14 @@ public sealed class OneDriveSyncStorageProvider(
 
     public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
+        // Temporary workaround for a personal OneDrive App Folder provisioning issue.
+        // Remove this request together with TemporaryBootstrapScope after approot succeeds.
+        using var driveResponse = await SendAsync(
+            HttpMethod.Get,
+            "me/drive",
+            cancellationToken: cancellationToken);
+        await EnsureSuccessAsync(driveResponse, "初始化个人 OneDrive", cancellationToken);
+
         using var response = await SendAsync(
             HttpMethod.Get,
             "me/drive/special/approot",

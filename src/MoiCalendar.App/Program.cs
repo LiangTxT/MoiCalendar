@@ -26,8 +26,10 @@ builder.Services.AddMsalAuthentication(options =>
         appConfiguration.MicrosoftAuthentication.Authority;
     options.ProviderOptions.Authentication.ClientId =
         appConfiguration.MicrosoftAuthentication.ClientId ?? string.Empty;
-    options.ProviderOptions.DefaultAccessTokenScopes.Add(
-        OneDriveGraphSettings.AppFolderScope);
+    foreach (var scope in OneDriveGraphSettings.GetRequestedScopes())
+    {
+        options.ProviderOptions.DefaultAccessTokenScopes.Add(scope);
+    }
 
     if (appConfiguration.MicrosoftAuthentication.RedirectPath is { } redirectPath)
     {

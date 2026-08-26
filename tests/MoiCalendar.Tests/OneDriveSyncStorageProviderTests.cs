@@ -11,6 +11,7 @@ public sealed class OneDriveSyncStorageProviderTests
     public async Task ConnectionTest_AccessesAppFolderAndVerifiesHelloFile()
     {
         var handler = new RecordingHandler(
+            JsonResponse("{\"id\":\"personal-drive\"}"),
             JsonResponse("{\"name\":\"MyCalendar\",\"eTag\":\"folder-tag\"}"),
             JsonResponse("{\"name\":\"hello.json\",\"eTag\":\"upload-tag\",\"size\":36}"),
             JsonResponse("{\"name\":\"hello.json\",\"eTag\":\"download-tag\",\"size\":36}"),
@@ -27,6 +28,7 @@ public sealed class OneDriveSyncStorageProviderTests
         Assert.Contains("hello.json", result.Message);
         Assert.Equal(
             [
+                "GET https://graph.microsoft.com/v1.0/me/drive",
                 "GET https://graph.microsoft.com/v1.0/me/drive/special/approot",
                 "PUT https://graph.microsoft.com/v1.0/me/drive/special/approot:/hello.json:/content",
                 "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/hello.json",
@@ -34,13 +36,14 @@ public sealed class OneDriveSyncStorageProviderTests
             ],
             handler.Requests.Select(request => $"{request.Method} {request.Uri}").ToArray());
         Assert.All(handler.Requests, request => Assert.Equal("test-access-token", request.BearerToken));
-        Assert.Equal(OneDriveConnectionTester.TestContent, handler.Requests[1].Content);
+        Assert.Equal(OneDriveConnectionTester.TestContent, handler.Requests[2].Content);
     }
 
     [Fact]
     public async Task ConnectionTest_ReturnsFailureWhenDownloadedContentDoesNotMatch()
     {
         var handler = new RecordingHandler(
+            JsonResponse("{\"id\":\"personal-drive\"}"),
             JsonResponse("{\"name\":\"MyCalendar\"}"),
             JsonResponse("{\"name\":\"hello.json\"}"),
             JsonResponse("{\"name\":\"hello.json\"}"),
