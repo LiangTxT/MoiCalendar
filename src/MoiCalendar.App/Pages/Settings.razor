@@ -1,5 +1,6 @@
 @page "/settings"
 @using System.Security.Claims
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
 @using MoiCalendar.App.Configuration
 @using MoiCalendar.Sync
 @using MoiCalendar.Sync.OneDrive
@@ -147,11 +148,11 @@
         };
     }
 
-    private void SignIn() => Navigation.NavigateTo(
-        $"authentication/login?returnUrl={Uri.EscapeDataString("/settings")}");
+    private void SignIn() => Navigation.NavigateToLogin("authentication/login");
 
-    private void Disconnect() => Navigation.NavigateTo(
-        $"authentication/logout?returnUrl={Uri.EscapeDataString("/settings")}");
+    private void Disconnect() => Navigation.NavigateToLogout(
+        "authentication/logout",
+        Navigation.ToAbsoluteUri("settings").AbsoluteUri);
 
     private async Task TestConnectionAsync()
     {
