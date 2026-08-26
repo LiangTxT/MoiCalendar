@@ -350,6 +350,47 @@ button:focus-visible {
     height: 1.1rem;
 }
 
+.settings-card {
+    margin-top: 1.25rem;
+    padding: 1.25rem;
+    border: 1px solid #b5beb7;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.settings-card h2 {
+    margin: 0 0 1rem;
+}
+
+.settings-card button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.account-information {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.35rem 0.8rem;
+    margin: 0 0 1rem;
+}
+
+.account-information dt {
+    color: #59675d;
+}
+
+.account-information dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-weight: 650;
+}
+
+.settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
 .settings-note,
 .settings-status {
     margin: 1rem 0 0;
@@ -365,6 +406,17 @@ button:focus-visible {
 .settings-status {
     border: 1px solid #a9bbaa;
     background: #f5faf5;
+}
+
+.settings-status.success {
+    border-color: #83aa88;
+    color: #255c2d;
+}
+
+.settings-status.failure {
+    border-color: #d8a2a2;
+    background: #fff0f0;
+    color: #8b2020;
 }
 
 #blazor-error-ui {

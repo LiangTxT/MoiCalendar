@@ -1,6 +1,13 @@
 @page "/settings"
+@using System.Security.Claims
+@using MoiCalendar.App.Configuration
 @using MoiCalendar.Sync
+@using MoiCalendar.Sync.OneDrive
 @inject ISyncProviderSelection ProviderSelection
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IOneDriveConnectionTester OneDriveConnectionTester
+@inject MoiCalendarConfiguration AppConfiguration
+@inject NavigationManager Navigation
 
 <PageTitle>同步设置 | MoiCalendar</PageTitle>
 
@@ -35,36 +42,134 @@
         </label>
     </fieldset>
 
+    <section class="settings-card" aria-labelledby="onedrive-heading">
+        <h2 id="onedrive-heading">OneDrive</h2>
+
+        @if (!isAuthenticationConfigured)
+        {
+            <p class="settings-note">
+                尚未配置 Microsoft 应用程序（客户端）ID。填写配置后即可登录。
+            </p>
+            <button type="button" disabled>登录</button>
+        }
+        else if (!isAuthenticated)
+        {
+            <p>登录个人 Microsoft 账户后，可以测试 OneDrive 应用文件夹连接。</p>
+            <button type="button" class="primary-button" @onclick="SignIn">登录</button>
+        }
+        else
+        {
+            <dl class="account-information">
+                <dt>已登录账户</dt>
+                <dd>@accountDisplayName</dd>
+                @if (!string.IsNullOrWhiteSpace(accountIdentifier) &&
+                     !string.Equals(accountIdentifier, accountDisplayName, StringComparison.OrdinalIgnoreCase))
+                {
+                    <dt>账户信息</dt>
+                    <dd>@accountIdentifier</dd>
+                }
+            </dl>
+
+            <div class="settings-actions">
+                <button type="button"
+                        class="primary-button"
+                        disabled="@isTestingConnection"
+                        @onclick="TestConnectionAsync">
+                    @(isTestingConnection ? "正在测试…" : "测试连接")
+                </button>
+                <button type="button" disabled="@isTestingConnection" @onclick="Disconnect">
+                    断开连接
+                </button>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(connectionMessage))
+        {
+            <p class="settings-status @(connectionSucceeded ? "success" : "failure")" role="status">
+                @connectionMessage
+            </p>
+        }
+    </section>
+
     <p class="settings-note">
-        当前仅提供同步架构和提供商选择；OneDrive、WebDAV、身份验证及实际同步尚未启用。
+        当前只验证 OneDrive 应用文件夹的登录和文件读写；日历事件同步尚未实现。
     </p>
 
-    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    @if (!string.IsNullOrWhiteSpace(providerStatusMessage))
     {
-        <p class="settings-status" role="status">@statusMessage</p>
+        <p class="settings-status" role="status">@providerStatusMessage</p>
     }
 </main>
 
 @code {
     private SyncProviderType selectedProvider;
-    private string? statusMessage;
+    private bool isAuthenticated;
+    private bool isTestingConnection;
+    private bool connectionSucceeded;
+    private string accountDisplayName = "Microsoft 账户";
+    private string? accountIdentifier;
+    private string? connectionMessage;
+    private string? providerStatusMessage;
+
+    private bool isAuthenticationConfigured =>
+        !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
 
     protected override async Task OnInitializedAsync()
     {
         var configuration = await ProviderSelection.GetAsync();
         selectedProvider = configuration.ProviderType;
+
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authenticationState.User;
+        isAuthenticated = user.Identity?.IsAuthenticated == true;
+
+        if (isAuthenticated)
+        {
+            accountDisplayName = FirstClaimValue(user, "name")
+                ?? user.Identity?.Name
+                ?? "Microsoft 账户";
+            accountIdentifier = FirstClaimValue(user, "preferred_username")
+                ?? FirstClaimValue(user, ClaimTypes.Email)
+                ?? FirstClaimValue(user, "emails");
+        }
     }
 
     private async Task SelectProviderAsync(SyncProviderType providerType)
     {
         await ProviderSelection.SelectAsync(providerType);
         selectedProvider = providerType;
-        statusMessage = providerType switch
+        providerStatusMessage = providerType switch
         {
             SyncProviderType.None => "已选择不使用同步。",
-            SyncProviderType.OneDrive => "已选择 OneDrive；连接功能尚未实现。",
+            SyncProviderType.OneDrive => "已选择 OneDrive。当前可以测试连接，但不会同步日历事件。",
             SyncProviderType.WebDav => "已选择 WebDAV；连接功能尚未实现。",
             _ => null
         };
     }
+
+    private void SignIn() => Navigation.NavigateTo(
+        $"authentication/login?returnUrl={Uri.EscapeDataString("/settings")}");
+
+    private void Disconnect() => Navigation.NavigateTo(
+        $"authentication/logout?returnUrl={Uri.EscapeDataString("/settings")}");
+
+    private async Task TestConnectionAsync()
+    {
+        isTestingConnection = true;
+        connectionMessage = null;
+
+        try
+        {
+            var result = await OneDriveConnectionTester.TestAsync();
+            connectionSucceeded = result.IsSuccess;
+            connectionMessage = result.Message;
+        }
+        finally
+        {
+            isTestingConnection = false;
+        }
+    }
+
+    private static string? FirstClaimValue(ClaimsPrincipal user, string claimType) =>
+        user.Claims.FirstOrDefault(claim => claim.Type == claimType)?.Value;
 }
