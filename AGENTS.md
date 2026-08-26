@@ -148,6 +148,14 @@ Sync Engine
 - 新增依赖前应说明必要性，并优先使用 .NET 和浏览器平台已有能力。
 - 涉及日历时间时，必须明确区分定时事件和全天事件，并考虑时区及夏令时；不要把全天日期简单当作午夜 UTC。
 
+## 临时 OneDrive 权限提醒
+
+- 当前因个人 OneDrive 新授权应用使用 `Files.ReadWrite.AppFolder` 时可能返回 403，应用暂时额外请求 `Files.ReadWrite`，并调用 `/me/drive` 完成 App Folder 初始化。
+- `Files.ReadWrite` 允许读写用户的整个个人 OneDrive，权限明显大于最终设计所需；这只是临时兼容措施，不是永久架构。
+- 在任何 `git push`、GitHub 同步、Pull Request、发布或部署操作之前，必须明确提醒用户：仓库当前仍包含临时 `Files.ReadWrite` 权限，并询问是否继续保留。
+- 不得静默移除或永久化该权限。Microsoft 修复相关 App Folder 问题后，应提醒用户删除临时 scope、`/me/drive` 初始化调用、设置页警告和对应测试步骤。
+- 撤销代码后，还必须提醒用户从 Microsoft Entra 应用注册以及 Microsoft 账户授权中撤销 `Files.ReadWrite`，最终只保留 `Files.ReadWrite.AppFolder`。
+
 ## 验证要求
 
 当解决方案和测试项目已经存在时：
