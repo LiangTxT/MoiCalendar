@@ -1,7 +1,15 @@
+using System.Text.Json;
+
 namespace MoiCalendar.Core;
 
-public sealed class CalendarEventService(IEventRepository repository, TimeProvider timeProvider)
+public sealed class CalendarEventService(
+    IEventRepository repository,
+    IDeviceService deviceService,
+    ISyncService syncService,
+    TimeProvider timeProvider)
 {
+    private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
+
     public CalendarEventDraft CreateDraft(DateOnly date, string timeZoneId)
     {
         _ = ResolveTimeZone(timeZoneId);
@@ -31,7 +39,12 @@ public sealed class CalendarEventService(IEventRepository repository, TimeProvid
             UpdatedAtUtc = now
         };
 
-        return await repository.CreateAsync(calendarEvent, cancellationToken);
+        var operation = await CreateOperationAsync(
+            calendarEvent,
+            SyncOperationType.Create,
+            now,
+            cancellationToken);
+        return await syncService.CreateEventAsync(calendarEvent, operation, cancellationToken);
     }
 
     public async Task<CalendarEvent> UpdateAsync(
@@ -54,11 +67,35 @@ public sealed class CalendarEventService(IEventRepository repository, TimeProvid
             UpdatedAtUtc = timeProvider.GetUtcNow()
         };
 
-        return await repository.UpdateAsync(updated, cancellationToken);
+        var operation = await CreateOperationAsync(
+            updated,
+            SyncOperationType.Update,
+            updated.UpdatedAtUtc,
+            cancellationToken);
+        return await syncService.UpdateEventAsync(updated, operation, cancellationToken);
     }
 
-    public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
-        repository.DeleteAsync(id, timeProvider.GetUtcNow(), cancellationToken);
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var existing = await repository.GetByIdAsync(id, cancellationToken);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var deleted = existing with
+        {
+            DeletedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var operation = await CreateOperationAsync(
+            deleted,
+            SyncOperationType.Delete,
+            now,
+            cancellationToken);
+        return await syncService.DeleteEventAsync(deleted, operation, cancellationToken);
+    }
 
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         repository.GetByIdAsync(id, cancellationToken);
@@ -199,6 +236,25 @@ public sealed class CalendarEventService(IEventRepository repository, TimeProvid
         {
             throw new ArgumentException("事件时区配置无效。", nameof(timeZoneId), exception);
         }
+    }
+
+    private async Task<SyncOperation> CreateOperationAsync(
+        CalendarEvent calendarEvent,
+        SyncOperationType operationType,
+        DateTimeOffset timestampUtc,
+        CancellationToken cancellationToken)
+    {
+        var deviceId = await deviceService.GetDeviceIdAsync(cancellationToken);
+        return new SyncOperation
+        {
+            OperationId = Guid.NewGuid(),
+            DeviceId = deviceId,
+            EntityId = calendarEvent.Id,
+            OperationType = operationType,
+            TimestampUtc = timestampUtc.ToUniversalTime(),
+            Payload = JsonSerializer.Serialize(calendarEvent, PayloadSerializerOptions),
+            Status = SyncOperationStatus.Pending
+        };
     }
 
     private sealed record ValidatedEventValues(

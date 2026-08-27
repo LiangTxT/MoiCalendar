@@ -1,5 +1,6 @@
 using MoiCalendar.Core;
 using MoiCalendar.Storage;
+using System.Text.Json;
 
 namespace MoiCalendar.Tests;
 
@@ -9,8 +10,14 @@ public sealed class CalendarEventTests
     public async Task Service_CreatesUpdatesAndDeletesEvent()
     {
         var repository = new InMemoryEventRepository();
+        var operationRepository = new InMemoryOperationRepository();
+        var deviceService = new InMemoryDeviceService("test-device");
         var clock = new TestTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var service = new CalendarEventService(repository, clock);
+        var service = new CalendarEventService(
+            repository,
+            deviceService,
+            new InMemorySyncService(repository, operationRepository),
+            clock);
         var draft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
         draft.Title = "初始标题";
         draft.Description = "描述";
@@ -35,6 +42,21 @@ public sealed class CalendarEventTests
         clock.UtcNow = clock.UtcNow.AddHours(1);
         Assert.True(await service.DeleteAsync(created.Id));
         Assert.Null(await service.GetByIdAsync(created.Id));
+
+        var operations = await operationRepository.GetByStatusAsync(SyncOperationStatus.Pending);
+        Assert.Equal(3, operations.Count);
+        Assert.Equal(
+            new[] { SyncOperationType.Create, SyncOperationType.Update, SyncOperationType.Delete },
+            operations.Select(operation => operation.OperationType));
+        Assert.All(operations, operation =>
+        {
+            Assert.Equal("test-device", operation.DeviceId);
+            Assert.Equal(created.Id, operation.EntityId);
+        });
+        var deletePayload = JsonSerializer.Deserialize<CalendarEvent>(
+            operations[^1].Payload,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal(clock.UtcNow, deletePayload?.DeletedAtUtc);
     }
 
     [Fact]
@@ -58,8 +80,13 @@ public sealed class CalendarEventTests
     public async Task MonthViewOrdersAllDayThenTimedEventsByTime()
     {
         var repository = new InMemoryEventRepository();
+        var operationRepository = new InMemoryOperationRepository();
         var clock = new TestTimeProvider(new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero));
-        var service = new CalendarEventService(repository, clock);
+        var service = new CalendarEventService(
+            repository,
+            new InMemoryDeviceService("month-view-device"),
+            new InMemorySyncService(repository, operationRepository),
+            clock);
         var date = new DateOnly(2026, 8, 23);
 
         var later = service.CreateDraft(date, TimeZoneInfo.Utc.Id);

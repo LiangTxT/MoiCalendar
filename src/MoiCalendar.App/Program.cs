@@ -37,7 +37,11 @@ builder.Services.AddMsalAuthentication(options =>
     }
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddScoped<IndexedDbConnection>();
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
+builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
+builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
+builder.Services.AddScoped<ISyncService, IndexedDbSyncService>();
 builder.Services.AddScoped<CalendarEventService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();

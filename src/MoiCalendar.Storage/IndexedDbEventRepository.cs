@@ -4,23 +4,8 @@ using MoiCalendar.Core;
 
 namespace MoiCalendar.Storage;
 
-public sealed class IndexedDbEventRepository : IEventRepository, IAsyncDisposable
+public sealed class IndexedDbEventRepository(IndexedDbConnection connection) : IEventRepository
 {
-    private const string ModulePath = "./_content/MoiCalendar.Storage/indexedDbEventRepository.js";
-    private const string DatabaseName = "MoiCalendar";
-    private const int DatabaseVersion = 1;
-    private const string EventStoreName = "events";
-
-    private readonly IJSRuntime jsRuntime;
-    private readonly SemaphoreSlim initializationGate = new(1, 1);
-    private IJSObjectReference? module;
-    private bool disposed;
-
-    public IndexedDbEventRepository(IJSRuntime jsRuntime)
-    {
-        this.jsRuntime = jsRuntime;
-    }
-
     public Task<CalendarEvent> CreateAsync(
         CalendarEvent calendarEvent,
         CancellationToken cancellationToken = default) =>
@@ -66,30 +51,6 @@ public sealed class IndexedDbEventRepository : IEventRepository, IAsyncDisposabl
         return events;
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (disposed)
-        {
-            return;
-        }
-
-        disposed = true;
-        await initializationGate.WaitAsync();
-        try
-        {
-            if (module is not null)
-            {
-                await module.DisposeAsync();
-                module = null;
-            }
-        }
-        finally
-        {
-            initializationGate.Release();
-            initializationGate.Dispose();
-        }
-    }
-
     private async Task<T> InvokeAsync<T>(
         string operation,
         string identifier,
@@ -98,8 +59,7 @@ public sealed class IndexedDbEventRepository : IEventRepository, IAsyncDisposabl
     {
         try
         {
-            var initializedModule = await GetInitializedModuleAsync(cancellationToken);
-            return await initializedModule.InvokeAsync<T>(identifier, cancellationToken, arguments);
+            return await connection.InvokeAsync<T>(identifier, cancellationToken, arguments);
         }
         catch (OperationCanceledException)
         {
@@ -119,52 +79,4 @@ public sealed class IndexedDbEventRepository : IEventRepository, IAsyncDisposabl
         }
     }
 
-    private async Task<IJSObjectReference> GetInitializedModuleAsync(CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(disposed, this);
-
-        if (module is not null)
-        {
-            return module;
-        }
-
-        await initializationGate.WaitAsync(cancellationToken);
-        try
-        {
-            if (module is not null)
-            {
-                return module;
-            }
-
-            IJSObjectReference? importedModule = null;
-            try
-            {
-                importedModule = await jsRuntime.InvokeAsync<IJSObjectReference>(
-                    "import",
-                    cancellationToken,
-                    ModulePath);
-                await importedModule.InvokeVoidAsync(
-                    "initialize",
-                    cancellationToken,
-                    DatabaseName,
-                    DatabaseVersion,
-                    EventStoreName);
-                module = importedModule;
-                return module;
-            }
-            catch
-            {
-                if (importedModule is not null)
-                {
-                    await importedModule.DisposeAsync();
-                }
-
-                throw;
-            }
-        }
-        finally
-        {
-            initializationGate.Release();
-        }
-    }
 }

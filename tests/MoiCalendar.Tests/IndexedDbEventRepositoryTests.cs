@@ -12,7 +12,8 @@ public sealed class IndexedDbEventRepositoryTests
     {
         var module = new FakeJsModule();
         var jsRuntime = new FakeJsRuntime(module);
-        await using var repository = new IndexedDbEventRepository(jsRuntime);
+        await using var connection = new IndexedDbConnection(jsRuntime);
+        var repository = new IndexedDbEventRepository(connection);
         var calendarEvent = CreateEvent();
 
         var created = await repository.CreateAsync(calendarEvent);
@@ -37,7 +38,8 @@ public sealed class IndexedDbEventRepositoryTests
                 ? new JsonException("损坏的事件 JSON")
                 : new JSException("IndexedDB 请求失败")
         };
-        await using var repository = new IndexedDbEventRepository(new FakeJsRuntime(module));
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbEventRepository(connection);
 
         var exception = await Assert.ThrowsAsync<EventRepositoryException>(
             () => repository.GetByIdAsync(Guid.NewGuid()));

@@ -1,0 +1,38 @@
+using MoiCalendar.Core;
+
+namespace MoiCalendar.Storage;
+
+public sealed class InMemorySyncService(
+    IEventRepository eventRepository,
+    IOperationRepository operationRepository) : ISyncService
+{
+    public async Task<CalendarEvent> CreateEventAsync(
+        CalendarEvent calendarEvent,
+        SyncOperation operation,
+        CancellationToken cancellationToken = default)
+    {
+        var saved = await eventRepository.CreateAsync(calendarEvent, cancellationToken);
+        await operationRepository.AddAsync(operation, cancellationToken);
+        return saved;
+    }
+
+    public async Task<CalendarEvent> UpdateEventAsync(
+        CalendarEvent calendarEvent,
+        SyncOperation operation,
+        CancellationToken cancellationToken = default)
+    {
+        var saved = await eventRepository.UpdateAsync(calendarEvent, cancellationToken);
+        await operationRepository.AddAsync(operation, cancellationToken);
+        return saved;
+    }
+
+    public async Task<bool> DeleteEventAsync(
+        CalendarEvent deletedEvent,
+        SyncOperation operation,
+        CancellationToken cancellationToken = default)
+    {
+        await eventRepository.UpdateAsync(deletedEvent, cancellationToken);
+        await operationRepository.AddAsync(operation, cancellationToken);
+        return true;
+    }
+}
