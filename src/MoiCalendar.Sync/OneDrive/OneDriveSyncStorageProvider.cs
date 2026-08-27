@@ -31,6 +31,53 @@ public sealed class OneDriveSyncStorageProvider(
         return true;
     }
 
+    public async Task EnsureDirectoryAsync(
+        string directoryPath,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizePath(directoryPath, allowEmpty: true);
+        if (normalized.Length == 0)
+        {
+            return;
+        }
+
+        var parentPath = string.Empty;
+        foreach (var segment in normalized.Split('/'))
+        {
+            var currentPath = CombinePath(parentPath, segment);
+            using var existingResponse = await SendAsync(
+                HttpMethod.Get,
+                BuildItemPath(currentPath),
+                cancellationToken: cancellationToken);
+
+            if (existingResponse.StatusCode == HttpStatusCode.NotFound)
+            {
+                using var content = JsonContent.Create(new Dictionary<string, object>
+                {
+                    ["name"] = segment,
+                    ["folder"] = new { },
+                    ["@microsoft.graph.conflictBehavior"] = "fail"
+                });
+                using var createResponse = await SendAsync(
+                    HttpMethod.Post,
+                    BuildChildrenPath(parentPath),
+                    content,
+                    cancellationToken: cancellationToken);
+
+                if (createResponse.StatusCode != HttpStatusCode.Conflict)
+                {
+                    await EnsureSuccessAsync(createResponse, "创建 OneDrive 同步目录", cancellationToken);
+                }
+            }
+            else
+            {
+                await EnsureSuccessAsync(existingResponse, "检查 OneDrive 同步目录", cancellationToken);
+            }
+
+            parentPath = currentPath;
+        }
+    }
+
     public async Task<bool> ExistsAsync(
         string path,
         CancellationToken cancellationToken = default)
@@ -228,6 +275,11 @@ public sealed class OneDriveSyncStorageProvider(
 
     private static string BuildItemPath(string path) =>
         $"me/drive/special/approot:/{EscapePath(NormalizePath(path, allowEmpty: false))}";
+
+    private static string BuildChildrenPath(string parentPath) =>
+        parentPath.Length == 0
+            ? "me/drive/special/approot/children"
+            : $"me/drive/special/approot:/{EscapePath(parentPath)}:/children";
 
     private static string NormalizePath(string path, bool allowEmpty)
     {

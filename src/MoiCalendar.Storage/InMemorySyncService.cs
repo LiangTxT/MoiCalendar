@@ -2,9 +2,9 @@ using MoiCalendar.Core;
 
 namespace MoiCalendar.Storage;
 
-public sealed class InMemorySyncService(
+public sealed class InMemoryEventChangeRepository(
     IEventRepository eventRepository,
-    IOperationRepository operationRepository) : ISyncService
+    IOperationRepository operationRepository) : ILocalEventChangeRepository
 {
     public async Task<CalendarEvent> CreateEventAsync(
         CalendarEvent calendarEvent,

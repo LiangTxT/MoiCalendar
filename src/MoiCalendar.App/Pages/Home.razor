@@ -1,5 +1,7 @@
 @page "/"
+@using MoiCalendar.Sync
 @inject CalendarEventService EventService
+@inject ISyncService SyncService
 
 <PageTitle>MoiCalendar</PageTitle>
 
@@ -12,7 +14,17 @@
         <button type="button" @onclick="ShowNextMonthAsync" aria-label="下一个月">下一月 &gt;</button>
     </nav>
 
-    <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
+    <div class="calendar-actions">
+        <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
+        <button type="button" disabled="@isSyncing" @onclick="SynchronizeAsync">
+            @(isSyncing ? "正在同步…" : "立即同步")
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(syncMessage))
+    {
+        <p class="settings-status @(syncSucceeded ? "success" : "failure")" role="status">@syncMessage</p>
+    }
 
     @if (!string.IsNullOrWhiteSpace(storageError))
     {
@@ -147,6 +159,9 @@
     private Guid? editingEventId;
     private string? editorError;
     private string? storageError;
+    private string? syncMessage;
+    private bool isSyncing;
+    private bool syncSucceeded;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
@@ -187,6 +202,29 @@
         {
             monthEvents = CalendarMonthEventView.Empty;
             storageError = exception.Message;
+        }
+    }
+
+    private async Task SynchronizeAsync()
+    {
+        isSyncing = true;
+        syncMessage = null;
+
+        try
+        {
+            var result = await SyncService.SynchronizeAsync();
+            await LoadEventsAsync();
+            syncSucceeded = true;
+            syncMessage = $"同步完成：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
+        }
+        catch (Exception exception) when (exception is SyncStorageException or SyncOperationException or EventRepositoryException)
+        {
+            syncSucceeded = false;
+            syncMessage = $"同步失败：{exception.Message}";
+        }
+        finally
+        {
+            isSyncing = false;
         }
     }
 

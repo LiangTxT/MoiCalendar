@@ -16,7 +16,7 @@ public sealed class CalendarEventTests
         var service = new CalendarEventService(
             repository,
             deviceService,
-            new InMemorySyncService(repository, operationRepository),
+            new InMemoryEventChangeRepository(repository, operationRepository),
             clock);
         var draft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
         draft.Title = "初始标题";
@@ -85,7 +85,7 @@ public sealed class CalendarEventTests
         var service = new CalendarEventService(
             repository,
             new InMemoryDeviceService("month-view-device"),
-            new InMemorySyncService(repository, operationRepository),
+            new InMemoryEventChangeRepository(repository, operationRepository),
             clock);
         var date = new DateOnly(2026, 8, 23);
 

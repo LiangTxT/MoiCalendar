@@ -5,7 +5,7 @@ namespace MoiCalendar.Core;
 public sealed class CalendarEventService(
     IEventRepository repository,
     IDeviceService deviceService,
-    ISyncService syncService,
+    ILocalEventChangeRepository localEventChanges,
     TimeProvider timeProvider)
 {
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
@@ -44,7 +44,7 @@ public sealed class CalendarEventService(
             SyncOperationType.Create,
             now,
             cancellationToken);
-        return await syncService.CreateEventAsync(calendarEvent, operation, cancellationToken);
+        return await localEventChanges.CreateEventAsync(calendarEvent, operation, cancellationToken);
     }
 
     public async Task<CalendarEvent> UpdateAsync(
@@ -72,7 +72,7 @@ public sealed class CalendarEventService(
             SyncOperationType.Update,
             updated.UpdatedAtUtc,
             cancellationToken);
-        return await syncService.UpdateEventAsync(updated, operation, cancellationToken);
+        return await localEventChanges.UpdateEventAsync(updated, operation, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -94,7 +94,7 @@ public sealed class CalendarEventService(
             SyncOperationType.Delete,
             now,
             cancellationToken);
-        return await syncService.DeleteEventAsync(deleted, operation, cancellationToken);
+        return await localEventChanges.DeleteEventAsync(deleted, operation, cancellationToken);
     }
 
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>

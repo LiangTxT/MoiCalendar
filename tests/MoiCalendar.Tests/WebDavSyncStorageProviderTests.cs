@@ -170,6 +170,27 @@ public sealed class WebDavSyncStorageProviderTests
         Assert.Contains("浏览器", exception.Message);
     }
 
+    [Fact]
+    public async Task EnsureDirectoryAsync_CreatesNestedCollections()
+    {
+        var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.Created),
+            new HttpResponseMessage(HttpStatusCode.Created));
+        var provider = CreateProvider(handler);
+
+        await provider.EnsureDirectoryAsync("MyCalendar/operations");
+
+        Assert.Equal(
+            ["MKCOL", "MKCOL"],
+            handler.Requests.Select(request => request.Method).ToArray());
+        Assert.Equal(
+            [
+                "https://dav.example.test/root/Moi%20Calendar/MyCalendar/",
+                "https://dav.example.test/root/Moi%20Calendar/MyCalendar/operations/"
+            ],
+            handler.Requests.Select(request => request.Uri).ToArray());
+    }
+
     private static WebDavSyncStorageProvider CreateProvider(HttpMessageHandler handler) =>
         new(new HttpClient(handler), Settings);
 

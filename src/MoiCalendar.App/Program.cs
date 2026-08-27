@@ -41,13 +41,20 @@ builder.Services.AddScoped<IndexedDbConnection>();
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
 builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
-builder.Services.AddScoped<ISyncService, IndexedDbSyncService>();
+builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
 builder.Services.AddScoped<CalendarEventService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();
 builder.Services.AddScoped(sp => new OneDriveSyncStorageProvider(
     new HttpClient { BaseAddress = new Uri(OneDriveGraphSettings.BaseUrl) },
     sp.GetRequiredService<IOneDriveAccessTokenProvider>()));
+builder.Services.AddScoped<ISyncStorageProvider>(sp => new ActiveSyncStorageProvider(
+    sp.GetRequiredService<ISyncProviderSelection>(),
+    new Dictionary<SyncProviderType, ISyncStorageProvider>
+    {
+        [SyncProviderType.OneDrive] = sp.GetRequiredService<OneDriveSyncStorageProvider>()
+    }));
+builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddScoped<IOneDriveConnectionTester, OneDriveConnectionTester>();
 
 await builder.Build().RunAsync();

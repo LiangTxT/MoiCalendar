@@ -64,7 +64,7 @@ public sealed class SyncOperationTests
         var module = new FakeJsModule();
         await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
         var deviceService = new IndexedDbDeviceService(connection);
-        var syncService = new IndexedDbSyncService(connection);
+        var syncService = new IndexedDbEventChangeRepository(connection);
         var calendarEvent = CreateEvent();
         var operation = CreateOperation(calendarEvent.Id);
 

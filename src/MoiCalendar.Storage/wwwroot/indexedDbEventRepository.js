@@ -115,6 +115,26 @@ export async function getEventById(id) {
     return calendarEvent;
 }
 
+export async function getEventByIdIncludingDeleted(id) {
+    validateId(id);
+    const calendarEvent = await getStoredEvent(id);
+    if (!calendarEvent) {
+        return null;
+    }
+
+    validateEvent(calendarEvent);
+    return calendarEvent;
+}
+
+export async function upsertEvent(calendarEvent) {
+    validateEvent(calendarEvent);
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredEventStoreName, "readwrite");
+    const request = transaction.objectStore(configuredEventStoreName).put(calendarEvent);
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+    return calendarEvent;
+}
+
 export async function getEventsByRange(startUtc, endUtc) {
     validateDateValue(startUtc, "startUtc");
     validateDateValue(endUtc, "endUtc");

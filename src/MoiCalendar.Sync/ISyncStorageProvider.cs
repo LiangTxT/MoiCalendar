@@ -4,6 +4,10 @@ public interface ISyncStorageProvider
 {
     Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
 
+    Task EnsureDirectoryAsync(
+        string directoryPath,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsAsync(string path, CancellationToken cancellationToken = default);
 
     Task<SyncFileMetadata> UploadTextAsync(

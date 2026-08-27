@@ -18,6 +18,7 @@ public sealed class SyncArchitectureTests
             {
                 "DeleteAsync",
                 "DownloadTextAsync",
+                "EnsureDirectoryAsync",
                 "ExistsAsync",
                 "ListFilesAsync",
                 "TestConnectionAsync",
@@ -78,5 +79,23 @@ public sealed class SyncArchitectureTests
         Assert.Equal(1, RemoteSyncFormat.CurrentVersion);
         Assert.Equal("moicalendar.sync.json", RemoteSyncFormat.FileName);
         Assert.Equal("application/json", RemoteSyncFormat.MediaType);
+        Assert.Equal("MyCalendar/operations", RemoteSyncFormat.OperationsDirectory);
+    }
+
+    [Fact]
+    public void SyncService_DependsOnProviderInterfaceInsteadOfConcreteProvider()
+    {
+        var constructorDependencies = typeof(SyncService)
+            .GetConstructors()
+            .Single()
+            .GetParameters()
+            .Select(parameter => parameter.ParameterType)
+            .ToArray();
+
+        Assert.Contains(typeof(ISyncStorageProvider), constructorDependencies);
+        Assert.DoesNotContain(constructorDependencies, dependency =>
+            dependency.Name.Contains("OneDrive", StringComparison.OrdinalIgnoreCase) ||
+            dependency.Name.Contains("WebDav", StringComparison.OrdinalIgnoreCase) ||
+            dependency.Name.Contains("Azure", StringComparison.OrdinalIgnoreCase));
     }
 }

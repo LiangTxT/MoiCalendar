@@ -101,6 +101,28 @@ public sealed class OneDriveSyncStorageProviderTests
         Assert.Contains("格式无效", exception.Message);
     }
 
+    [Fact]
+    public async Task EnsureDirectoryAsync_CreatesNestedFoldersInsideAppFolder()
+    {
+        var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.NotFound),
+            JsonResponse("{\"name\":\"MyCalendar\",\"folder\":{}}"),
+            new HttpResponseMessage(HttpStatusCode.NotFound),
+            JsonResponse("{\"name\":\"operations\",\"folder\":{}}"));
+        var provider = CreateProvider(handler);
+
+        await provider.EnsureDirectoryAsync("MyCalendar/operations");
+
+        Assert.Equal(
+            [
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar",
+                "POST https://graph.microsoft.com/v1.0/me/drive/special/approot/children",
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar/operations",
+                "POST https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar:/children"
+            ],
+            handler.Requests.Select(request => $"{request.Method} {request.Uri}").ToArray());
+    }
+
     private static OneDriveSyncStorageProvider CreateProvider(HttpMessageHandler handler) =>
         new(
             new HttpClient(handler)

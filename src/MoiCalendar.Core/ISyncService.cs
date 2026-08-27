@@ -2,18 +2,14 @@ namespace MoiCalendar.Core;
 
 public interface ISyncService
 {
-    Task<CalendarEvent> CreateEventAsync(
-        CalendarEvent calendarEvent,
-        SyncOperation operation,
-        CancellationToken cancellationToken = default);
+    Task<SyncResult> PushAsync(CancellationToken cancellationToken = default);
 
-    Task<CalendarEvent> UpdateEventAsync(
-        CalendarEvent calendarEvent,
-        SyncOperation operation,
-        CancellationToken cancellationToken = default);
+    Task<SyncResult> PullAsync(CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteEventAsync(
-        CalendarEvent deletedEvent,
-        SyncOperation operation,
-        CancellationToken cancellationToken = default);
+    Task<SyncResult> SynchronizeAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed record SyncResult(int PushedCount, int DownloadedCount, int AppliedCount)
+{
+    public static SyncResult Empty { get; } = new(0, 0, 0);
 }

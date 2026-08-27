@@ -4,7 +4,7 @@ using MoiCalendar.Core;
 
 namespace MoiCalendar.Storage;
 
-public sealed class IndexedDbSyncService(IndexedDbConnection connection) : ISyncService
+public sealed class IndexedDbEventChangeRepository(IndexedDbConnection connection) : ILocalEventChangeRepository
 {
     public Task<CalendarEvent> CreateEventAsync(
         CalendarEvent calendarEvent,

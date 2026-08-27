@@ -10,6 +10,7 @@ namespace MoiCalendar.Sync.WebDav;
 public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
 {
     private static readonly HttpMethod PropFindMethod = new("PROPFIND");
+    private static readonly HttpMethod MakeCollectionMethod = new("MKCOL");
     private static readonly XNamespace DavNamespace = "DAV:";
     private const string PropFindBody =
         """
@@ -42,6 +43,39 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
         using var response = await SendPropFindAsync(remoteRootUri, "0", cancellationToken);
         await EnsureSuccessAsync(response, "测试 WebDAV 连接", cancellationToken);
         return true;
+    }
+
+    public async Task EnsureDirectoryAsync(
+        string directoryPath,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizePath(directoryPath, allowEmpty: true);
+        if (normalized.Length == 0)
+        {
+            return;
+        }
+
+        var currentPath = string.Empty;
+        foreach (var segment in normalized.Split('/'))
+        {
+            currentPath = currentPath.Length == 0 ? segment : $"{currentPath}/{segment}";
+            using var response = await SendAsync(
+                MakeCollectionMethod,
+                BuildResourceUri(currentPath, asDirectory: true),
+                cancellationToken: cancellationToken);
+
+            if (response.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.Conflict)
+            {
+                if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
+                {
+                    continue;
+                }
+
+                throw new SyncStorageException("创建 WebDAV 同步目录失败：父目录不存在或服务器拒绝创建目录。");
+            }
+
+            await EnsureSuccessAsync(response, "创建 WebDAV 同步目录", cancellationToken);
+        }
     }
 
     public async Task<bool> ExistsAsync(

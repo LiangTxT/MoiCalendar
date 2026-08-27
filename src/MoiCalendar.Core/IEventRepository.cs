@@ -13,6 +13,14 @@ public interface IEventRepository
 
     Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    Task<CalendarEvent?> GetByIdIncludingDeletedAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task<CalendarEvent> UpsertAsync(
+        CalendarEvent calendarEvent,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CalendarEvent>> GetByRangeAsync(
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,

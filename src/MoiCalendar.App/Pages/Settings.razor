@@ -98,7 +98,7 @@
     </section>
 
     <p class="settings-note">
-        当前只验证 OneDrive 应用文件夹的登录和文件读写；日历事件同步尚未实现。
+        OneDrive 登录和连接成功后，可返回日历首页使用“立即同步”。WebDAV 需要先完成服务器连接配置。
     </p>
 
     @if (!string.IsNullOrWhiteSpace(providerStatusMessage))
@@ -147,8 +147,8 @@
         providerStatusMessage = providerType switch
         {
             SyncProviderType.None => "已选择不使用同步。",
-            SyncProviderType.OneDrive => "已选择 OneDrive。当前可以测试连接，但不会同步日历事件。",
-            SyncProviderType.WebDav => "已选择 WebDAV；连接功能尚未实现。",
+            SyncProviderType.OneDrive => "已选择 OneDrive。连接成功后可在日历首页同步。",
+            SyncProviderType.WebDav => "已选择 WebDAV；请先完成 WebDAV 连接配置。",
             _ => null
         };
     }

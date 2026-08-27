@@ -92,6 +92,37 @@ public sealed class InMemoryEventRepository : IEventRepository
         }
     }
 
+    public async Task<CalendarEvent?> GetByIdIncludingDeletedAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            return events.GetValueOrDefault(id);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task<CalendarEvent> UpsertAsync(
+        CalendarEvent calendarEvent,
+        CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            events[calendarEvent.Id] = calendarEvent;
+            return calendarEvent;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<CalendarEvent>> GetByRangeAsync(
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,
