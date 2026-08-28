@@ -36,7 +36,7 @@
                     @(isBusy ? "正在处理…" : "立即同步")
                 </button>
                 <button type="button"
-                        disabled="@(isBusy || status.FailedOperationCount == 0)"
+                        disabled="@(isBusy || (status.PendingOperationCount == 0 && status.FailedOperationCount == 0))"
                         @onclick="RetryFailedAsync">
                     重试失败项
                 </button>
