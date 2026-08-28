@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using MoiCalendar.Sync;
 using MoiCalendar.Sync.OneDrive;
 
@@ -12,7 +13,7 @@ public sealed class OneDriveSyncStorageProviderTests
     {
         var handler = new RecordingHandler(
             JsonResponse("{\"id\":\"personal-drive\"}"),
-            JsonResponse("{\"name\":\"MyCalendar\",\"eTag\":\"folder-tag\"}"),
+            JsonResponse("{\"name\":\"MoiCalendar\",\"eTag\":\"folder-tag\"}"),
             JsonResponse("{\"name\":\"hello.json\",\"eTag\":\"upload-tag\",\"size\":36}"),
             JsonResponse("{\"name\":\"hello.json\",\"eTag\":\"download-tag\",\"size\":36}"),
             new HttpResponseMessage(HttpStatusCode.OK)
@@ -44,7 +45,7 @@ public sealed class OneDriveSyncStorageProviderTests
     {
         var handler = new RecordingHandler(
             JsonResponse("{\"id\":\"personal-drive\"}"),
-            JsonResponse("{\"name\":\"MyCalendar\"}"),
+            JsonResponse("{\"name\":\"MoiCalendar\"}"),
             JsonResponse("{\"name\":\"hello.json\"}"),
             JsonResponse("{\"name\":\"hello.json\"}"),
             new HttpResponseMessage(HttpStatusCode.OK)
@@ -105,20 +106,50 @@ public sealed class OneDriveSyncStorageProviderTests
     public async Task EnsureDirectoryAsync_CreatesNestedFoldersInsideAppFolder()
     {
         var handler = new RecordingHandler(
+            JsonResponse("{\"id\":\"app-root-id\",\"name\":\"MoiCalendar\"}"),
             new HttpResponseMessage(HttpStatusCode.NotFound),
-            JsonResponse("{\"name\":\"MyCalendar\",\"folder\":{}}"),
+            JsonResponse("{\"id\":\"calendar-id\",\"name\":\"MoiCalendar\",\"folder\":{}}"),
             new HttpResponseMessage(HttpStatusCode.NotFound),
-            JsonResponse("{\"name\":\"operations\",\"folder\":{}}"));
+            JsonResponse("{\"id\":\"operations-id\",\"name\":\"operations\",\"folder\":{}}"));
         var provider = CreateProvider(handler);
 
-        await provider.EnsureDirectoryAsync("MyCalendar/operations");
+        await provider.EnsureDirectoryAsync("MoiCalendar/operations");
 
         Assert.Equal(
             [
-                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar",
-                "POST https://graph.microsoft.com/v1.0/me/drive/special/approot/children",
-                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar/operations",
-                "POST https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar:/children"
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot",
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MoiCalendar",
+                "POST https://graph.microsoft.com/v1.0/me/drive/items/app-root-id/children",
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MoiCalendar/operations",
+                "POST https://graph.microsoft.com/v1.0/me/drive/items/calendar-id/children"
+            ],
+            handler.Requests.Select(request => $"{request.Method} {request.Uri}").ToArray());
+        Assert.Equal(
+            ["MoiCalendar", "operations"],
+            handler.Requests
+                .Where(request => request.Method == "POST")
+                .Select(request => JsonDocument.Parse(request.Content!).RootElement.GetProperty("name").GetString()!)
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task EnsureDirectoryAsync_ResolvesConcurrentFolderCreationWithoutDuplicate()
+    {
+        var handler = new RecordingHandler(
+            JsonResponse("{\"id\":\"app-root-id\"}"),
+            new HttpResponseMessage(HttpStatusCode.NotFound),
+            new HttpResponseMessage(HttpStatusCode.Conflict),
+            JsonResponse("{\"id\":\"calendar-id\",\"name\":\"MoiCalendar\",\"folder\":{}}"));
+        var provider = CreateProvider(handler);
+
+        await provider.EnsureDirectoryAsync("MoiCalendar");
+
+        Assert.Equal(
+            [
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot",
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MoiCalendar",
+                "POST https://graph.microsoft.com/v1.0/me/drive/items/app-root-id/children",
+                "GET https://graph.microsoft.com/v1.0/me/drive/special/approot:/MoiCalendar"
             ],
             handler.Requests.Select(request => $"{request.Method} {request.Uri}").ToArray());
     }
@@ -133,14 +164,14 @@ public sealed class OneDriveSyncStorageProviderTests
             JsonResponse("{\"value\":[{\"name\":\"b.json\",\"size\":2}]}"));
         var provider = CreateProvider(handler);
 
-        var files = await provider.ListFilesAsync("MyCalendar/operations");
+        var files = await provider.ListFilesAsync("MoiCalendar/operations");
 
         Assert.Equal(
-            ["MyCalendar/operations/a.json", "MyCalendar/operations/b.json"],
+            ["MoiCalendar/operations/a.json", "MoiCalendar/operations/b.json"],
             files.Select(file => file.Path).ToArray());
         Assert.Equal(
             [
-                "https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar/operations:/children",
+                "https://graph.microsoft.com/v1.0/me/drive/special/approot:/MoiCalendar/operations:/children",
                 "https://graph.microsoft.com/v1.0/next-page"
             ],
             handler.Requests.Select(request => request.Uri).ToArray());
@@ -154,7 +185,7 @@ public sealed class OneDriveSyncStorageProviderTests
         var provider = CreateProvider(handler);
 
         var exception = await Assert.ThrowsAsync<SyncStorageException>(
-            () => provider.ListFilesAsync("MyCalendar/operations"));
+            () => provider.ListFilesAsync("MoiCalendar/operations"));
 
         Assert.Contains("不安全", exception.Message);
         Assert.Single(handler.Requests);

@@ -178,15 +178,15 @@ public sealed class WebDavSyncStorageProviderTests
             new HttpResponseMessage(HttpStatusCode.Created));
         var provider = CreateProvider(handler);
 
-        await provider.EnsureDirectoryAsync("MyCalendar/operations");
+        await provider.EnsureDirectoryAsync("MoiCalendar/operations");
 
         Assert.Equal(
             ["MKCOL", "MKCOL"],
             handler.Requests.Select(request => request.Method).ToArray());
         Assert.Equal(
             [
-                "https://dav.example.test/root/Moi%20Calendar/MyCalendar/",
-                "https://dav.example.test/root/Moi%20Calendar/MyCalendar/operations/"
+                "https://dav.example.test/root/Moi%20Calendar/MoiCalendar/",
+                "https://dav.example.test/root/Moi%20Calendar/MoiCalendar/operations/"
             ],
             handler.Requests.Select(request => request.Uri).ToArray());
     }

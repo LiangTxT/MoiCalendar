@@ -41,6 +41,13 @@ public sealed class OneDriveSyncStorageProvider(
             return;
         }
 
+        using var appRootResponse = await SendAsync(
+            HttpMethod.Get,
+            "me/drive/special/approot",
+            cancellationToken: cancellationToken);
+        await EnsureSuccessAsync(appRootResponse, "访问 OneDrive 应用文件夹", cancellationToken);
+        var appRoot = await ReadDriveItemAsync(appRootResponse, cancellationToken);
+        var parentItemId = RequireItemId(appRoot, "OneDrive 应用文件夹");
         var parentPath = string.Empty;
         foreach (var segment in normalized.Split('/'))
         {
@@ -60,18 +67,37 @@ public sealed class OneDriveSyncStorageProvider(
                 });
                 using var createResponse = await SendAsync(
                     HttpMethod.Post,
-                    BuildChildrenPath(parentPath),
+                    BuildChildrenPath(parentItemId),
                     content,
                     cancellationToken: cancellationToken);
 
-                if (createResponse.StatusCode != HttpStatusCode.Conflict)
+                if (createResponse.StatusCode == HttpStatusCode.Conflict)
+                {
+                    using var concurrentResponse = await SendAsync(
+                        HttpMethod.Get,
+                        BuildItemPath(currentPath),
+                        cancellationToken: cancellationToken);
+                    await EnsureSuccessAsync(
+                        concurrentResponse,
+                        "读取并发创建的 OneDrive 同步目录",
+                        cancellationToken);
+                    var concurrentItem = await ReadDriveItemAsync(
+                        concurrentResponse,
+                        cancellationToken);
+                    parentItemId = RequireItemId(concurrentItem, "OneDrive 同步目录");
+                }
+                else
                 {
                     await EnsureSuccessAsync(createResponse, "创建 OneDrive 同步目录", cancellationToken);
+                    var createdItem = await ReadDriveItemAsync(createResponse, cancellationToken);
+                    parentItemId = RequireItemId(createdItem, "OneDrive 同步目录");
                 }
             }
             else
             {
                 await EnsureSuccessAsync(existingResponse, "检查 OneDrive 同步目录", cancellationToken);
+                var existingItem = await ReadDriveItemAsync(existingResponse, cancellationToken);
+                parentItemId = RequireItemId(existingItem, "OneDrive 同步目录");
             }
 
             parentPath = currentPath;
@@ -281,10 +307,13 @@ public sealed class OneDriveSyncStorageProvider(
     private static string BuildItemPath(string path) =>
         $"me/drive/special/approot:/{EscapePath(NormalizePath(path, allowEmpty: false))}";
 
-    private static string BuildChildrenPath(string parentPath) =>
-        parentPath.Length == 0
-            ? "me/drive/special/approot/children"
-            : $"me/drive/special/approot:/{EscapePath(parentPath)}:/children";
+    private static string BuildChildrenPath(string parentItemId) =>
+        $"me/drive/items/{Uri.EscapeDataString(parentItemId)}/children";
+
+    private static string RequireItemId(DriveItem item, string itemDescription) =>
+        string.IsNullOrWhiteSpace(item.Id)
+            ? throw new SyncStorageException($"{itemDescription}缺少必要的项目 ID。")
+            : item.Id;
 
     private static string NormalizePath(string path, bool allowEmpty)
     {
@@ -327,6 +356,7 @@ public sealed class OneDriveSyncStorageProvider(
     }
 
     private sealed record DriveItem(
+        [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("eTag")] string? ETag,
         [property: JsonPropertyName("size")] long? Size,

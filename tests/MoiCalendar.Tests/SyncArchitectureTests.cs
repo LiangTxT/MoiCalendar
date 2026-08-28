@@ -79,7 +79,7 @@ public sealed class SyncArchitectureTests
         Assert.Equal(1, RemoteSyncFormat.CurrentVersion);
         Assert.Equal("moicalendar.sync.json", RemoteSyncFormat.FileName);
         Assert.Equal("application/json", RemoteSyncFormat.MediaType);
-        Assert.Equal("MyCalendar/operations", RemoteSyncFormat.OperationsDirectory);
+        Assert.Equal("MoiCalendar/operations", RemoteSyncFormat.OperationsDirectory);
     }
 
     [Fact]
