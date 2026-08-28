@@ -6,10 +6,11 @@ public sealed class IndexedDbConnection(IJSRuntime jsRuntime) : IAsyncDisposable
 {
     private const string ModulePath = "./_content/MoiCalendar.Storage/indexedDbEventRepository.js";
     private const string DatabaseName = "MoiCalendar";
-    private const int DatabaseVersion = 2;
+    private const int DatabaseVersion = 3;
     private const string EventStoreName = "events";
     private const string OperationStoreName = "syncOperations";
     private const string SettingsStoreName = "settings";
+    private const string SyncLogStoreName = "syncLogs";
 
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private IJSObjectReference? module;
@@ -79,7 +80,8 @@ public sealed class IndexedDbConnection(IJSRuntime jsRuntime) : IAsyncDisposable
                     DatabaseVersion,
                     EventStoreName,
                     OperationStoreName,
-                    SettingsStoreName);
+                    SettingsStoreName,
+                    SyncLogStoreName);
                 module = importedModule;
                 return module;
             }

@@ -4,18 +4,21 @@ let configuredDatabaseVersion;
 let configuredEventStoreName;
 let configuredOperationStoreName;
 let configuredSettingsStoreName;
+let configuredSyncLogStoreName;
 
 export async function initialize(
     databaseName,
     databaseVersion,
     eventStoreName,
     operationStoreName,
-    settingsStoreName) {
+    settingsStoreName,
+    syncLogStoreName) {
     if (
         !databaseName ||
         !eventStoreName ||
         !operationStoreName ||
         !settingsStoreName ||
+        !syncLogStoreName ||
         !Number.isInteger(databaseVersion) ||
         databaseVersion < 1) {
         throw new Error("IndexedDB 初始化参数无效。");
@@ -27,7 +30,8 @@ export async function initialize(
             configuredDatabaseVersion !== databaseVersion ||
             configuredEventStoreName !== eventStoreName ||
             configuredOperationStoreName !== operationStoreName ||
-            configuredSettingsStoreName !== settingsStoreName
+            configuredSettingsStoreName !== settingsStoreName ||
+            configuredSyncLogStoreName !== syncLogStoreName
         ) {
             throw new Error("IndexedDB 已使用不同配置初始化。");
         }
@@ -41,12 +45,14 @@ export async function initialize(
     configuredEventStoreName = eventStoreName;
     configuredOperationStoreName = operationStoreName;
     configuredSettingsStoreName = settingsStoreName;
+    configuredSyncLogStoreName = syncLogStoreName;
     databasePromise = openDatabase(
         databaseName,
         databaseVersion,
         eventStoreName,
         operationStoreName,
-        settingsStoreName);
+        settingsStoreName,
+        syncLogStoreName);
 
     try {
         await databasePromise;
@@ -298,6 +304,75 @@ export async function updateSyncOperationStatus(operationId, status) {
     return operation;
 }
 
+export async function addSyncLogEntry(entry, retentionLimit) {
+    validateSyncLogEntry(entry);
+    if (!Number.isInteger(retentionLimit) || retentionLimit < 1) {
+        throw new Error("同步日志保留数量无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncLogStoreName, "readwrite");
+    const completion = transactionAsPromise(transaction);
+    const store = transaction.objectStore(configuredSyncLogStoreName);
+    await requestAsPromise(store.put(entry));
+    const entries = await requestAsPromise(store.getAll());
+    entries.sort((left, right) =>
+        Date.parse(right.timestampUtc) - Date.parse(left.timestampUtc) ||
+        right.id.localeCompare(left.id));
+
+    for (const expired of entries.slice(retentionLimit)) {
+        store.delete(expired.id);
+    }
+
+    await completion;
+}
+
+export async function getSyncLogEntries() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncLogStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entries = await requestAsPromise(
+        transaction.objectStore(configuredSyncLogStoreName).getAll());
+    await completion;
+
+    for (const entry of entries) {
+        validateSyncLogEntry(entry);
+    }
+
+    return entries.sort((left, right) =>
+        Date.parse(right.timestampUtc) - Date.parse(left.timestampUtc) ||
+        right.id.localeCompare(left.id));
+}
+
+export async function clearSyncLogEntries() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncLogStoreName, "readwrite");
+    const request = transaction.objectStore(configuredSyncLogStoreName).clear();
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
+export async function getSyncStatusState() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const record = await requestAsPromise(
+        transaction.objectStore(configuredSettingsStoreName).get("syncStatus"));
+    await completion;
+    return record?.value ?? null;
+}
+
+export async function saveSyncStatusState(state) {
+    if (!state || typeof state !== "object") {
+        throw new Error("同步状态无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    const request = transaction.objectStore(configuredSettingsStoreName)
+        .put({ key: "syncStatus", value: state });
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
 export async function getOrCreateDeviceId() {
     const database = await getDatabase();
     const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
@@ -341,7 +416,8 @@ function openDatabase(
     databaseVersion,
     eventStoreName,
     operationStoreName,
-    settingsStoreName) {
+    settingsStoreName,
+    syncLogStoreName) {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(databaseName, databaseVersion);
 
@@ -369,6 +445,14 @@ function openDatabase(
 
             if (!database.objectStoreNames.contains(settingsStoreName)) {
                 database.createObjectStore(settingsStoreName, { keyPath: "key" });
+            }
+
+            const syncLogStore = database.objectStoreNames.contains(syncLogStoreName)
+                ? request.transaction.objectStore(syncLogStoreName)
+                : database.createObjectStore(syncLogStoreName, { keyPath: "id" });
+
+            if (!syncLogStore.indexNames.contains("timestampUtc")) {
+                syncLogStore.createIndex("timestampUtc", "timestampUtc", { unique: false });
             }
         };
 
@@ -465,8 +549,32 @@ function validateSyncOperation(operation) {
 }
 
 function validateStatus(status) {
-    if (!Number.isInteger(status) || status < 0 || status > 2) {
+    if (!Number.isInteger(status) || status < 0 || status > 3) {
         throw new Error("同步操作状态无效。");
+    }
+}
+
+function validateSyncLogEntry(entry) {
+    if (!entry || typeof entry !== "object") {
+        throw new Error("同步日志不是有效对象。");
+    }
+
+    validateId(entry.id);
+    validateDateValue(entry.timestampUtc, "timestampUtc");
+    if (!Number.isInteger(entry.severity) || entry.severity < 0 || entry.severity > 2) {
+        throw new Error("同步日志级别无效。");
+    }
+    if (!Number.isInteger(entry.stage) || entry.stage < 0 || entry.stage > 3) {
+        throw new Error("同步日志阶段无效。");
+    }
+    if (typeof entry.provider !== "string" || typeof entry.message !== "string") {
+        throw new Error("同步日志文本字段无效。");
+    }
+    if (entry.operationId != null) {
+        validateId(entry.operationId);
+    }
+    if (entry.errorCode != null && typeof entry.errorCode !== "string") {
+        throw new Error("同步日志错误代码无效。");
     }
 }
 

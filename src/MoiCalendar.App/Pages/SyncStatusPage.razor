@@ -1,0 +1,188 @@
+@page "/sync-status"
+@using MoiCalendar.Core
+@inject ISyncService SyncService
+@inject ISyncDiagnosticsService SyncDiagnostics
+
+<PageTitle>同步状态 | MoiCalendar</PageTitle>
+
+<main class="settings-shell">
+    <h1>同步状态</h1>
+
+    @if (status is null)
+    {
+        <p class="settings-note">正在读取同步状态…</p>
+    }
+    else
+    {
+        <section class="settings-card sync-status-card" aria-labelledby="sync-status-heading">
+            <h2 id="sync-status-heading">当前状态</h2>
+            <dl class="account-information">
+                <dt>活动提供商</dt>
+                <dd>@FormatProvider(status.ActiveProvider)</dd>
+                <dt>状态</dt>
+                <dd>@(status.IsSyncing ? "正在同步" : "空闲")</dd>
+                <dt>上次成功同步</dt>
+                <dd>@FormatTimestamp(status.LastSuccessfulSyncAtUtc)</dd>
+                <dt>待处理操作</dt>
+                <dd>@status.PendingOperationCount</dd>
+                <dt>失败操作</dt>
+                <dd>@status.FailedOperationCount</dd>
+                <dt>最后错误</dt>
+                <dd>@(status.LastErrorSummary ?? "无")</dd>
+            </dl>
+
+            <div class="settings-actions">
+                <button class="primary-button" type="button" disabled="@isBusy" @onclick="SyncNowAsync">
+                    @(isBusy ? "正在处理…" : "立即同步")
+                </button>
+                <button type="button"
+                        disabled="@(isBusy || status.FailedOperationCount == 0)"
+                        @onclick="RetryFailedAsync">
+                    重试失败项
+                </button>
+                <button type="button" disabled="@isBusy" @onclick="ToggleLogAsync">
+                    @(showLog ? "隐藏同步日志" : "查看同步日志")
+                </button>
+                <button class="danger-button" type="button" disabled="@isBusy" @onclick="ClearLogAsync">
+                    清除同步日志
+                </button>
+            </div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(actionMessage))
+    {
+        <p class="settings-status @(actionSucceeded ? "success" : "failure")" role="status">
+            @actionMessage
+        </p>
+    }
+
+    @if (showLog)
+    {
+        <section class="settings-card" aria-labelledby="sync-log-heading">
+            <h2 id="sync-log-heading">同步日志</h2>
+            @if (logEntries.Count == 0)
+            {
+                <p class="settings-note">暂无同步日志。</p>
+            }
+            else
+            {
+                <ol class="sync-log-list">
+                    @foreach (var entry in logEntries)
+                    {
+                        <li>
+                            <div>
+                                <strong>@FormatSeverity(entry.Severity)</strong>
+                                <time datetime="@entry.TimestampUtc.ToString("O")">
+                                    @entry.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                                </time>
+                            </div>
+                            <div>@FormatStage(entry.Stage) · @FormatProvider(entry.Provider)</div>
+                            @if (entry.OperationId is { } operationId)
+                            {
+                                <div>操作：<code>@operationId</code></div>
+                            }
+                            <p>@entry.Message</p>
+                            @if (!string.IsNullOrWhiteSpace(entry.ErrorCode))
+                            {
+                                <div>错误代码：@entry.ErrorCode</div>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    }
+</main>
+
+@code {
+    private SyncStatus? status;
+    private IReadOnlyList<SyncLogEntry> logEntries = [];
+    private bool isBusy;
+    private bool showLog;
+    private bool actionSucceeded;
+    private string? actionMessage;
+
+    protected override Task OnInitializedAsync() => RefreshStatusAsync();
+
+    private async Task SyncNowAsync() =>
+        await RunSyncActionAsync(() => SyncService.SynchronizeAsync(), "同步完成");
+
+    private async Task RetryFailedAsync() =>
+        await RunSyncActionAsync(() => SyncDiagnostics.RetryFailedAsync(), "重试完成");
+
+    private async Task RunSyncActionAsync(Func<Task<SyncResult>> action, string successPrefix)
+    {
+        isBusy = true;
+        actionMessage = null;
+        try
+        {
+            var result = await action();
+            actionSucceeded = true;
+            actionMessage = $"{successPrefix}：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            actionSucceeded = false;
+            actionMessage = "同步失败，详情请查看同步日志。";
+        }
+        finally
+        {
+            isBusy = false;
+            await RefreshStatusAsync();
+            if (showLog)
+            {
+                await LoadLogAsync();
+            }
+        }
+    }
+
+    private async Task ToggleLogAsync()
+    {
+        showLog = !showLog;
+        if (showLog)
+        {
+            await LoadLogAsync();
+        }
+    }
+
+    private async Task ClearLogAsync()
+    {
+        await SyncDiagnostics.ClearLogAsync();
+        logEntries = [];
+        actionSucceeded = true;
+        actionMessage = "同步日志已清除。";
+    }
+
+    private async Task RefreshStatusAsync() => status = await SyncDiagnostics.GetStatusAsync();
+
+    private async Task LoadLogAsync() => logEntries = await SyncDiagnostics.GetLogEntriesAsync();
+
+    private static string FormatProvider(string provider) => provider switch
+    {
+        "None" => "无",
+        "OneDrive" => "OneDrive",
+        "WebDav" => "WebDAV",
+        _ => provider
+    };
+
+    private static string FormatTimestamp(DateTimeOffset? timestamp) =>
+        timestamp?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "从未";
+
+    private static string FormatSeverity(SyncLogSeverity severity) => severity switch
+    {
+        SyncLogSeverity.Information => "信息",
+        SyncLogSeverity.Warning => "警告",
+        SyncLogSeverity.Error => "错误",
+        _ => severity.ToString()
+    };
+
+    private static string FormatStage(SyncLogStage stage) => stage switch
+    {
+        SyncLogStage.Synchronize => "同步",
+        SyncLogStage.Push => "上传",
+        SyncLogStage.Pull => "下载",
+        SyncLogStage.Retry => "重试",
+        _ => stage.ToString()
+    };
+}

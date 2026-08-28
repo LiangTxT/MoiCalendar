@@ -4,5 +4,6 @@ public enum SyncOperationStatus
 {
     Pending,
     Uploaded,
-    Applied
+    Applied,
+    Failed
 }

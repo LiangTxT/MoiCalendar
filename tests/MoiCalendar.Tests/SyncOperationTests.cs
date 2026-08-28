@@ -80,6 +80,32 @@ public sealed class SyncOperationTests
         Assert.Equal(1, module.AtomicCreateCount);
     }
 
+    [Fact]
+    public async Task IndexedDbSyncLogRepository_PersistsReadsAndClearsLogs()
+    {
+        var module = new FakeJsModule();
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbSyncLogRepository(connection);
+        var entry = new SyncLogEntry
+        {
+            Id = Guid.NewGuid(),
+            TimestampUtc = new DateTimeOffset(2026, 8, 28, 1, 0, 0, TimeSpan.Zero),
+            Severity = SyncLogSeverity.Error,
+            Stage = SyncLogStage.Push,
+            Provider = "OneDrive",
+            Message = "测试错误"
+        };
+
+        await repository.AddAsync(entry);
+        var saved = Assert.Single(await repository.GetRecentAsync());
+        await repository.ClearAsync();
+
+        Assert.Equal(entry, saved);
+        Assert.Empty(await repository.GetRecentAsync());
+        Assert.Equal(200, module.LastLogRetentionLimit);
+        Assert.Equal(1, module.LogClearCount);
+    }
+
     private static SyncOperation CreateOperation(Guid? entityId = null) => new()
     {
         OperationId = Guid.NewGuid(),
@@ -129,6 +155,12 @@ public sealed class SyncOperationTests
 
         public int AtomicCreateCount { get; private set; }
 
+        public int LastLogRetentionLimit { get; private set; }
+
+        public int LogClearCount { get; private set; }
+
+        private readonly List<SyncLogEntry> logEntries = [];
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -142,6 +174,9 @@ public sealed class SyncOperationTests
                 "initialize" => CountInitialization(),
                 "getOrCreateDeviceId" => GetDeviceId(),
                 "createEventWithSyncOperation" => SaveEvent(args!),
+                "addSyncLogEntry" => SaveLogEntry(args!),
+                "getSyncLogEntries" => logEntries.ToArray(),
+                "clearSyncLogEntries" => ClearLogEntries(),
                 _ => default(TValue)
             };
             return ValueTask.FromResult((TValue)result!);
@@ -165,6 +200,20 @@ public sealed class SyncOperationTests
         {
             AtomicCreateCount++;
             return args[0]!;
+        }
+
+        private object? SaveLogEntry(object?[] args)
+        {
+            logEntries.Add((SyncLogEntry)args[0]!);
+            LastLogRetentionLimit = (int)args[1]!;
+            return null;
+        }
+
+        private object? ClearLogEntries()
+        {
+            logEntries.Clear();
+            LogClearCount++;
+            return null;
         }
     }
 }

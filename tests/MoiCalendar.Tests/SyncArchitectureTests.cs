@@ -98,4 +98,28 @@ public sealed class SyncArchitectureTests
             dependency.Name.Contains("WebDav", StringComparison.OrdinalIgnoreCase) ||
             dependency.Name.Contains("Azure", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void SyncStatus_ContainsOnlyProviderIndependentFields()
+    {
+        var propertyNames = typeof(MoiCalendar.Core.SyncStatus)
+            .GetProperties()
+            .Select(property => property.Name)
+            .OrderBy(name => name)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "ActiveProvider",
+                "FailedOperationCount",
+                "IsSyncing",
+                "LastErrorSummary",
+                "LastFailedSyncAtUtc",
+                "LastSuccessfulSyncAtUtc",
+                "LastSyncStartedAtUtc",
+                "PendingOperationCount"
+            },
+            propertyNames);
+    }
 }

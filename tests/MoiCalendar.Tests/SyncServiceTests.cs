@@ -30,7 +30,7 @@ public sealed class SyncServiceTests
     }
 
     [Fact]
-    public async Task NetworkFailure_KeepsOperationPending()
+    public async Task NetworkFailure_MarksOperationFailedAndRetryable()
     {
         var operationRepository = new InMemoryOperationRepository();
         var calendarEvent = CreateEvent("离线编辑", UpdatedAt(1));
@@ -42,12 +42,12 @@ public sealed class SyncServiceTests
         await Assert.ThrowsAsync<SyncStorageException>(() => service.PushAsync());
 
         Assert.Equal(
-            SyncOperationStatus.Pending,
+            SyncOperationStatus.Failed,
             (await operationRepository.GetByIdAsync(operation.OperationId))?.Status);
     }
 
     [Fact]
-    public async Task RetryAfterNetworkRecovery_UploadsPreviouslyPendingOperation()
+    public async Task RetryAfterNetworkRecovery_UploadsPreviouslyFailedOperation()
     {
         var operationRepository = new InMemoryOperationRepository();
         var calendarEvent = CreateEvent("恢复网络后上传", UpdatedAt(1));
@@ -58,10 +58,10 @@ public sealed class SyncServiceTests
 
         await Assert.ThrowsAsync<SyncStorageException>(() => service.PushAsync());
         storage.FailUpload = false;
-        var result = await service.PushAsync();
+        var result = await service.RetryFailedAsync();
 
         Assert.Equal(1, result.PushedCount);
-        Assert.Equal(SyncOperationStatus.Uploaded,
+        Assert.Equal(SyncOperationStatus.Applied,
             (await operationRepository.GetByIdAsync(operation.OperationId))?.Status);
     }
 

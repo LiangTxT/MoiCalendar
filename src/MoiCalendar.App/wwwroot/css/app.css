@@ -404,6 +404,35 @@ button:focus-visible {
     gap: 0.65rem;
 }
 
+.sync-status-card .account-information {
+    grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
+}
+
+.sync-log-list {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0;
+    list-style: none;
+}
+
+.sync-log-list li {
+    padding: 0.8rem;
+    border: 1px solid #d6ddd7;
+    border-radius: 0.5rem;
+    background: #f8faf8;
+    overflow-wrap: anywhere;
+}
+
+.sync-log-list li > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.sync-log-list p {
+    margin: 0.45rem 0;
+}
+
 .settings-note,
 .settings-status {
     margin: 1rem 0 0;
