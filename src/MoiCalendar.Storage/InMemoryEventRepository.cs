@@ -123,6 +123,22 @@ public sealed class InMemoryEventRepository : IEventRepository
         }
     }
 
+    public async Task<IReadOnlyList<CalendarEvent>> GetAllIncludingDeletedAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            return events.Values
+                .OrderBy(calendarEvent => calendarEvent.Id)
+                .ToArray();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<CalendarEvent>> GetByRangeAsync(
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,

@@ -141,6 +141,22 @@ export async function upsertEvent(calendarEvent) {
     return calendarEvent;
 }
 
+export async function getAllEventsIncludingDeleted() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredEventStoreName, "readonly");
+    const request = transaction.objectStore(configuredEventStoreName).getAll();
+    const [records] = await Promise.all([
+        requestAsPromise(request),
+        transactionAsPromise(transaction)
+    ]);
+
+    for (const calendarEvent of records) {
+        validateEvent(calendarEvent);
+    }
+
+    return records.sort((left, right) => left.id.localeCompare(right.id));
+}
+
 export async function getEventsByRange(startUtc, endUtc) {
     validateDateValue(startUtc, "startUtc");
     validateDateValue(endUtc, "endUtc");

@@ -48,6 +48,24 @@ public sealed class IndexedDbEventRepositoryTests
         Assert.Same(module.Failure, exception.InnerException);
     }
 
+    [Fact]
+    public async Task Repository_ReadsAllEventsIncludingDeletionMarkers()
+    {
+        var active = CreateEvent();
+        var deleted = CreateEvent() with
+        {
+            Id = Guid.NewGuid(),
+            DeletedAtUtc = new DateTimeOffset(2026, 8, 28, 1, 0, 0, TimeSpan.Zero)
+        };
+        var module = new FakeJsModule { AllEvents = [active, deleted] };
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbEventRepository(connection);
+
+        var events = await repository.GetAllIncludingDeletedAsync();
+
+        Assert.Equal([active, deleted], events);
+    }
+
     private static CalendarEvent CreateEvent()
     {
         var start = new DateTimeOffset(2026, 8, 24, 9, 0, 0, TimeSpan.Zero);
@@ -90,6 +108,8 @@ public sealed class IndexedDbEventRepositoryTests
 
         public Exception? Failure { get; init; }
 
+        public CalendarEvent[] AllEvents { get; init; } = [];
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -113,6 +133,7 @@ public sealed class IndexedDbEventRepositoryTests
             {
                 "createEvent" => args![0],
                 "getEventsByRange" => Array.Empty<CalendarEvent>(),
+                "getAllEventsIncludingDeleted" => AllEvents,
                 _ => default(TValue)
             };
             return ValueTask.FromResult((TValue)result!);

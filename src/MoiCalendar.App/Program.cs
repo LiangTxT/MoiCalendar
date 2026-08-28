@@ -45,6 +45,11 @@ builder.Services.AddScoped<ISyncStatusRepository, IndexedDbSyncStatusRepository>
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
 builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
 builder.Services.AddScoped<CalendarEventService>();
+builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
+    sp.GetRequiredService<IEventRepository>(),
+    sp.GetRequiredService<TimeProvider>(),
+    typeof(App).Assembly.GetName().Version?.ToString()));
+builder.Services.AddScoped<IBrowserFileDownloadService, BrowserFileDownloadService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();
 builder.Services.AddScoped(sp => new OneDriveSyncStorageProvider(

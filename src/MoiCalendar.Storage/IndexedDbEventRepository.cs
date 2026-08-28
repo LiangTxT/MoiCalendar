@@ -42,6 +42,13 @@ public sealed class IndexedDbEventRepository(IndexedDbConnection connection) : I
         CancellationToken cancellationToken = default) =>
         InvokeAsync<CalendarEvent>("应用同步事件", "upsertEvent", cancellationToken, calendarEvent);
 
+    public async Task<IReadOnlyList<CalendarEvent>> GetAllIncludingDeletedAsync(
+        CancellationToken cancellationToken = default) =>
+        await InvokeAsync<CalendarEvent[]>(
+            "读取全部事件（含删除标记）",
+            "getAllEventsIncludingDeleted",
+            cancellationToken);
+
     public async Task<IReadOnlyList<CalendarEvent>> GetByRangeAsync(
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,

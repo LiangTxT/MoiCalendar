@@ -21,6 +21,9 @@ public interface IEventRepository
         CalendarEvent calendarEvent,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CalendarEvent>> GetAllIncludingDeletedAsync(
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CalendarEvent>> GetByRangeAsync(
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,

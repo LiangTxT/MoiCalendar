@@ -9,11 +9,13 @@
 @inject IOneDriveConnectionTester OneDriveConnectionTester
 @inject MoiCalendarConfiguration AppConfiguration
 @inject NavigationManager Navigation
+@inject ILocalBackupService LocalBackupService
+@inject IBrowserFileDownloadService BrowserFileDownloadService
 
-<PageTitle>同步设置 | MoiCalendar</PageTitle>
+<PageTitle>设置 | MoiCalendar</PageTitle>
 
 <main class="settings-shell">
-    <h1>同步</h1>
+    <h1>设置</h1>
 
     <fieldset class="settings-group">
         <legend>提供商</legend>
@@ -105,6 +107,26 @@
     {
         <p class="settings-status" role="status">@providerStatusMessage</p>
     }
+
+    <section class="settings-card" aria-labelledby="backup-heading">
+        <h2 id="backup-heading">备份</h2>
+        <p>
+            将本机日历数据导出为版本化 JSON 文件。备份只在浏览器本地生成，不会上传到同步提供商。
+        </p>
+        <button type="button"
+                class="primary-button"
+                disabled="@isExportingBackup"
+                @onclick="ExportBackupAsync">
+            @(isExportingBackup ? "正在导出…" : "导出备份")
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(backupMessage))
+        {
+            <p class="settings-status @(backupSucceeded ? "success" : "failure")" role="status">
+                @backupMessage
+            </p>
+        }
+    </section>
 </main>
 
 @code {
@@ -116,6 +138,9 @@
     private string? accountIdentifier;
     private string? connectionMessage;
     private string? providerStatusMessage;
+    private bool isExportingBackup;
+    private bool backupSucceeded;
+    private string? backupMessage;
 
     private bool isAuthenticationConfigured =>
         !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
@@ -173,6 +198,30 @@
         finally
         {
             isTestingConnection = false;
+        }
+    }
+
+    private async Task ExportBackupAsync()
+    {
+        isExportingBackup = true;
+        backupMessage = null;
+
+        try
+        {
+            var export = await LocalBackupService.CreateExportAsync();
+            await BrowserFileDownloadService.DownloadJsonAsync(export.FileName, export.Json);
+            backupSucceeded = true;
+            backupMessage = $"备份已生成：{export.FileName}";
+        }
+        catch (Exception exception) when (
+            exception is LocalBackupException or LocalBackupDownloadException or EventRepositoryException)
+        {
+            backupSucceeded = false;
+            backupMessage = exception.Message;
+        }
+        finally
+        {
+            isExportingBackup = false;
         }
     }
 
