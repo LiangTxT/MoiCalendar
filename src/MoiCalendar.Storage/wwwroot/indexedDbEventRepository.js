@@ -157,6 +157,40 @@ export async function getAllEventsIncludingDeleted() {
     return records.sort((left, right) => left.id.localeCompare(right.id));
 }
 
+export async function replaceAllEventsAndResetSync(calendarEvents) {
+    if (!Array.isArray(calendarEvents)) {
+        throw new Error("恢复事件列表无效。");
+    }
+
+    const eventIds = new Set();
+    for (const calendarEvent of calendarEvents) {
+        validateEvent(calendarEvent);
+        if (eventIds.has(calendarEvent.id)) {
+            throw new Error("恢复事件包含重复 ID。");
+        }
+        eventIds.add(calendarEvent.id);
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredOperationStoreName, configuredSettingsStoreName],
+        "readwrite");
+    const eventStore = transaction.objectStore(configuredEventStoreName);
+    const operationStore = transaction.objectStore(configuredOperationStoreName);
+    const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+    const requests = [
+        eventStore.clear(),
+        operationStore.clear(),
+        settingsStore.delete("syncStatus"),
+        ...calendarEvents.map(calendarEvent => eventStore.put(calendarEvent))
+    ];
+
+    await Promise.all([
+        ...requests.map(requestAsPromise),
+        transactionAsPromise(transaction)
+    ]);
+}
+
 export async function getEventsByRange(startUtc, endUtc) {
     validateDateValue(startUtc, "startUtc");
     validateDateValue(endUtc, "endUtc");

@@ -404,6 +404,49 @@ button:focus-visible {
     gap: 0.65rem;
 }
 
+.file-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid #9aa59d;
+    border-radius: 0.45rem;
+    background: #ffffff;
+    cursor: pointer;
+}
+
+.file-button:hover {
+    background: #eef2ee;
+}
+
+.file-button.disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.visually-hidden-file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.restore-confirmation {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #d8a2a2;
+    border-radius: 0.5rem;
+    background: #fffafa;
+}
+
+.restore-confirmation h3 {
+    margin: 0 0 1rem;
+}
+
 .sync-status-card .account-information {
     grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
 }

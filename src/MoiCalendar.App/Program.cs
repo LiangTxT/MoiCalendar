@@ -39,6 +39,7 @@ builder.Services.AddMsalAuthentication(options =>
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<IndexedDbConnection>();
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
+builder.Services.AddScoped<IBackupRestoreRepository, IndexedDbBackupRestoreRepository>();
 builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
 builder.Services.AddScoped<ISyncLogRepository, IndexedDbSyncLogRepository>();
 builder.Services.AddScoped<ISyncStatusRepository, IndexedDbSyncStatusRepository>();
@@ -49,6 +50,7 @@ builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),
     sp.GetRequiredService<TimeProvider>(),
     typeof(App).Assembly.GetName().Version?.ToString()));
+builder.Services.AddScoped<ILocalBackupRestoreService, LocalBackupRestoreService>();
 builder.Services.AddScoped<IBrowserFileDownloadService, BrowserFileDownloadService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();

@@ -10,7 +10,9 @@
 @inject MoiCalendarConfiguration AppConfiguration
 @inject NavigationManager Navigation
 @inject ILocalBackupService LocalBackupService
+@inject ILocalBackupRestoreService LocalBackupRestoreService
 @inject IBrowserFileDownloadService BrowserFileDownloadService
+@inject ISyncDiagnosticsService SyncDiagnosticsService
 
 <PageTitle>设置 | MoiCalendar</PageTitle>
 
@@ -113,12 +115,54 @@
         <p>
             将本机日历数据导出为版本化 JSON 文件。备份只在浏览器本地生成，不会上传到同步提供商。
         </p>
-        <button type="button"
-                class="primary-button"
-                disabled="@isExportingBackup"
-                @onclick="ExportBackupAsync">
-            @(isExportingBackup ? "正在导出…" : "导出备份")
-        </button>
+        <div class="settings-actions">
+            <button type="button"
+                    class="primary-button"
+                    disabled="@(isExportingBackup || isRestoringBackup)"
+                    @onclick="ExportBackupAsync">
+                @(isExportingBackup ? "正在导出…" : "导出备份")
+            </button>
+            <label class="file-button @(isExportingBackup || isRestoringBackup ? "disabled" : null)"
+                   for="restore-backup-file">
+                恢复备份
+            </label>
+            <InputFile @key="restoreFileInputKey"
+                       id="restore-backup-file"
+                       class="visually-hidden-file"
+                       accept=".json,application/json"
+                       disabled="@(isExportingBackup || isRestoringBackup)"
+                       OnChange="SelectRestoreFileAsync" />
+        </div>
+
+        @if (restorePreview is not null)
+        {
+            <section class="restore-confirmation" aria-labelledby="restore-confirmation-heading">
+                <h3 id="restore-confirmation-heading">确认恢复备份</h3>
+                <dl class="account-information">
+                    <dt>备份日期</dt>
+                    <dd>@restorePreview.ExportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                    <dt>Schema 版本</dt>
+                    <dd>@restorePreview.SchemaVersion</dd>
+                    <dt>事件数量</dt>
+                    <dd>@restorePreview.EventCount</dd>
+                </dl>
+                <p class="settings-status failure" role="alert">
+                    确认后将用该备份替换全部本地日历数据。恢复前会下载当前数据的安全快照。
+                    现有本地同步操作队列将被清空，恢复不会生成新的同步操作；以后手动同步时，远端数据仍可能合并回本地。
+                </p>
+                <div class="settings-actions">
+                    <button type="button"
+                            class="danger-button"
+                            disabled="@isRestoringBackup"
+                            @onclick="ConfirmRestoreAsync">
+                        @(isRestoringBackup ? "正在恢复…" : "确认替换本地数据")
+                    </button>
+                    <button type="button" disabled="@isRestoringBackup" @onclick="CancelRestore">
+                        取消
+                    </button>
+                </div>
+            </section>
+        }
 
         @if (!string.IsNullOrWhiteSpace(backupMessage))
         {
@@ -141,6 +185,10 @@
     private bool isExportingBackup;
     private bool backupSucceeded;
     private string? backupMessage;
+    private BackupRestorePreview? restorePreview;
+    private bool isRestoringBackup;
+    private Guid restoreFileInputKey = Guid.NewGuid();
+    private const long MaximumBackupFileSize = 20 * 1024 * 1024;
 
     private bool isAuthenticationConfigured =>
         !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
@@ -223,6 +271,96 @@
         {
             isExportingBackup = false;
         }
+    }
+
+    private async Task SelectRestoreFileAsync(InputFileChangeEventArgs args)
+    {
+        if (restorePreview is not null)
+        {
+            LocalBackupRestoreService.CancelPreparedRestore(restorePreview.RestoreId);
+            restorePreview = null;
+        }
+
+        backupMessage = null;
+        try
+        {
+            var file = args.File;
+            if (file.Size > MaximumBackupFileSize)
+            {
+                throw new LocalBackupRestoreException("备份文件超过 20 MB 限制，未读取或修改本地数据。");
+            }
+
+            await using var stream = file.OpenReadStream(MaximumBackupFileSize);
+            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+            var json = await reader.ReadToEndAsync();
+            restorePreview = LocalBackupRestoreService.PrepareRestore(json);
+            backupSucceeded = true;
+            backupMessage = "备份验证通过。请检查摘要并确认是否替换本地数据。";
+        }
+        catch (Exception exception) when (
+            exception is LocalBackupRestoreException or IOException or InvalidOperationException)
+        {
+            backupSucceeded = false;
+            backupMessage = exception is LocalBackupRestoreException
+                ? exception.Message
+                : "无法读取备份文件，未修改本地数据。";
+        }
+    }
+
+    private async Task ConfirmRestoreAsync()
+    {
+        if (restorePreview is null)
+        {
+            return;
+        }
+
+        isRestoringBackup = true;
+        backupMessage = null;
+        try
+        {
+            var syncStatus = await SyncDiagnosticsService.GetStatusAsync();
+            if (syncStatus.IsSyncing)
+            {
+                throw new LocalBackupRestoreException("同步正在进行，请等待同步结束后再恢复备份。未修改本地数据。");
+            }
+
+            var safetySnapshot = await LocalBackupService.CreateExportAsync();
+            var safetyFileName = $"mycalendar-safety-before-restore-{DateTimeOffset.UtcNow:yyyy-MM-dd-HHmmss}.json";
+            await BrowserFileDownloadService.DownloadJsonAsync(
+                safetyFileName,
+                safetySnapshot.Json);
+
+            var result = await LocalBackupRestoreService.RestorePreparedAsync(restorePreview.RestoreId);
+            restorePreview = null;
+            restoreFileInputKey = Guid.NewGuid();
+            backupSucceeded = true;
+            backupMessage = $"已恢复 {result.EventCount} 个事件并清空旧同步队列。本地安全快照已下载；远端同步数据没有被自动覆盖。请返回日历查看恢复结果。";
+        }
+        catch (Exception exception) when (
+            exception is LocalBackupException or LocalBackupDownloadException or
+                LocalBackupRestoreException or EventRepositoryException or SyncOperationException)
+        {
+            backupSucceeded = false;
+            backupMessage = exception.Message;
+        }
+        finally
+        {
+            isRestoringBackup = false;
+        }
+    }
+
+    private void CancelRestore()
+    {
+        if (restorePreview is not null)
+        {
+            LocalBackupRestoreService.CancelPreparedRestore(restorePreview.RestoreId);
+            restorePreview = null;
+        }
+
+        restoreFileInputKey = Guid.NewGuid();
+
+        backupSucceeded = true;
+        backupMessage = "已取消恢复，本地数据没有改变。";
     }
 
     private static string? FirstClaimValue(ClaimsPrincipal user, string claimType) =>
