@@ -47,6 +47,46 @@ public sealed class SyncServiceTests
     }
 
     [Fact]
+    public async Task RetryAfterNetworkRecovery_UploadsPreviouslyPendingOperation()
+    {
+        var operationRepository = new InMemoryOperationRepository();
+        var calendarEvent = CreateEvent("恢复网络后上传", UpdatedAt(1));
+        var operation = CreateOperation(calendarEvent, SyncOperationType.Create);
+        await operationRepository.AddAsync(operation);
+        var storage = new FakeSyncStorageProvider { FailUpload = true };
+        var service = new SyncService(operationRepository, new InMemoryEventRepository(), storage);
+
+        await Assert.ThrowsAsync<SyncStorageException>(() => service.PushAsync());
+        storage.FailUpload = false;
+        var result = await service.PushAsync();
+
+        Assert.Equal(1, result.PushedCount);
+        Assert.Equal(SyncOperationStatus.Uploaded,
+            (await operationRepository.GetByIdAsync(operation.OperationId))?.Status);
+    }
+
+    [Fact]
+    public async Task RetryAfterRemoteWriteBeforeLocalStatusUpdate_DoesNotUploadDuplicate()
+    {
+        var calendarEvent = CreateEvent("幂等重试", UpdatedAt(1));
+        var operation = CreateOperation(calendarEvent, SyncOperationType.Create);
+        var storage = await CreateRemoteStorageAsync(operation);
+        var retryOperations = new InMemoryOperationRepository();
+        await retryOperations.AddAsync(operation);
+        var retryService = new SyncService(
+            retryOperations,
+            new InMemoryEventRepository(),
+            storage);
+
+        var result = await retryService.PushAsync();
+
+        Assert.Equal(1, result.PushedCount);
+        Assert.Equal(1, storage.UploadCount);
+        Assert.Equal(SyncOperationStatus.Uploaded,
+            (await retryOperations.GetByIdAsync(operation.OperationId))?.Status);
+    }
+
+    [Fact]
     public async Task DuplicatePull_AppliesOperationOnlyOnceAndDoesNotDuplicateEvent()
     {
         var remoteEvent = CreateEvent("远端事件", UpdatedAt(2));
@@ -147,6 +187,29 @@ public sealed class SyncServiceTests
             (await targetEvents.GetByIdIncludingDeletedAsync(localEvent.Id))?.DeletedAtUtc);
     }
 
+    [Fact]
+    public async Task Pull_DoesNotResurrectTombstoneFromOlderRemoteEvent()
+    {
+        var staleRemoteEvent = CreateEvent("过期远端事件", UpdatedAt(2));
+        var localTombstone = staleRemoteEvent with
+        {
+            UpdatedAtUtc = UpdatedAt(4),
+            DeletedAtUtc = UpdatedAt(4)
+        };
+        var targetEvents = new InMemoryEventRepository();
+        await targetEvents.UpsertAsync(localTombstone);
+
+        var result = await PullAsync(
+            CreateOperation(staleRemoteEvent, SyncOperationType.Update),
+            targetEvents);
+
+        Assert.Equal(0, result.AppliedCount);
+        Assert.Null(await targetEvents.GetByIdAsync(staleRemoteEvent.Id));
+        Assert.Equal(
+            localTombstone.DeletedAtUtc,
+            (await targetEvents.GetByIdIncludingDeletedAsync(staleRemoteEvent.Id))?.DeletedAtUtc);
+    }
+
     private static async Task<SyncResult> PullAsync(
         SyncOperation operation,
         InMemoryEventRepository targetEvents)
@@ -209,7 +272,7 @@ public sealed class SyncServiceTests
         private readonly Dictionary<string, string> files = new(StringComparer.Ordinal);
         private int seedDownloadCount;
 
-        public bool FailUpload { get; init; }
+        public bool FailUpload { get; set; }
 
         public int UploadCount { get; private set; }
 

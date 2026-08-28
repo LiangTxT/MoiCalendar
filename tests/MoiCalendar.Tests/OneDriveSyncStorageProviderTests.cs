@@ -123,6 +123,43 @@ public sealed class OneDriveSyncStorageProviderTests
             handler.Requests.Select(request => $"{request.Method} {request.Uri}").ToArray());
     }
 
+    [Fact]
+    public async Task ListFilesAsync_FollowsTrustedGraphPagination()
+    {
+        var handler = new RecordingHandler(
+            JsonResponse(
+                "{\"value\":[{\"name\":\"a.json\",\"size\":1}]," +
+                "\"@odata.nextLink\":\"https://graph.microsoft.com/v1.0/next-page\"}"),
+            JsonResponse("{\"value\":[{\"name\":\"b.json\",\"size\":2}]}"));
+        var provider = CreateProvider(handler);
+
+        var files = await provider.ListFilesAsync("MyCalendar/operations");
+
+        Assert.Equal(
+            ["MyCalendar/operations/a.json", "MyCalendar/operations/b.json"],
+            files.Select(file => file.Path).ToArray());
+        Assert.Equal(
+            [
+                "https://graph.microsoft.com/v1.0/me/drive/special/approot:/MyCalendar/operations:/children",
+                "https://graph.microsoft.com/v1.0/next-page"
+            ],
+            handler.Requests.Select(request => request.Uri).ToArray());
+    }
+
+    [Fact]
+    public async Task ListFilesAsync_RejectsUntrustedPaginationUrl()
+    {
+        var handler = new RecordingHandler(JsonResponse(
+            "{\"value\":[],\"@odata.nextLink\":\"https://evil.example.test/steal\"}"));
+        var provider = CreateProvider(handler);
+
+        var exception = await Assert.ThrowsAsync<SyncStorageException>(
+            () => provider.ListFilesAsync("MyCalendar/operations"));
+
+        Assert.Contains("不安全", exception.Message);
+        Assert.Single(handler.Requests);
+    }
+
     private static OneDriveSyncStorageProvider CreateProvider(HttpMessageHandler handler) =>
         new(
             new HttpClient(handler)

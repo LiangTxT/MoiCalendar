@@ -158,31 +158,36 @@ public sealed class OneDriveSyncStorageProvider(
         CancellationToken cancellationToken = default)
     {
         var normalizedDirectory = NormalizePath(directoryPath, allowEmpty: true);
-        var requestPath = normalizedDirectory.Length == 0
+        string? requestPath = normalizedDirectory.Length == 0
             ? "me/drive/special/approot/children"
             : $"me/drive/special/approot:/{EscapePath(normalizedDirectory)}:/children";
+        var files = new List<SyncFileMetadata>();
 
-        using var response = await SendAsync(
-            HttpMethod.Get,
-            requestPath,
-            cancellationToken: cancellationToken);
-        await EnsureSuccessAsync(response, "列出 OneDrive 文件", cancellationToken);
-
-        try
+        while (requestPath is not null)
         {
-            var result = await response.Content.ReadFromJsonAsync<DriveItemCollection>(
-                JsonOptions,
-                cancellationToken);
-            return (result?.Value ?? [])
-                .Select(item => ToMetadata(
+            using var response = await SendAsync(
+                HttpMethod.Get,
+                requestPath,
+                cancellationToken: cancellationToken);
+            await EnsureSuccessAsync(response, "列出 OneDrive 文件", cancellationToken);
+
+            try
+            {
+                var result = await response.Content.ReadFromJsonAsync<DriveItemCollection>(
+                    JsonOptions,
+                    cancellationToken);
+                files.AddRange((result?.Value ?? []).Select(item => ToMetadata(
                     CombinePath(normalizedDirectory, item.Name ?? string.Empty),
-                    item))
-                .ToArray();
+                    item)));
+                requestPath = ValidateNextLink(result?.NextLink);
+            }
+            catch (Exception exception) when (exception is JsonException or NotSupportedException)
+            {
+                throw new SyncStorageException("OneDrive 返回的文件列表格式无效。", exception);
+            }
         }
-        catch (Exception exception) when (exception is JsonException or NotSupportedException)
-        {
-            throw new SyncStorageException("OneDrive 返回的文件列表格式无效。", exception);
-        }
+
+        return files;
     }
 
     public async Task<bool> DeleteAsync(
@@ -304,6 +309,23 @@ public sealed class OneDriveSyncStorageProvider(
     private static string CombinePath(string directoryPath, string name) =>
         directoryPath.Length == 0 ? name : $"{directoryPath}/{name}";
 
+    private static string? ValidateNextLink(string? nextLink)
+    {
+        if (string.IsNullOrWhiteSpace(nextLink))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(nextLink, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps ||
+            !string.Equals(uri.Host, "graph.microsoft.com", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SyncStorageException("OneDrive 返回了不安全的下一页地址，已停止继续请求。");
+        }
+
+        return uri.AbsoluteUri;
+    }
+
     private sealed record DriveItem(
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("eTag")] string? ETag,
@@ -311,5 +333,6 @@ public sealed class OneDriveSyncStorageProvider(
         [property: JsonPropertyName("lastModifiedDateTime")] DateTimeOffset? LastModifiedDateTime);
 
     private sealed record DriveItemCollection(
-        [property: JsonPropertyName("value")] IReadOnlyList<DriveItem>? Value);
+        [property: JsonPropertyName("value")] IReadOnlyList<DriveItem>? Value,
+        [property: JsonPropertyName("@odata.nextLink")] string? NextLink);
 }
