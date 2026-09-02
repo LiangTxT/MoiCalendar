@@ -18,6 +18,8 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
     private readonly ISyncLogRepository logRepository;
     private readonly ISyncStatusRepository statusRepository;
     private readonly TimeProvider timeProvider;
+    private readonly ILocalDataOperationLock operationLock;
+    private readonly IRestoreSyncGuard? restoreSyncGuard;
     private volatile bool isSyncing;
 
     public SyncService(
@@ -27,7 +29,9 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         ISyncProviderSelection? providerSelection = null,
         ISyncLogRepository? logRepository = null,
         ISyncStatusRepository? statusRepository = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILocalDataOperationLock? operationLock = null,
+        IRestoreSyncGuard? restoreSyncGuard = null)
     {
         this.operationRepository = operationRepository;
         this.eventRepository = eventRepository;
@@ -36,12 +40,18 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         this.logRepository = logRepository ?? new TransientSyncLogRepository();
         this.statusRepository = statusRepository ?? new TransientSyncStatusRepository();
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.operationLock = operationLock ?? NoOpLocalDataOperationLock.Instance;
+        this.restoreSyncGuard = restoreSyncGuard;
     }
 
-    public Task<SyncResult> PushAsync(CancellationToken cancellationToken = default) =>
-        PushAsync(includeFailed: false, cancellationToken);
+    public async Task<SyncResult> PushAsync(CancellationToken cancellationToken = default)
+    {
+        await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
+        await EnsureSyncAllowedAsync(cancellationToken);
+        return await PushCoreAsync(includeFailed: false, cancellationToken);
+    }
 
-    private async Task<SyncResult> PushAsync(
+    private async Task<SyncResult> PushCoreAsync(
         bool includeFailed,
         CancellationToken cancellationToken)
     {
@@ -115,6 +125,13 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
     }
 
     public async Task<SyncResult> PullAsync(CancellationToken cancellationToken = default)
+    {
+        await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
+        await EnsureSyncAllowedAsync(cancellationToken);
+        return await PullCoreAsync(cancellationToken);
+    }
+
+    private async Task<SyncResult> PullCoreAsync(CancellationToken cancellationToken)
     {
         await storageProvider.EnsureDirectoryAsync(
             RemoteSyncFormat.OperationsDirectory,
@@ -232,6 +249,8 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
 
         try
         {
+            await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
+            await EnsureSyncAllowedAsync(cancellationToken);
             provider = await GetProviderNameAsync(cancellationToken);
             previousState = await statusRepository.GetAsync(cancellationToken);
             await TrySaveStatusAsync(previousState with
@@ -239,8 +258,8 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
                 LastSyncStartedAtUtc = startedAt
             }, cancellationToken);
 
-            var pushed = await PushAsync(retryFailed, cancellationToken);
-            var pulled = await PullAsync(cancellationToken);
+            var pushed = await PushCoreAsync(retryFailed, cancellationToken);
+            var pulled = await PullCoreAsync(cancellationToken);
             var completedAt = timeProvider.GetUtcNow();
             await TrySaveStatusAsync(previousState with
             {
@@ -285,6 +304,15 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         {
             isSyncing = false;
             syncGate.Release();
+        }
+    }
+
+    private async Task EnsureSyncAllowedAsync(CancellationToken cancellationToken)
+    {
+        if (restoreSyncGuard is not null &&
+            await restoreSyncGuard.IsSyncBlockedAsync(cancellationToken))
+        {
+            throw new RestoreSyncBlockedException();
         }
     }
 

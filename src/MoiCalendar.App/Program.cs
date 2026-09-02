@@ -38,6 +38,11 @@ builder.Services.AddMsalAuthentication(options =>
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<IndexedDbConnection>();
+builder.Services.AddScoped<IndexedDbLocalDataSafety>();
+builder.Services.AddScoped<ILocalDataOperationLock>(sp =>
+    sp.GetRequiredService<IndexedDbLocalDataSafety>());
+builder.Services.AddScoped<IRestoreSyncGuard>(sp =>
+    sp.GetRequiredService<IndexedDbLocalDataSafety>());
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
 builder.Services.AddScoped<IBackupRestoreRepository, IndexedDbBackupRestoreRepository>();
 builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
@@ -50,7 +55,10 @@ builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),
     sp.GetRequiredService<TimeProvider>(),
     typeof(App).Assembly.GetName().Version?.ToString()));
-builder.Services.AddScoped<ILocalBackupRestoreService, LocalBackupRestoreService>();
+builder.Services.AddScoped<ILocalBackupRestoreService>(sp => new LocalBackupRestoreService(
+    sp.GetRequiredService<IBackupRestoreRepository>(),
+    sp.GetRequiredService<ILocalDataOperationLock>(),
+    sp.GetRequiredService<IRestoreSyncGuard>()));
 builder.Services.AddScoped<IBrowserFileDownloadService, BrowserFileDownloadService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();

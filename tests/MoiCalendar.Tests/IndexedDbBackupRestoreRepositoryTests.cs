@@ -13,11 +13,34 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
         await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
         var repository = new IndexedDbBackupRestoreRepository(connection);
         var events = new[] { CreateEvent() };
+        module.Result = new BackupRestoreSafetySnapshot(
+            DateTimeOffset.UtcNow,
+            2,
+            3);
 
-        await repository.ReplaceAllEventsAndResetSyncAsync(events);
+        var snapshot = await repository.ReplaceAllEventsAndResetSyncAsync(events);
 
         Assert.Equal("replaceAllEventsAndResetSync", module.LastIdentifier);
         Assert.Same(events, module.LastArguments![0]);
+        Assert.Equal(2, snapshot.EventCount);
+    }
+
+    [Fact]
+    public async Task SnapshotAndUndo_UseDedicatedInteropBoundaries()
+    {
+        var module = new FakeJsModule();
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbBackupRestoreRepository(connection);
+        var snapshot = new BackupRestoreSafetySnapshot(DateTimeOffset.UtcNow, 2, 4);
+        module.Result = snapshot;
+
+        Assert.Same(snapshot, await repository.GetSafetySnapshotAsync());
+        Assert.Equal("getRestoreSafetySnapshot", module.LastIdentifier);
+
+        var undoResult = new BackupRestoreResult(2, snapshot.CreatedAtUtc);
+        module.Result = undoResult;
+        Assert.Same(undoResult, await repository.RestoreSafetySnapshotAsync());
+        Assert.Equal("restoreLatestSafetySnapshot", module.LastIdentifier);
     }
 
     [Fact]
@@ -74,6 +97,8 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
 
         public Exception? Failure { get; init; }
 
+        public object? Result { get; set; }
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -94,7 +119,7 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
 
             LastIdentifier = identifier;
             LastArguments = args;
-            return ValueTask.FromResult(default(TValue)!);
+            return ValueTask.FromResult(Result is null ? default! : (TValue)Result);
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

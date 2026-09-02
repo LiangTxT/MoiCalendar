@@ -5,6 +5,11 @@ let configuredEventStoreName;
 let configuredOperationStoreName;
 let configuredSettingsStoreName;
 let configuredSyncLogStoreName;
+let configuredRestoreSnapshotStoreName;
+const heldOperationLocks = new Map();
+const exclusiveOperationLockName = "moicalendar-local-data-operation";
+const latestRestoreSnapshotKey = "latest";
+const restoreSyncBlockedSettingKey = "restoreSyncBlocked";
 
 export async function initialize(
     databaseName,
@@ -12,13 +17,15 @@ export async function initialize(
     eventStoreName,
     operationStoreName,
     settingsStoreName,
-    syncLogStoreName) {
+    syncLogStoreName,
+    restoreSnapshotStoreName) {
     if (
         !databaseName ||
         !eventStoreName ||
         !operationStoreName ||
         !settingsStoreName ||
         !syncLogStoreName ||
+        !restoreSnapshotStoreName ||
         !Number.isInteger(databaseVersion) ||
         databaseVersion < 1) {
         throw new Error("IndexedDB 初始化参数无效。");
@@ -31,7 +38,8 @@ export async function initialize(
             configuredEventStoreName !== eventStoreName ||
             configuredOperationStoreName !== operationStoreName ||
             configuredSettingsStoreName !== settingsStoreName ||
-            configuredSyncLogStoreName !== syncLogStoreName
+            configuredSyncLogStoreName !== syncLogStoreName ||
+            configuredRestoreSnapshotStoreName !== restoreSnapshotStoreName
         ) {
             throw new Error("IndexedDB 已使用不同配置初始化。");
         }
@@ -46,13 +54,15 @@ export async function initialize(
     configuredOperationStoreName = operationStoreName;
     configuredSettingsStoreName = settingsStoreName;
     configuredSyncLogStoreName = syncLogStoreName;
+    configuredRestoreSnapshotStoreName = restoreSnapshotStoreName;
     databasePromise = openDatabase(
         databaseName,
         databaseVersion,
         eventStoreName,
         operationStoreName,
         settingsStoreName,
-        syncLogStoreName);
+        syncLogStoreName,
+        restoreSnapshotStoreName);
 
     try {
         await databasePromise;
@@ -173,22 +183,169 @@ export async function replaceAllEventsAndResetSync(calendarEvents) {
 
     const database = await getDatabase();
     const transaction = database.transaction(
-        [configuredEventStoreName, configuredOperationStoreName, configuredSettingsStoreName],
+        [
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSettingsStoreName,
+            configuredRestoreSnapshotStoreName
+        ],
         "readwrite");
+    const completion = transactionAsPromise(transaction);
     const eventStore = transaction.objectStore(configuredEventStoreName);
     const operationStore = transaction.objectStore(configuredOperationStoreName);
     const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+    const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
+    const [existingEvents, existingOperations, existingSyncGuard] = await Promise.all([
+        requestAsPromise(eventStore.getAll()),
+        requestAsPromise(operationStore.getAll()),
+        requestAsPromise(settingsStore.get(restoreSyncBlockedSettingKey))
+    ]);
+    const createdAtUtc = new Date().toISOString();
+    const snapshot = {
+        key: latestRestoreSnapshotKey,
+        createdAtUtc,
+        calendarEvents: existingEvents,
+        syncOperations: existingOperations,
+        wasSyncBlocked: existingSyncGuard?.value === true
+    };
     const requests = [
+        snapshotStore.put(snapshot),
         eventStore.clear(),
         operationStore.clear(),
         settingsStore.delete("syncStatus"),
+        settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true }),
         ...calendarEvents.map(calendarEvent => eventStore.put(calendarEvent))
     ];
 
     await Promise.all([
         ...requests.map(requestAsPromise),
-        transactionAsPromise(transaction)
+        completion
     ]);
+
+    return {
+        createdAtUtc,
+        eventCount: existingEvents.length,
+        syncOperationCount: existingOperations.length
+    };
+}
+
+export async function getRestoreSafetySnapshot() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredRestoreSnapshotStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const snapshot = await requestAsPromise(
+        transaction.objectStore(configuredRestoreSnapshotStoreName).get(latestRestoreSnapshotKey));
+    await completion;
+
+    if (!snapshot) {
+        return null;
+    }
+
+    validateRestoreSafetySnapshot(snapshot);
+    return {
+        createdAtUtc: snapshot.createdAtUtc,
+        eventCount: snapshot.calendarEvents.length,
+        syncOperationCount: snapshot.syncOperations.length
+    };
+}
+
+export async function restoreLatestSafetySnapshot() {
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSettingsStoreName,
+            configuredRestoreSnapshotStoreName
+        ],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    const eventStore = transaction.objectStore(configuredEventStoreName);
+    const operationStore = transaction.objectStore(configuredOperationStoreName);
+    const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+    const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
+    const snapshot = await requestAsPromise(snapshotStore.get(latestRestoreSnapshotKey));
+    if (!snapshot) {
+        transaction.abort();
+        throw new Error("没有可用的恢复前安全快照。");
+    }
+
+    validateRestoreSafetySnapshot(snapshot);
+    const requests = [
+        eventStore.clear(),
+        operationStore.clear(),
+        settingsStore.delete("syncStatus"),
+        snapshot.wasSyncBlocked
+            ? settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true })
+            : settingsStore.delete(restoreSyncBlockedSettingKey),
+        ...snapshot.calendarEvents.map(calendarEvent => eventStore.put(calendarEvent)),
+        ...snapshot.syncOperations.map(operation => operationStore.put(operation)),
+        snapshotStore.delete(latestRestoreSnapshotKey)
+    ];
+    await Promise.all([
+        ...requests.map(requestAsPromise),
+        completion
+    ]);
+
+    return {
+        eventCount: snapshot.calendarEvents.length,
+        safetySnapshotCreatedAtUtc: snapshot.createdAtUtc
+    };
+}
+
+export async function isSyncBlockedAfterRestore() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const setting = await requestAsPromise(
+        transaction.objectStore(configuredSettingsStoreName).get(restoreSyncBlockedSettingKey));
+    await completion;
+    return setting?.value === true;
+}
+
+export async function allowSyncAfterRestore() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    const request = transaction.objectStore(configuredSettingsStoreName)
+        .delete(restoreSyncBlockedSettingKey);
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
+export async function acquireExclusiveOperationLock() {
+    if (!navigator.locks?.request) {
+        throw new Error("当前浏览器不支持安全的跨页面数据操作锁。");
+    }
+
+    const leaseId = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : createUuid();
+    let releaseLock;
+    let markAcquired;
+    let markFailed;
+    const acquired = new Promise((resolve, reject) => {
+        markAcquired = resolve;
+        markFailed = reject;
+    });
+    const releaseRequested = new Promise(resolve => {
+        releaseLock = resolve;
+    });
+    const lockRequest = navigator.locks.request(exclusiveOperationLockName, async () => {
+        markAcquired();
+        await releaseRequested;
+    });
+    lockRequest.catch(markFailed);
+    await acquired;
+    heldOperationLocks.set(leaseId, { releaseLock, lockRequest });
+    return leaseId;
+}
+
+export async function releaseExclusiveOperationLock(leaseId) {
+    const lease = heldOperationLocks.get(leaseId);
+    if (!lease) {
+        return;
+    }
+
+    heldOperationLocks.delete(leaseId);
+    lease.releaseLock();
+    await lease.lockRequest;
 }
 
 export async function getEventsByRange(startUtc, endUtc) {
@@ -467,7 +624,8 @@ function openDatabase(
     eventStoreName,
     operationStoreName,
     settingsStoreName,
-    syncLogStoreName) {
+    syncLogStoreName,
+    restoreSnapshotStoreName) {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(databaseName, databaseVersion);
 
@@ -503,6 +661,10 @@ function openDatabase(
 
             if (!syncLogStore.indexNames.contains("timestampUtc")) {
                 syncLogStore.createIndex("timestampUtc", "timestampUtc", { unique: false });
+            }
+
+            if (!database.objectStoreNames.contains(restoreSnapshotStoreName)) {
+                database.createObjectStore(restoreSnapshotStoreName, { keyPath: "key" });
             }
         };
 
@@ -596,6 +758,24 @@ function validateSyncOperation(operation) {
     }
 
     validateStatus(operation.status);
+}
+
+function validateRestoreSafetySnapshot(snapshot) {
+    if (!snapshot ||
+        snapshot.key !== latestRestoreSnapshotKey ||
+        !Array.isArray(snapshot.calendarEvents) ||
+        !Array.isArray(snapshot.syncOperations) ||
+        typeof snapshot.wasSyncBlocked !== "boolean") {
+        throw new Error("本地恢复安全快照无效。");
+    }
+
+    validateDateValue(snapshot.createdAtUtc, "createdAtUtc");
+    for (const calendarEvent of snapshot.calendarEvents) {
+        validateEvent(calendarEvent);
+    }
+    for (const operation of snapshot.syncOperations) {
+        validateSyncOperation(operation);
+    }
 }
 
 function validateStatus(status) {

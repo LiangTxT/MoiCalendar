@@ -8,7 +8,12 @@ public sealed record BackupRestorePreview(
     int SchemaVersion,
     int EventCount);
 
-public sealed record BackupRestoreResult(int EventCount);
+public sealed record BackupRestoreResult(int EventCount, DateTimeOffset SafetySnapshotCreatedAtUtc);
+
+public sealed record BackupRestoreSafetySnapshot(
+    DateTimeOffset CreatedAtUtc,
+    int EventCount,
+    int SyncOperationCount);
 
 public interface ILocalBackupRestoreService
 {
@@ -18,17 +23,38 @@ public interface ILocalBackupRestoreService
         Guid restoreId,
         CancellationToken cancellationToken = default);
 
+    Task<BackupRestoreSafetySnapshot?> GetSafetySnapshotAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<BackupRestoreResult> UndoLastRestoreAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<bool> IsSyncBlockedAfterRestoreAsync(
+        CancellationToken cancellationToken = default);
+
+    Task AllowSyncAfterRestoreAsync(
+        CancellationToken cancellationToken = default);
+
     void CancelPreparedRestore(Guid restoreId);
 }
 
 public interface IBackupRestoreRepository
 {
-    Task ReplaceAllEventsAndResetSyncAsync(
+    Task<BackupRestoreSafetySnapshot> ReplaceAllEventsAndResetSyncAsync(
         IReadOnlyList<CalendarEvent> calendarEvents,
+        CancellationToken cancellationToken = default);
+
+    Task<BackupRestoreSafetySnapshot?> GetSafetySnapshotAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<BackupRestoreResult> RestoreSafetySnapshotAsync(
         CancellationToken cancellationToken = default);
 }
 
-public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRepository)
+public sealed class LocalBackupRestoreService(
+    IBackupRestoreRepository restoreRepository,
+    ILocalDataOperationLock? operationLock = null,
+    IRestoreSyncGuard? restoreSyncGuard = null)
     : ILocalBackupRestoreService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -65,6 +91,9 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
 
     private readonly object stateGate = new();
     private readonly SemaphoreSlim restoreGate = new(1, 1);
+    private readonly ILocalDataOperationLock operationLock =
+        operationLock ?? NoOpLocalDataOperationLock.Instance;
+    private readonly IRestoreSyncGuard? restoreSyncGuard = restoreSyncGuard;
     private PreparedRestore? preparedRestore;
 
     public BackupRestorePreview PrepareRestore(string json)
@@ -77,7 +106,7 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(json);
+            document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
         }
         catch (JsonException exception)
         {
@@ -122,7 +151,7 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
             MyCalendarBackup backup;
             try
             {
-                backup = JsonSerializer.Deserialize<MyCalendarBackup>(json, JsonOptions)
+                backup = root.Deserialize<MyCalendarBackup>(JsonOptions)
                     ?? throw new JsonException("备份内容为空。");
             }
             catch (JsonException exception)
@@ -163,9 +192,22 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
 
             try
             {
-                await restoreRepository.ReplaceAllEventsAndResetSyncAsync(
+                await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
+                var snapshot = await restoreRepository.ReplaceAllEventsAndResetSyncAsync(
                     restore.CalendarEvents,
                     cancellationToken);
+
+                lock (stateGate)
+                {
+                    if (preparedRestore?.RestoreId == restoreId)
+                    {
+                        preparedRestore = null;
+                    }
+                }
+
+                return new BackupRestoreResult(
+                    restore.CalendarEvents.Count,
+                    snapshot.CreatedAtUtc);
             }
             catch (OperationCanceledException)
             {
@@ -178,21 +220,57 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
                     exception);
             }
 
-            lock (stateGate)
-            {
-                if (preparedRestore?.RestoreId == restoreId)
-                {
-                    preparedRestore = null;
-                }
-            }
-
-            return new BackupRestoreResult(restore.CalendarEvents.Count);
         }
         finally
         {
             restoreGate.Release();
         }
     }
+
+    public async Task<BackupRestoreSafetySnapshot?> GetSafetySnapshotAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await restoreRepository.GetSafetySnapshotAsync(cancellationToken);
+        }
+        catch (BackupRestoreRepositoryException exception)
+        {
+            throw new LocalBackupRestoreException("无法读取最近一次恢复的本地安全快照。", exception);
+        }
+    }
+
+    public async Task<BackupRestoreResult> UndoLastRestoreAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await restoreGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
+            try
+            {
+                return await restoreRepository.RestoreSafetySnapshotAsync(cancellationToken);
+            }
+            catch (BackupRestoreRepositoryException exception)
+            {
+                throw new LocalBackupRestoreException(
+                    "无法撤销最近一次恢复；本地事务已中止，当前数据应保持不变。",
+                    exception);
+            }
+        }
+        finally
+        {
+            restoreGate.Release();
+        }
+    }
+
+    public Task<bool> IsSyncBlockedAfterRestoreAsync(
+        CancellationToken cancellationToken = default) =>
+        restoreSyncGuard?.IsSyncBlockedAsync(cancellationToken) ?? Task.FromResult(false);
+
+    public Task AllowSyncAfterRestoreAsync(
+        CancellationToken cancellationToken = default) =>
+        restoreSyncGuard?.AllowSyncAsync(cancellationToken) ?? Task.CompletedTask;
 
     public void CancelPreparedRestore(Guid restoreId)
     {
@@ -259,8 +337,15 @@ public sealed class LocalBackupRestoreService(IBackupRestoreRepository restoreRe
         IReadOnlySet<string> allowedProperties,
         string objectName)
     {
+        var seenProperties = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
+            if (!seenProperties.Add(property.Name))
+            {
+                throw new LocalBackupRestoreException(
+                    $"{objectName}包含重复字段 {property.Name}，未修改本地数据。");
+            }
+
             if (!allowedProperties.Contains(property.Name))
             {
                 throw new LocalBackupRestoreException(

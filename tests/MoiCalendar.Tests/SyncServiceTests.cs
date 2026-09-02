@@ -8,6 +8,45 @@ namespace MoiCalendar.Tests;
 public sealed class SyncServiceTests
 {
     [Fact]
+    public async Task RestoreSyncGuard_BlocksPushPullAndSynchronizationUntilExplicitlyAllowed()
+    {
+        var storage = new FakeSyncStorageProvider();
+        var guard = new FakeRestoreSyncGuard { IsBlocked = true };
+        var service = new SyncService(
+            new InMemoryOperationRepository(),
+            new InMemoryEventRepository(),
+            storage,
+            restoreSyncGuard: guard);
+
+        await Assert.ThrowsAsync<RestoreSyncBlockedException>(() => service.PushAsync());
+        await Assert.ThrowsAsync<RestoreSyncBlockedException>(() => service.PullAsync());
+        await Assert.ThrowsAsync<RestoreSyncBlockedException>(() => service.SynchronizeAsync());
+        Assert.Equal(0, storage.UploadCount);
+        Assert.Equal(0, storage.DownloadCount);
+
+        await guard.AllowSyncAsync();
+        var result = await service.SynchronizeAsync();
+
+        Assert.Equal(SyncResult.Empty, result);
+    }
+
+    [Fact]
+    public async Task Synchronization_HoldsLocalDataOperationLockForEntirePushPullCycle()
+    {
+        var operationLock = new TrackingOperationLock();
+        var service = new SyncService(
+            new InMemoryOperationRepository(),
+            new InMemoryEventRepository(),
+            new FakeSyncStorageProvider(),
+            operationLock: operationLock);
+
+        await service.SynchronizeAsync();
+
+        Assert.Equal(1, operationLock.AcquireCount);
+        Assert.Equal(1, operationLock.ReleaseCount);
+    }
+
+    [Fact]
     public async Task DuplicatePush_UploadsOperationOnlyOnce()
     {
         var operationRepository = new InMemoryOperationRepository();
@@ -330,5 +369,41 @@ public sealed class SyncServiceTests
             Task.FromResult(files.Remove(path));
 
         public void MarkSeedComplete() => seedDownloadCount = DownloadCount;
+    }
+
+    private sealed class FakeRestoreSyncGuard : IRestoreSyncGuard
+    {
+        public bool IsBlocked { get; set; }
+
+        public Task<bool> IsSyncBlockedAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(IsBlocked);
+
+        public Task AllowSyncAsync(CancellationToken cancellationToken = default)
+        {
+            IsBlocked = false;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TrackingOperationLock : ILocalDataOperationLock
+    {
+        public int AcquireCount { get; private set; }
+
+        public int ReleaseCount { get; private set; }
+
+        public Task<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken = default)
+        {
+            AcquireCount++;
+            return Task.FromResult<IAsyncDisposable>(new Lease(this));
+        }
+
+        private sealed class Lease(TrackingOperationLock owner) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                owner.ReleaseCount++;
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

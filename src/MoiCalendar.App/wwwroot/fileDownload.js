@@ -1,6 +1,6 @@
 export function downloadJson(fileName, json) {
     if (typeof fileName !== "string" ||
-        !/^mycalendar-backup-\d{4}-\d{2}-\d{2}\.json$/.test(fileName) ||
+        !/^mycalendar-(?:backup-\d{4}-\d{2}-\d{2}|safety-before-restore-\d{4}-\d{2}-\d{2}-\d{6})\.json$/.test(fileName) ||
         typeof json !== "string") {
         throw new Error("备份下载参数无效。");
     }

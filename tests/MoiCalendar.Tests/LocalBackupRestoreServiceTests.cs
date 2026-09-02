@@ -15,7 +15,8 @@ public sealed class LocalBackupRestoreServiceTests
         var existing = CreateEvent(Guid.NewGuid(), "现有事件");
         var restored = CreateEvent(Guid.NewGuid(), "恢复事件");
         var repository = new FakeRestoreRepository([existing], syncOperationCount: 3);
-        var service = new LocalBackupRestoreService(repository);
+        var operationLock = new TrackingOperationLock();
+        var service = new LocalBackupRestoreService(repository, operationLock);
 
         var preview = service.PrepareRestore(CreateJson([restored]));
 
@@ -31,6 +32,9 @@ public sealed class LocalBackupRestoreServiceTests
         Assert.Equal([restored], repository.Events);
         Assert.Equal(0, repository.SyncOperationCount);
         Assert.Equal(1, repository.ReplaceCount);
+        Assert.NotNull(await service.GetSafetySnapshotAsync());
+        Assert.Equal(1, operationLock.AcquireCount);
+        Assert.Equal(1, operationLock.ReleaseCount);
     }
 
     [Fact]
@@ -158,6 +162,24 @@ public sealed class LocalBackupRestoreServiceTests
         Assert.Equal(unicode, Assert.Single(repository.Events));
     }
 
+    [Fact]
+    public async Task UndoLastRestore_RestoresEventsAndOriginalSyncQueue()
+    {
+        var existing = CreateEvent(Guid.NewGuid(), "恢复前事件");
+        var repository = new FakeRestoreRepository([existing], syncOperationCount: 4);
+        var service = new LocalBackupRestoreService(repository);
+        var preview = service.PrepareRestore(
+            CreateJson([CreateEvent(Guid.NewGuid(), "备份内事件")]));
+        await service.RestorePreparedAsync(preview.RestoreId);
+
+        var result = await service.UndoLastRestoreAsync();
+
+        Assert.Equal(1, result.EventCount);
+        Assert.Equal([existing], repository.Events);
+        Assert.Equal(4, repository.SyncOperationCount);
+        Assert.Null(await service.GetSafetySnapshotAsync());
+    }
+
     [Theory]
     [InlineData("accessToken")]
     [InlineData("refreshToken")]
@@ -175,6 +197,23 @@ public sealed class LocalBackupRestoreServiceTests
             () => service.PrepareRestore(root.ToJsonString()));
 
         Assert.Contains("不允许", exception.Message);
+        Assert.Equal(0, repository.ReplaceCount);
+    }
+
+    [Fact]
+    public void DuplicateJsonProperty_IsRejectedAsMalformedWithoutChangingData()
+    {
+        var repository = new FakeRestoreRepository([CreateEvent(Guid.NewGuid(), "保留")]);
+        var service = new LocalBackupRestoreService(repository);
+        var json = CreateJson([]).Replace(
+            "\"schemaVersion\":1",
+            "\"schemaVersion\":1,\"schemaVersion\":1",
+            StringComparison.Ordinal);
+
+        var exception = Assert.Throws<LocalBackupRestoreException>(
+            () => service.PrepareRestore(json));
+
+        Assert.Contains("重复字段", exception.Message);
         Assert.Equal(0, repository.ReplaceCount);
     }
 
@@ -222,7 +261,14 @@ public sealed class LocalBackupRestoreServiceTests
 
         public bool FailRestore { get; init; }
 
-        public Task ReplaceAllEventsAndResetSyncAsync(
+        private IReadOnlyList<CalendarEvent>? snapshotEvents;
+
+        private int snapshotSyncOperationCount;
+
+        private static readonly DateTimeOffset SnapshotCreatedAtUtc =
+            new(2026, 8, 28, 13, 0, 0, TimeSpan.Zero);
+
+        public Task<BackupRestoreSafetySnapshot> ReplaceAllEventsAndResetSyncAsync(
             IReadOnlyList<CalendarEvent> calendarEvents,
             CancellationToken cancellationToken = default)
         {
@@ -230,14 +276,72 @@ public sealed class LocalBackupRestoreServiceTests
             ReplaceCount++;
             if (FailRestore)
             {
-                return Task.FromException(new BackupRestoreRepositoryException(
+                return Task.FromException<BackupRestoreSafetySnapshot>(new BackupRestoreRepositoryException(
                     "模拟事务失败。",
                     new InvalidOperationException("failure")));
             }
 
+            snapshotEvents = Events.ToArray();
+            snapshotSyncOperationCount = SyncOperationCount;
             Events = calendarEvents.ToArray();
             SyncOperationCount = 0;
-            return Task.CompletedTask;
+            return Task.FromResult(new BackupRestoreSafetySnapshot(
+                SnapshotCreatedAtUtc,
+                snapshotEvents.Count,
+                snapshotSyncOperationCount));
+        }
+
+        public Task<BackupRestoreSafetySnapshot?> GetSafetySnapshotAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(snapshotEvents is null
+                ? null
+                : new BackupRestoreSafetySnapshot(
+                    SnapshotCreatedAtUtc,
+                    snapshotEvents.Count,
+                    snapshotSyncOperationCount));
+        }
+
+        public Task<BackupRestoreResult> RestoreSafetySnapshotAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (snapshotEvents is null)
+            {
+                return Task.FromException<BackupRestoreResult>(new BackupRestoreRepositoryException(
+                    "没有快照。",
+                    new InvalidOperationException("missing")));
+            }
+
+            Events = snapshotEvents;
+            SyncOperationCount = snapshotSyncOperationCount;
+            snapshotEvents = null;
+            return Task.FromResult(new BackupRestoreResult(
+                Events.Count,
+                SnapshotCreatedAtUtc));
+        }
+    }
+
+    private sealed class TrackingOperationLock : ILocalDataOperationLock
+    {
+        public int AcquireCount { get; private set; }
+
+        public int ReleaseCount { get; private set; }
+
+        public Task<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken = default)
+        {
+            AcquireCount++;
+            return Task.FromResult<IAsyncDisposable>(new Lease(this));
+        }
+
+        private sealed class Lease(TrackingOperationLock owner) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                owner.ReleaseCount++;
+                return ValueTask.CompletedTask;
+            }
         }
     }
 }

@@ -132,7 +132,65 @@
                        accept=".json,application/json"
                        disabled="@(isExportingBackup || isRestoringBackup)"
                        OnChange="SelectRestoreFileAsync" />
+            @if (safetySnapshot is not null)
+            {
+                <button type="button"
+                        disabled="@(isExportingBackup || isRestoringBackup)"
+                        @onclick="() => isUndoConfirmationVisible = true">
+                    撤销最近恢复
+                </button>
+            }
         </div>
+
+        @if (isUndoConfirmationVisible && safetySnapshot is not null)
+        {
+            <section class="restore-confirmation" aria-labelledby="undo-confirmation-heading">
+                <h3 id="undo-confirmation-heading">确认撤销最近恢复</h3>
+                <p class="settings-status failure" role="alert">
+                    这会把当前日历和同步队列替换为
+                    @safetySnapshot.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                    保存的状态。恢复完成后新增或修改的数据将被替换。
+                </p>
+                <div class="settings-actions">
+                    <button type="button"
+                            class="danger-button"
+                            disabled="@isRestoringBackup"
+                            @onclick="UndoLastRestoreAsync">
+                        @(isRestoringBackup ? "正在撤销…" : "确认撤销")
+                    </button>
+                    <button type="button"
+                            disabled="@isRestoringBackup"
+                            @onclick="() => isUndoConfirmationVisible = false">
+                        取消
+                    </button>
+                </div>
+            </section>
+        }
+
+        @if (isSyncBlockedAfterRestore)
+        {
+            <section class="restore-confirmation" aria-labelledby="sync-protection-heading">
+                <h3 id="sync-protection-heading">恢复后同步保护已启用</h3>
+                <p>
+                    OneDrive 和 WebDAV 的 Push/Pull 均已暂停，其他标签页也不能绕过此保护。
+                    检查恢复结果后，再明确允许下一次手动同步；远端内容届时仍可能按现有冲突规则合并回来。
+                </p>
+                <button type="button"
+                        disabled="@isRestoringBackup"
+                        @onclick="AllowSyncAfterRestoreAsync">
+                    我已检查，允许手动同步
+                </button>
+            </section>
+        }
+
+        @if (safetySnapshot is not null)
+        {
+            <p class="settings-note">
+                本地保留了 @safetySnapshot.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                的恢复前快照（@safetySnapshot.EventCount 个事件，@safetySnapshot.SyncOperationCount 个同步操作）。
+                该快照不会上传，并会在下一次恢复时被替换。
+            </p>
+        }
 
         @if (restorePreview is not null)
         {
@@ -147,8 +205,8 @@
                     <dd>@restorePreview.EventCount</dd>
                 </dl>
                 <p class="settings-status failure" role="alert">
-                    确认后将用该备份替换全部本地日历数据。恢复前会下载当前数据的安全快照。
-                    现有本地同步操作队列将被清空，恢复不会生成新的同步操作；以后手动同步时，远端数据仍可能合并回本地。
+                    确认后将用该备份替换全部本地日历数据。恢复事务会先在 IndexedDB 中保存可撤销的本地安全快照，
+                    并额外下载 JSON 副本。现有同步操作队列将被清空，恢复不会生成新操作；同步将保持暂停，直到你明确解除保护。
                 </p>
                 <div class="settings-actions">
                     <button type="button"
@@ -187,6 +245,9 @@
     private string? backupMessage;
     private BackupRestorePreview? restorePreview;
     private bool isRestoringBackup;
+    private bool isSyncBlockedAfterRestore;
+    private BackupRestoreSafetySnapshot? safetySnapshot;
+    private bool isUndoConfirmationVisible;
     private Guid restoreFileInputKey = Guid.NewGuid();
     private const long MaximumBackupFileSize = 20 * 1024 * 1024;
 
@@ -197,6 +258,19 @@
     {
         var configuration = await ProviderSelection.GetAsync();
         selectedProvider = configuration.ProviderType;
+
+        try
+        {
+            isSyncBlockedAfterRestore = await LocalBackupRestoreService.IsSyncBlockedAfterRestoreAsync();
+            safetySnapshot = await LocalBackupRestoreService.GetSafetySnapshotAsync();
+            isUndoConfirmationVisible = false;
+        }
+        catch (Exception exception) when (
+            exception is LocalBackupRestoreException or BackupRestoreRepositoryException or SyncOperationException)
+        {
+            backupSucceeded = false;
+            backupMessage = "无法读取恢复安全状态。请重新载入页面后再试。";
+        }
 
         var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         var user = authenticationState.User;
@@ -324,17 +398,20 @@
                 throw new LocalBackupRestoreException("同步正在进行，请等待同步结束后再恢复备份。未修改本地数据。");
             }
 
-            var safetySnapshot = await LocalBackupService.CreateExportAsync();
+            var safetyExport = await LocalBackupService.CreateExportAsync();
             var safetyFileName = $"mycalendar-safety-before-restore-{DateTimeOffset.UtcNow:yyyy-MM-dd-HHmmss}.json";
             await BrowserFileDownloadService.DownloadJsonAsync(
                 safetyFileName,
-                safetySnapshot.Json);
+                safetyExport.Json);
 
             var result = await LocalBackupRestoreService.RestorePreparedAsync(restorePreview.RestoreId);
             restorePreview = null;
             restoreFileInputKey = Guid.NewGuid();
+            isSyncBlockedAfterRestore = true;
+            safetySnapshot = await LocalBackupRestoreService.GetSafetySnapshotAsync();
+            isUndoConfirmationVisible = false;
             backupSucceeded = true;
-            backupMessage = $"已恢复 {result.EventCount} 个事件并清空旧同步队列。本地安全快照已下载；远端同步数据没有被自动覆盖。请返回日历查看恢复结果。";
+            backupMessage = $"已恢复 {result.EventCount} 个事件并清空旧同步队列。本地安全快照已保存并下载；同步保护已启用，远端数据没有被自动读取或覆盖。";
         }
         catch (Exception exception) when (
             exception is LocalBackupException or LocalBackupDownloadException or
@@ -346,6 +423,46 @@
         finally
         {
             isRestoringBackup = false;
+        }
+    }
+
+    private async Task UndoLastRestoreAsync()
+    {
+        isRestoringBackup = true;
+        backupMessage = null;
+        try
+        {
+            var result = await LocalBackupRestoreService.UndoLastRestoreAsync();
+            safetySnapshot = null;
+            isUndoConfirmationVisible = false;
+            isSyncBlockedAfterRestore = await LocalBackupRestoreService.IsSyncBlockedAfterRestoreAsync();
+            backupSucceeded = true;
+            backupMessage = $"已撤销最近一次恢复，恢复了 {result.EventCount} 个事件以及原同步队列。";
+        }
+        catch (LocalBackupRestoreException exception)
+        {
+            backupSucceeded = false;
+            backupMessage = exception.Message;
+        }
+        finally
+        {
+            isRestoringBackup = false;
+        }
+    }
+
+    private async Task AllowSyncAfterRestoreAsync()
+    {
+        try
+        {
+            await LocalBackupRestoreService.AllowSyncAfterRestoreAsync();
+            isSyncBlockedAfterRestore = false;
+            backupSucceeded = true;
+            backupMessage = "同步保护已解除。同步仍不会自动开始；只有点击“立即同步”或“重试失败项”才会访问远端。";
+        }
+        catch (SyncOperationException)
+        {
+            backupSucceeded = false;
+            backupMessage = "无法解除同步保护，请重新载入页面后再试。";
         }
     }
 
