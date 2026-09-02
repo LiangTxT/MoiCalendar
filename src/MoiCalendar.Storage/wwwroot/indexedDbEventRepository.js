@@ -191,42 +191,48 @@ export async function replaceAllEventsAndResetSync(calendarEvents) {
         ],
         "readwrite");
     const completion = transactionAsPromise(transaction);
-    const eventStore = transaction.objectStore(configuredEventStoreName);
-    const operationStore = transaction.objectStore(configuredOperationStoreName);
-    const settingsStore = transaction.objectStore(configuredSettingsStoreName);
-    const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
-    const [existingEvents, existingOperations, existingSyncGuard] = await Promise.all([
-        requestAsPromise(eventStore.getAll()),
-        requestAsPromise(operationStore.getAll()),
-        requestAsPromise(settingsStore.get(restoreSyncBlockedSettingKey))
-    ]);
-    const createdAtUtc = new Date().toISOString();
-    const snapshot = {
-        key: latestRestoreSnapshotKey,
-        createdAtUtc,
-        calendarEvents: existingEvents,
-        syncOperations: existingOperations,
-        wasSyncBlocked: existingSyncGuard?.value === true
-    };
-    const requests = [
-        snapshotStore.put(snapshot),
-        eventStore.clear(),
-        operationStore.clear(),
-        settingsStore.delete("syncStatus"),
-        settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true }),
-        ...calendarEvents.map(calendarEvent => eventStore.put(calendarEvent))
-    ];
 
-    await Promise.all([
-        ...requests.map(requestAsPromise),
-        completion
-    ]);
+    try {
+        const eventStore = transaction.objectStore(configuredEventStoreName);
+        const operationStore = transaction.objectStore(configuredOperationStoreName);
+        const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+        const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
+        const [existingEvents, existingOperations, existingSyncGuard] = await Promise.all([
+            requestAsPromise(eventStore.getAll()),
+            requestAsPromise(operationStore.getAll()),
+            requestAsPromise(settingsStore.get(restoreSyncBlockedSettingKey))
+        ]);
+        const createdAtUtc = new Date().toISOString();
+        const snapshot = {
+            key: latestRestoreSnapshotKey,
+            createdAtUtc,
+            calendarEvents: existingEvents,
+            syncOperations: existingOperations,
+            wasSyncBlocked: existingSyncGuard?.value === true
+        };
+        const requests = [
+            snapshotStore.put(snapshot),
+            eventStore.clear(),
+            operationStore.clear(),
+            settingsStore.delete("syncStatus"),
+            settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true }),
+            ...calendarEvents.map(calendarEvent => eventStore.put(calendarEvent))
+        ];
 
-    return {
-        createdAtUtc,
-        eventCount: existingEvents.length,
-        syncOperationCount: existingOperations.length
-    };
+        await Promise.all([
+            ...requests.map(requestAsPromise),
+            completion
+        ]);
+
+        return {
+            createdAtUtc,
+            eventCount: existingEvents.length,
+            syncOperationCount: existingOperations.length
+        };
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
 }
 
 export async function getRestoreSafetySnapshot() {
@@ -260,37 +266,41 @@ export async function restoreLatestSafetySnapshot() {
         ],
         "readwrite");
     const completion = transactionAsPromise(transaction);
-    const eventStore = transaction.objectStore(configuredEventStoreName);
-    const operationStore = transaction.objectStore(configuredOperationStoreName);
-    const settingsStore = transaction.objectStore(configuredSettingsStoreName);
-    const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
-    const snapshot = await requestAsPromise(snapshotStore.get(latestRestoreSnapshotKey));
-    if (!snapshot) {
-        transaction.abort();
-        throw new Error("没有可用的恢复前安全快照。");
+    try {
+        const eventStore = transaction.objectStore(configuredEventStoreName);
+        const operationStore = transaction.objectStore(configuredOperationStoreName);
+        const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+        const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
+        const snapshot = await requestAsPromise(snapshotStore.get(latestRestoreSnapshotKey));
+        if (!snapshot) {
+            throw new Error("没有可用的恢复前安全快照。");
+        }
+
+        validateRestoreSafetySnapshot(snapshot);
+        const requests = [
+            eventStore.clear(),
+            operationStore.clear(),
+            settingsStore.delete("syncStatus"),
+            snapshot.wasSyncBlocked
+                ? settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true })
+                : settingsStore.delete(restoreSyncBlockedSettingKey),
+            ...snapshot.calendarEvents.map(calendarEvent => eventStore.put(calendarEvent)),
+            ...snapshot.syncOperations.map(operation => operationStore.put(operation)),
+            snapshotStore.delete(latestRestoreSnapshotKey)
+        ];
+        await Promise.all([
+            ...requests.map(requestAsPromise),
+            completion
+        ]);
+
+        return {
+            eventCount: snapshot.calendarEvents.length,
+            safetySnapshotCreatedAtUtc: snapshot.createdAtUtc
+        };
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
     }
-
-    validateRestoreSafetySnapshot(snapshot);
-    const requests = [
-        eventStore.clear(),
-        operationStore.clear(),
-        settingsStore.delete("syncStatus"),
-        snapshot.wasSyncBlocked
-            ? settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true })
-            : settingsStore.delete(restoreSyncBlockedSettingKey),
-        ...snapshot.calendarEvents.map(calendarEvent => eventStore.put(calendarEvent)),
-        ...snapshot.syncOperations.map(operation => operationStore.put(operation)),
-        snapshotStore.delete(latestRestoreSnapshotKey)
-    ];
-    await Promise.all([
-        ...requests.map(requestAsPromise),
-        completion
-    ]);
-
-    return {
-        eventCount: snapshot.calendarEvents.length,
-        safetySnapshotCreatedAtUtc: snapshot.createdAtUtc
-    };
 }
 
 export async function isSyncBlockedAfterRestore() {
@@ -694,6 +704,20 @@ function transactionAsPromise(transaction) {
         transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB 事务失败。"));
         transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB 事务已中止。"));
     });
+}
+
+async function abortTransactionAfterFailure(transaction, completion) {
+    try {
+        transaction.abort();
+    } catch {
+        // The transaction may already be committed or aborting.
+    }
+
+    try {
+        await completion;
+    } catch {
+        // Preserve and rethrow the original operation error.
+    }
 }
 
 function validateEvent(calendarEvent) {

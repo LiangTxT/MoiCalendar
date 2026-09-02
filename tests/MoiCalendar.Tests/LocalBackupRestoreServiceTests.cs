@@ -163,6 +163,29 @@ public sealed class LocalBackupRestoreServiceTests
     }
 
     [Fact]
+    public async Task AllDayEventAndTimeZone_AreRestoredExactly()
+    {
+        var allDay = CreateEvent(Guid.NewGuid(), "香港公众假期") with
+        {
+            IsAllDay = true,
+            StartUtc = new DateTimeOffset(2026, 8, 27, 16, 0, 0, TimeSpan.Zero),
+            EndUtc = new DateTimeOffset(2026, 8, 28, 16, 0, 0, TimeSpan.Zero),
+            TimeZoneId = "Asia/Hong_Kong"
+        };
+        var repository = new FakeRestoreRepository([]);
+        var service = new LocalBackupRestoreService(repository);
+        var preview = service.PrepareRestore(CreateJson([allDay]));
+
+        await service.RestorePreparedAsync(preview.RestoreId);
+
+        var restored = Assert.Single(repository.Events);
+        Assert.True(restored.IsAllDay);
+        Assert.Equal(allDay.StartUtc, restored.StartUtc);
+        Assert.Equal(allDay.EndUtc, restored.EndUtc);
+        Assert.Equal(allDay.TimeZoneId, restored.TimeZoneId);
+    }
+
+    [Fact]
     public async Task UndoLastRestore_RestoresEventsAndOriginalSyncQueue()
     {
         var existing = CreateEvent(Guid.NewGuid(), "恢复前事件");

@@ -12,11 +12,12 @@ public sealed class IndexedDbBackupRestoreRepository(IndexedDbConnection connect
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(calendarEvents);
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             return await connection.InvokeAsync<BackupRestoreSafetySnapshot>(
                 "replaceAllEventsAndResetSync",
-                cancellationToken,
+                CancellationToken.None,
                 calendarEvents);
         }
         catch (OperationCanceledException)
@@ -57,11 +58,12 @@ public sealed class IndexedDbBackupRestoreRepository(IndexedDbConnection connect
     public async Task<BackupRestoreResult> RestoreSafetySnapshotAsync(
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             return await connection.InvokeAsync<BackupRestoreResult>(
                 "restoreLatestSafetySnapshot",
-                cancellationToken);
+                CancellationToken.None);
         }
         catch (OperationCanceledException)
         {

@@ -57,6 +57,44 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
         Assert.Same(module.Failure, exception.InnerException);
     }
 
+    [Fact]
+    public async Task ReplaceAll_CancelledBeforeStart_DoesNotInvokeIndexedDbMutation()
+    {
+        var module = new FakeJsModule();
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbBackupRestoreRepository(connection);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => repository.ReplaceAllEventsAndResetSyncAsync(
+                [CreateEvent()],
+                cancellation.Token));
+
+        Assert.Null(module.LastIdentifier);
+    }
+
+    [Fact]
+    public async Task ReplaceAll_CancellationAfterStart_WaitsForDefinitiveTransactionResult()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var expected = new BackupRestoreSafetySnapshot(DateTimeOffset.UtcNow, 1, 2);
+        var module = new FakeJsModule
+        {
+            Result = expected,
+            OnOperationInvoke = cancellation.Cancel
+        };
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbBackupRestoreRepository(connection);
+
+        var result = await repository.ReplaceAllEventsAndResetSyncAsync(
+            [CreateEvent()],
+            cancellation.Token);
+
+        Assert.Same(expected, result);
+        Assert.False(module.LastCancellationToken.CanBeCanceled);
+    }
+
     private static CalendarEvent CreateEvent()
     {
         var start = new DateTimeOffset(2026, 8, 28, 9, 0, 0, TimeSpan.Zero);
@@ -99,6 +137,10 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
 
         public object? Result { get; set; }
 
+        public Action? OnOperationInvoke { get; init; }
+
+        public CancellationToken LastCancellationToken { get; private set; }
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -119,6 +161,8 @@ public sealed class IndexedDbBackupRestoreRepositoryTests
 
             LastIdentifier = identifier;
             LastArguments = args;
+            LastCancellationToken = cancellationToken;
+            OnOperationInvoke?.Invoke();
             return ValueTask.FromResult(Result is null ? default! : (TValue)Result);
         }
 
