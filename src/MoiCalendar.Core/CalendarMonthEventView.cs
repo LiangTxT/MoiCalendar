@@ -25,4 +25,5 @@ public sealed record CalendarEventListItem(
     string Title,
     string TimeLabel,
     bool IsAllDay,
-    TimeSpan SortTime);
+    TimeSpan SortTime,
+    bool IsRecurring = false);

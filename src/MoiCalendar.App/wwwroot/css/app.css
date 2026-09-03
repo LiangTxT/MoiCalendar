@@ -243,6 +243,12 @@ button:focus-visible {
     white-space: nowrap;
 }
 
+.recurrence-indicator {
+    flex: 0 0 auto;
+    color: #405f49;
+    font-weight: 800;
+}
+
 .agenda {
     width: min(50rem, 100%);
     margin: 0 auto;
@@ -280,7 +286,7 @@ button:focus-visible {
 
 .agenda-event {
     display: grid;
-    grid-template-columns: 3.5rem minmax(0, 1fr);
+    grid-template-columns: 3.5rem auto minmax(0, 1fr);
     gap: 0.75rem;
     align-items: center;
     min-width: 0;
@@ -559,6 +565,8 @@ button:focus-visible {
 .event-editor input[type="text"],
 .event-editor input[type="date"],
 .event-editor input[type="datetime-local"],
+.event-editor input[type="number"],
+.event-editor select,
 .event-editor textarea {
     width: 100%;
     min-width: 0;
@@ -571,6 +579,7 @@ button:focus-visible {
 }
 
 .event-editor input:focus,
+.event-editor select:focus,
 .event-editor textarea:focus {
     border-color: #597562;
     outline: 3px solid #dce7de;
@@ -596,6 +605,53 @@ button:focus-visible {
 .date-time-fields > div {
     display: grid;
     gap: 0.45rem;
+}
+
+.recurrence-series-notice {
+    margin: -0.65rem 0 1rem;
+    padding: 0.7rem 0.8rem;
+    border-left: 0.25rem solid #6d806f;
+    background: #edf3ee;
+    color: #405046;
+}
+
+.recurrence-fields {
+    display: grid;
+    gap: 0.65rem;
+    margin: 0.35rem 0;
+    padding: 0.85rem;
+    border: 1px solid #c5cec7;
+    border-radius: 0.55rem;
+}
+
+.recurrence-fields > legend,
+.recurrence-weekdays > legend {
+    padding-inline: 0.3rem;
+    font-weight: 700;
+}
+
+.recurrence-interval-row {
+    display: grid;
+    grid-template-columns: auto minmax(4.5rem, 7rem) minmax(5rem, 1fr);
+    gap: 0.55rem;
+    align-items: center;
+}
+
+.recurrence-weekdays {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+    padding: 0.65rem;
+    border: 1px solid #d5ddd6;
+    border-radius: 0.45rem;
+}
+
+.recurrence-weekdays label {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
+    margin: 0;
+    font-weight: 500;
 }
 
 .editor-error {

@@ -79,6 +79,10 @@
                                         @onclick="() => OpenEventEditorAsync(calendarEvent.Id)"
                                         @onclick:stopPropagation="true">
                                     <span class="event-time">@calendarEvent.TimeLabel</span>
+                                    @if (calendarEvent.IsRecurring)
+                                    {
+                                        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+                                    }
                                     <span class="event-title">@calendarEvent.Title</span>
                                 </button>
                             }
@@ -115,6 +119,10 @@
                                         title="@calendarEvent.Title"
                                         @onclick="() => OpenEventEditorAsync(calendarEvent.Id)">
                                     <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
+                                    @if (calendarEvent.IsRecurring)
+                                    {
+                                        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+                                    }
                                     <span class="agenda-event-title">@calendarEvent.Title</span>
                                 </button>
                             }
@@ -150,7 +158,14 @@
                  aria-modal="true"
                  aria-labelledby="event-editor-title"
                  @onclick:stopPropagation="true">
-            <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : "编辑事件")</h2>
+            <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
+
+            @if (editingEventId is not null && IsEditingRecurringEvent)
+            {
+                <p class="recurrence-series-notice" role="status">
+                    这是重复事件系列。保存或删除将影响整个系列。
+                </p>
+            }
 
             <form @onsubmit="SaveEventAsync" @onsubmit:preventDefault="true">
                 <label for="event-title">标题</label>
@@ -189,6 +204,88 @@
                     </div>
                 </div>
 
+                <label for="event-repeat">重复</label>
+                <select id="event-repeat"
+                        value="@editor.Recurrence.RepeatOption"
+                        @onchange="ChangeRepeatOption">
+                    <option value="@CalendarEventRepeatOption.Never">永不</option>
+                    <option value="@CalendarEventRepeatOption.Daily">每天</option>
+                    <option value="@CalendarEventRepeatOption.Weekly">每周</option>
+                    <option value="@CalendarEventRepeatOption.Monthly">每月</option>
+                    <option value="@CalendarEventRepeatOption.Yearly">每年</option>
+                    <option value="@CalendarEventRepeatOption.Custom">自定义</option>
+                </select>
+
+                @if (editor.Recurrence.RepeatOption == CalendarEventRepeatOption.Custom)
+                {
+                    <fieldset class="recurrence-fields">
+                        <legend>自定义重复</legend>
+
+                        <div class="recurrence-interval-row">
+                            <span>每</span>
+                            <input id="event-recurrence-interval"
+                                   type="number"
+                                   min="1"
+                                   max="999"
+                                   required
+                                   aria-label="重复间隔"
+                                   @bind="editor.Recurrence.Interval"
+                                   @bind:event="oninput" />
+                            <select aria-label="重复频率"
+                                    value="@editor.Recurrence.CustomFrequency"
+                                    @onchange="ChangeCustomFrequency">
+                                <option value="@RecurrenceFrequency.Daily">天</option>
+                                <option value="@RecurrenceFrequency.Weekly">周</option>
+                                <option value="@RecurrenceFrequency.Monthly">月</option>
+                                <option value="@RecurrenceFrequency.Yearly">年</option>
+                            </select>
+                        </div>
+
+                        @if (editor.Recurrence.CustomFrequency == RecurrenceFrequency.Weekly)
+                        {
+                            <fieldset class="recurrence-weekdays">
+                                <legend>重复日期</legend>
+                                @foreach (var weekday in RecurrenceWeekdays)
+                                {
+                                    <label>
+                                        <input type="checkbox"
+                                               checked="@editor.Recurrence.IsWeekdaySelected(weekday.Day)"
+                                               @onchange="args => ChangeRecurrenceWeekday(weekday.Day, args)" />
+                                        @weekday.Label
+                                    </label>
+                                }
+                            </fieldset>
+                        }
+
+                        <label for="event-recurrence-end">结束</label>
+                        <select id="event-recurrence-end" @bind="editor.Recurrence.EndOption">
+                            <option value="@RecurrenceEndOption.Never">永不</option>
+                            <option value="@RecurrenceEndOption.OnDate">在指定日期</option>
+                            <option value="@RecurrenceEndOption.AfterCount">重复指定次数后</option>
+                        </select>
+
+                        @if (editor.Recurrence.EndOption == RecurrenceEndOption.OnDate)
+                        {
+                            <label for="event-recurrence-until">结束日期</label>
+                            <input id="event-recurrence-until"
+                                   type="@RecurrenceDateInputType"
+                                   required
+                                   @bind="editor.Recurrence.UntilDateInput" />
+                        }
+                        else if (editor.Recurrence.EndOption == RecurrenceEndOption.AfterCount)
+                        {
+                            <label for="event-recurrence-count">重复次数</label>
+                            <input id="event-recurrence-count"
+                                   type="number"
+                                   min="1"
+                                   max="1000000"
+                                   required
+                                   @bind="editor.Recurrence.OccurrenceCount"
+                                   @bind:event="oninput" />
+                        }
+                    </fieldset>
+                }
+
                 <label for="event-location">地点</label>
                 <input id="event-location"
                        type="text"
@@ -211,11 +308,15 @@
                 <footer class="editor-actions">
                     @if (editingEventId is not null)
                     {
-                        <button class="danger-button" type="button" @onclick="DeleteEventAsync">删除</button>
+                        <button class="danger-button" type="button" @onclick="DeleteEventAsync">
+                            @(IsEditingRecurringEvent ? "删除整个系列" : "删除")
+                        </button>
                     }
                     <span class="action-spacer"></span>
                     <button type="button" @onclick="CloseEditor">取消</button>
-                    <button class="primary-button" type="submit">保存</button>
+                    <button class="primary-button" type="submit">
+                        @(IsEditingRecurringEvent ? "保存整个系列" : "保存")
+                    </button>
                 </footer>
             </form>
         </section>
@@ -224,6 +325,16 @@
 
 @code {
     private const int AgendaEventPageSize = 25;
+    private static readonly (DayOfWeek Day, string Label)[] RecurrenceWeekdays =
+    [
+        (DayOfWeek.Monday, "一"),
+        (DayOfWeek.Tuesday, "二"),
+        (DayOfWeek.Wednesday, "三"),
+        (DayOfWeek.Thursday, "四"),
+        (DayOfWeek.Friday, "五"),
+        (DayOfWeek.Saturday, "六"),
+        (DayOfWeek.Sunday, "日")
+    ];
 
     private DateOnly today;
     private string displayTimeZoneId = TimeZoneInfo.Utc.Id;
@@ -266,6 +377,11 @@
             : new DateOnly(monthView.Month.Year, monthView.Month.Month, 1);
 
     private string EditorInputType => editor?.IsAllDay == true ? "date" : "datetime-local";
+
+    private const string RecurrenceDateInputType = "date";
+
+    private bool IsEditingRecurringEvent =>
+        editor?.Recurrence.RepeatOption is not null and not CalendarEventRepeatOption.Never;
 
     [SupplyParameterFromQuery(Name = "view")]
     public string? RequestedView { get; set; }
@@ -426,6 +542,49 @@
         if (editor is not null && args.Value is bool isAllDay)
         {
             editor.SetAllDay(isAllDay);
+        }
+    }
+
+    private void ChangeRepeatOption(ChangeEventArgs args)
+    {
+        if (editor is null ||
+            !Enum.TryParse<CalendarEventRepeatOption>(args.Value?.ToString(), out var repeatOption))
+        {
+            return;
+        }
+
+        editor.Recurrence.RepeatOption = repeatOption;
+        EnsureCustomWeeklySelection();
+    }
+
+    private void ChangeCustomFrequency(ChangeEventArgs args)
+    {
+        if (editor is null ||
+            !Enum.TryParse<RecurrenceFrequency>(args.Value?.ToString(), out var frequency))
+        {
+            return;
+        }
+
+        editor.Recurrence.CustomFrequency = frequency;
+        EnsureCustomWeeklySelection();
+    }
+
+    private void EnsureCustomWeeklySelection()
+    {
+        if (editor is not null &&
+            editor.Recurrence.RepeatOption == CalendarEventRepeatOption.Custom &&
+            editor.Recurrence.CustomFrequency == RecurrenceFrequency.Weekly &&
+            editor.Recurrence.SelectedWeekdays.Count == 0)
+        {
+            editor.Recurrence.SetWeekdaySelected(editor.StartLocal.DayOfWeek, true);
+        }
+    }
+
+    private void ChangeRecurrenceWeekday(DayOfWeek weekday, ChangeEventArgs args)
+    {
+        if (editor is not null && args.Value is bool selected)
+        {
+            editor.Recurrence.SetWeekdaySelected(weekday, selected);
         }
     }
 

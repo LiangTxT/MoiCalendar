@@ -40,6 +40,7 @@ public sealed class CalendarEventService(
             EndUtc = values.EndUtc,
             TimeZoneId = draft.TimeZoneId,
             IsAllDay = draft.IsAllDay,
+            RecurrenceRule = values.RecurrenceRule,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
@@ -69,6 +70,7 @@ public sealed class CalendarEventService(
             EndUtc = values.EndUtc,
             TimeZoneId = draft.TimeZoneId,
             IsAllDay = draft.IsAllDay,
+            RecurrenceRule = values.RecurrenceRule,
             UpdatedAtUtc = timeProvider.GetUtcNow()
         };
 
@@ -265,7 +267,10 @@ public sealed class CalendarEventService(
         {
             if (calendarEvent.IsAllDay)
             {
-                allDayGroups[date].Add(new CalendarWeekAllDayEvent(calendarEvent.Id, calendarEvent.Title));
+                allDayGroups[date].Add(new CalendarWeekAllDayEvent(
+                    calendarEvent.Id,
+                    calendarEvent.Title,
+                    !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
                 continue;
             }
 
@@ -288,7 +293,8 @@ public sealed class CalendarEventService(
                 startMinute * 100d / MinutesPerDay,
                 displayDurationMinutes * 100d / MinutesPerDay,
                 startMinute,
-                durationMinutes));
+                durationMinutes,
+                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
         }
     }
 
@@ -341,7 +347,8 @@ public sealed class CalendarEventService(
                 calendarEvent.Title,
                 timeLabel,
                 calendarEvent.IsAllDay,
-                sortTime));
+                sortTime,
+                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
         }
     }
 
@@ -373,7 +380,8 @@ public sealed class CalendarEventService(
             draft.Description.Trim(),
             draft.Location.Trim(),
             startUtc,
-            endUtc);
+            endUtc,
+            draft.Recurrence.ToRecurrenceRule(startLocal));
     }
 
     private static DateTimeOffset ConvertLocalToUtc(DateTime localDateTime, TimeZoneInfo timeZone)
@@ -439,7 +447,8 @@ public sealed class CalendarEventService(
         string Description,
         string Location,
         DateTimeOffset StartUtc,
-        DateTimeOffset EndUtc);
+        DateTimeOffset EndUtc,
+        string? RecurrenceRule);
 
     private sealed record EventRangeResult(
         TimeZoneInfo DisplayTimeZone,

@@ -32,6 +32,10 @@
                                 type="button"
                                 title="@calendarEvent.Title"
                                 @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
+                            @if (calendarEvent.IsRecurring)
+                            {
+                                <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+                            }
                             @calendarEvent.Title
                         </button>
                     }
@@ -68,7 +72,13 @@
                                     title="@($"{calendarEvent.TimeLabel} {calendarEvent.Title}")"
                                     @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
                                 <span>@calendarEvent.TimeLabel</span>
-                                <strong>@calendarEvent.Title</strong>
+                                <strong>
+                                    @if (calendarEvent.IsRecurring)
+                                    {
+                                        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+                                    }
+                                    @calendarEvent.Title
+                                </strong>
                             </button>
                         }
                     </div>

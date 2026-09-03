@@ -18,6 +18,8 @@ public sealed class CalendarEventDraft
 
     public bool IsAllDay { get; private set; }
 
+    public CalendarEventRecurrenceDraft Recurrence { get; private set; } = new();
+
     public string StartInput
     {
         get => FormatInput(StartLocal);
@@ -68,6 +70,10 @@ public sealed class CalendarEventDraft
         };
 
         draft.SetAllDay(calendarEvent.IsAllDay);
+        draft.Recurrence = CalendarEventRecurrenceDraft.FromRule(
+            calendarEvent.RecurrenceRule,
+            draft.StartLocal,
+            timeZone);
         return draft;
     }
 

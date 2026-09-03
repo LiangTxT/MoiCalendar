@@ -19,7 +19,8 @@ public sealed record CalendarWeekDayEvents(
 
 public sealed record CalendarWeekAllDayEvent(
     Guid Id,
-    string Title);
+    string Title,
+    bool IsRecurring = false);
 
 public sealed record CalendarWeekTimedEvent(
     Guid Id,
@@ -28,4 +29,5 @@ public sealed record CalendarWeekTimedEvent(
     double TopPercentage,
     double HeightPercentage,
     int StartMinute,
-    int DurationMinutes);
+    int DurationMinutes,
+    bool IsRecurring = false);
