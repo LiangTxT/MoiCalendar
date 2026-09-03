@@ -804,6 +804,63 @@ button:focus-visible {
     margin: 0 0 1rem;
 }
 
+.calendar-import-preview {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #d6ddd7;
+}
+
+.calendar-import-preview h3 {
+    margin: 0 0 1rem;
+}
+
+.calendar-import-events,
+.calendar-import-messages {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0;
+    list-style: none;
+}
+
+.calendar-import-events li {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid #d6ddd7;
+    border-radius: 0.5rem;
+}
+
+.calendar-import-events li > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.4rem 0.8rem;
+}
+
+.calendar-import-events label {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    align-items: center;
+}
+
+.calendar-import-messages li {
+    padding: 0.55rem 0.7rem;
+    border-left: 0.25rem solid #b68b37;
+    background: #fff8e8;
+}
+
+.calendar-import-messages li.failure {
+    border-left-color: #b94b4b;
+    background: #fff0f0;
+}
+
+.settings-note.compact {
+    margin: 0;
+    padding: 0.35rem 0.55rem;
+    justify-self: start;
+}
+
 .sync-status-card .account-information {
     grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr);
 }

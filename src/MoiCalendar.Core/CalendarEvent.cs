@@ -23,6 +23,11 @@ public sealed record CalendarEvent
     /// </summary>
     public string? RecurrenceRule { get; init; }
 
+    /// <summary>
+    /// 从外部日历导入时保留的原始 UID；本地创建的事件为空。
+    /// </summary>
+    public string? ExternalUid { get; init; }
+
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
     public required DateTimeOffset UpdatedAtUtc { get; init; }

@@ -61,6 +61,9 @@ builder.Services.AddScoped<ILocalBackupRestoreService>(sp => new LocalBackupRest
     sp.GetRequiredService<IBackupRestoreRepository>(),
     sp.GetRequiredService<ILocalDataOperationLock>(),
     sp.GetRequiredService<IRestoreSyncGuard>()));
+builder.Services.AddScoped<ICalendarExportService, CalendarExportService>();
+builder.Services.AddScoped<ICalendarImportParser, CalendarImportParser>();
+builder.Services.AddScoped<ICalendarImportService, CalendarImportService>();
 builder.Services.AddScoped<IBrowserFileDownloadService, BrowserFileDownloadService>();
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();

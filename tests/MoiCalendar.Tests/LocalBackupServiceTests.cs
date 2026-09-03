@@ -118,6 +118,20 @@ public sealed class LocalBackupServiceTests
     }
 
     [Fact]
+    public async Task CreateExportAsync_PreservesImportedExternalUid()
+    {
+        var repository = new InMemoryEventRepository();
+        var imported = CreateEvent(Guid.NewGuid()) with { ExternalUid = "external@example.com" };
+        await repository.CreateAsync(imported);
+
+        var exported = Assert.Single(
+            Deserialize((await CreateService(repository).CreateExportAsync()).Json)
+                .CalendarData.CalendarEvents);
+
+        Assert.Equal(imported.ExternalUid, exported.ExternalUid);
+    }
+
+    [Fact]
     public async Task CreateExportAsync_IncludesDeletionMarkerNeededByCalendarData()
     {
         var repository = new InMemoryEventRepository();

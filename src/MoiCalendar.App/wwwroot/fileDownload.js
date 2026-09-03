@@ -20,3 +20,26 @@ export function downloadJson(fileName, json) {
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
     }
 }
+
+export function downloadICalendar(fileName, content) {
+    if (typeof fileName !== "string" ||
+        !/^moicalendar-calendar-\d{4}-\d{2}-\d{2}\.ics$/.test(fileName) ||
+        typeof content !== "string") {
+        throw new Error("iCalendar 下载参数无效。");
+    }
+
+    const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+
+    try {
+        anchor.click();
+    } finally {
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+}

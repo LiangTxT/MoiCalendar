@@ -8,6 +8,11 @@ public interface IBrowserFileDownloadService
         string fileName,
         string json,
         CancellationToken cancellationToken = default);
+
+    Task DownloadICalendarAsync(
+        string fileName,
+        string content,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class BrowserFileDownloadService(IJSRuntime jsRuntime)
@@ -41,6 +46,33 @@ public sealed class BrowserFileDownloadService(IJSRuntime jsRuntime)
         catch (JSException exception)
         {
             throw new LocalBackupDownloadException("浏览器无法下载备份文件。", exception);
+        }
+    }
+
+    public async Task DownloadICalendarAsync(
+        string fileName,
+        string content,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(content);
+
+        try
+        {
+            var loadedModule = await GetModuleAsync(cancellationToken);
+            await loadedModule.InvokeVoidAsync(
+                "downloadICalendar",
+                cancellationToken,
+                fileName,
+                content);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (JSException exception)
+        {
+            throw new ICalendarDownloadException("浏览器无法下载 iCalendar 文件。", exception);
         }
     }
 
@@ -88,6 +120,14 @@ public sealed class BrowserFileDownloadService(IJSRuntime jsRuntime)
 public sealed class LocalBackupDownloadException : Exception
 {
     public LocalBackupDownloadException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+public sealed class ICalendarDownloadException : Exception
+{
+    public ICalendarDownloadException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

@@ -72,6 +72,7 @@ public sealed class LocalBackupRestoreService(
         "timeZoneId",
         "isAllDay",
         "recurrenceRule",
+        "externalUid",
         "createdAtUtc",
         "updatedAtUtc",
         "deletedAtUtc"
@@ -373,6 +374,12 @@ public sealed class LocalBackupRestoreService(
                 string.IsNullOrWhiteSpace(calendarEvent.TimeZoneId))
             {
                 throw new LocalBackupRestoreException("备份包含无效的事件文本字段，未修改本地数据。");
+            }
+
+            if (calendarEvent.ExternalUid is { } externalUid &&
+                (string.IsNullOrWhiteSpace(externalUid) || externalUid.Length > 1_024))
+            {
+                throw new LocalBackupRestoreException("备份包含无效的外部事件 UID，未修改本地数据。");
             }
 
             if (calendarEvent.EndUtc <= calendarEvent.StartUtc ||

@@ -6,6 +6,24 @@ namespace MoiCalendar.Storage;
 
 public sealed class IndexedDbEventChangeRepository(IndexedDbConnection connection) : ILocalEventChangeRepository
 {
+    public async Task ApplyImportAsync(
+        IReadOnlyList<CalendarImportChange> changes,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await connection.InvokeAsync<object?>("applyCalendarImport", cancellationToken, changes);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException or JSException)
+        {
+            throw new SyncOperationException("导入事件及同步操作失败：本地事务未完成。", exception);
+        }
+    }
+
     public Task<CalendarEvent> CreateEventAsync(
         CalendarEvent calendarEvent,
         SyncOperation operation,

@@ -202,6 +202,22 @@ public sealed class LocalBackupRestoreServiceTests
     }
 
     [Fact]
+    public async Task ExternalUid_IsRestoredForImportedEvent()
+    {
+        var imported = CreateEvent(Guid.NewGuid(), "导入事件") with
+        {
+            ExternalUid = "external@example.com"
+        };
+        var repository = new FakeRestoreRepository([]);
+        var service = new LocalBackupRestoreService(repository);
+
+        var preview = service.PrepareRestore(CreateJson([imported]));
+        await service.RestorePreparedAsync(preview.RestoreId);
+
+        Assert.Equal(imported.ExternalUid, Assert.Single(repository.Events).ExternalUid);
+    }
+
+    [Fact]
     public void InvalidRecurrenceRule_IsRejectedBeforeWrites()
     {
         var existing = CreateEvent(Guid.NewGuid(), "保留");

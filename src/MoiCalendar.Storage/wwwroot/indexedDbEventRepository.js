@@ -430,6 +430,69 @@ export async function createEventWithSyncOperation(calendarEvent, operation) {
     return calendarEvent;
 }
 
+export async function applyCalendarImport(changes) {
+    if (!Array.isArray(changes)) {
+        throw new Error("导入变更不是有效数组。");
+    }
+
+    for (const change of changes) {
+        if (!change || typeof change !== "object") {
+            throw new Error("导入变更不是有效对象。");
+        }
+        validateEventAndOperation(
+            change.calendarEvent,
+            change.operation,
+            change.expectedExistingEventId ? 1 : 0);
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredOperationStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    try {
+        const eventStore = transaction.objectStore(configuredEventStoreName);
+        const operationStore = transaction.objectStore(configuredOperationStoreName);
+        const existingEvents = await requestAsPromise(eventStore.getAll());
+        const externalUidLookup = new Map();
+        for (const existingEvent of existingEvents) {
+            validateEvent(existingEvent);
+            if (typeof existingEvent.externalUid === "string" && existingEvent.externalUid.length > 0) {
+                externalUidLookup.set(existingEvent.externalUid, existingEvent);
+            }
+        }
+
+        for (const change of changes) {
+            const importedEvent = change.calendarEvent;
+            const currentDuplicate = externalUidLookup.get(importedEvent.externalUid);
+            if (change.expectedExistingEventId) {
+                if (!currentDuplicate || currentDuplicate.id !== change.expectedExistingEventId) {
+                    throw new Error("预览后本地重复事件已发生变化，请重新预览后导入。");
+                }
+                if (new Date(currentDuplicate.updatedAtUtc).getTime() !==
+                    new Date(change.expectedExistingUpdatedAtUtc).getTime()) {
+                    throw new Error("预览后本地事件已被修改，请重新预览后导入。");
+                }
+            } else if (currentDuplicate) {
+                throw new Error("预览后出现了相同 UID 的本地事件，请重新预览后导入。");
+            }
+
+            externalUidLookup.set(importedEvent.externalUid, importedEvent);
+            if (change.expectedExistingEventId) {
+                eventStore.put(importedEvent);
+            } else {
+                eventStore.add(importedEvent);
+            }
+            operationStore.add(change.operation);
+        }
+
+        await completion;
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
+}
+
 export async function updateEventWithSyncOperation(calendarEvent, operation) {
     validateEventAndOperation(calendarEvent, operation, 1);
     const database = await getDatabase();
@@ -794,6 +857,14 @@ function validateEvent(calendarEvent) {
         calendarEvent.recurrenceRule !== undefined &&
         typeof calendarEvent.recurrenceRule !== "string") {
         throw new Error("事件字段 recurrenceRule 无法序列化。");
+    }
+
+    if (calendarEvent.externalUid !== null &&
+        calendarEvent.externalUid !== undefined &&
+        (typeof calendarEvent.externalUid !== "string" ||
+            calendarEvent.externalUid.length === 0 ||
+            calendarEvent.externalUid.length > 1024)) {
+        throw new Error("事件字段 externalUid 无法序列化。");
     }
 }
 

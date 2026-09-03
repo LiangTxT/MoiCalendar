@@ -11,6 +11,8 @@
 @inject NavigationManager Navigation
 @inject ILocalBackupService LocalBackupService
 @inject ILocalBackupRestoreService LocalBackupRestoreService
+@inject ICalendarExportService ICalendarExportService
+@inject ICalendarImportService ICalendarImportService
 @inject IBrowserFileDownloadService BrowserFileDownloadService
 @inject ISyncDiagnosticsService SyncDiagnosticsService
 
@@ -229,6 +231,120 @@
             </p>
         }
     </section>
+
+    <section class="settings-card" aria-labelledby="calendar-transfer-heading">
+        <h2 id="calendar-transfer-heading">导入 / 导出</h2>
+        <p>导出或预览通用 iCalendar（.ics）文件。选择文件和预览不会修改本地日历。</p>
+        <div class="settings-actions">
+            <button type="button"
+                    class="primary-button"
+                    disabled="@(isExportingICalendar || isImportingICalendar)"
+                    @onclick="ExportICalendarAsync">
+                @(isExportingICalendar ? "正在导出…" : "导出日历（.ics）")
+            </button>
+            <label class="file-button @(isExportingICalendar || isImportingICalendar ? "disabled" : null)"
+                   for="import-calendar-file">
+                导入日历（.ics）
+            </label>
+            <InputFile @key="calendarImportFileInputKey"
+                       id="import-calendar-file"
+                       class="visually-hidden-file"
+                       accept=".ics,text/calendar"
+                       disabled="@(isExportingICalendar || isImportingICalendar)"
+                       OnChange="SelectCalendarImportFileAsync" />
+        </div>
+
+        @if (calendarImportPreview is not null)
+        {
+            <section class="calendar-import-preview" aria-labelledby="calendar-import-preview-heading">
+                <h3 id="calendar-import-preview-heading">导入预览</h3>
+                <dl class="account-information">
+                    <dt>文件</dt>
+                    <dd>@(calendarImportPreview.SourceName ?? "未命名")</dd>
+                    <dt>事件总数</dt>
+                    <dd>@calendarImportPreview.TotalEventCount</dd>
+                    <dt>有效事件</dt>
+                    <dd>@calendarImportPreview.ValidEventCount</dd>
+                    <dt>警告</dt>
+                    <dd>@calendarImportPreview.WarningCount</dd>
+                    <dt>无效事件</dt>
+                    <dd>@calendarImportPreview.ErrorCount</dd>
+                    <dt>可能重复</dt>
+                    <dd>@calendarImportPreview.PotentialDuplicateCount</dd>
+                </dl>
+
+                @if (calendarImportPreview.Messages.Count > 0)
+                {
+                    <ul class="calendar-import-messages">
+                        @foreach (var message in calendarImportPreview.Messages.Take(MaximumDisplayedImportMessages))
+                        {
+                            <li class="@(message.Severity == ICalendarImportMessageSeverity.Error ? "failure" : null)">
+                                @message.Message
+                            </li>
+                        }
+                    </ul>
+                    @if (calendarImportPreview.Messages.Count > MaximumDisplayedImportMessages)
+                    {
+                        <p class="settings-note">另有 @(calendarImportPreview.Messages.Count - MaximumDisplayedImportMessages) 条信息未显示。</p>
+                    }
+                }
+
+                <ul class="calendar-import-events">
+                    @foreach (var item in calendarImportPreview.Items.Take(MaximumDisplayedImportEvents))
+                    {
+                        <li>
+                            <div>
+                                <strong>@item.Candidate.Title</strong>
+                                <span>@FormatImportTime(item.Candidate)</span>
+                            </div>
+                            @if (item.IsPotentialDuplicate)
+                            {
+                                <label>
+                                    相同 UID 已存在：
+                                    <select value="@duplicateActions[item.ItemNumber]"
+                                            @onchange="args => SetDuplicateAction(item.ItemNumber, args.Value?.ToString())">
+                                        <option value="@CalendarImportDuplicateAction.Skip">跳过</option>
+                                        <option value="@CalendarImportDuplicateAction.Update">更新现有事件</option>
+                                    </select>
+                                </label>
+                            }
+                            else
+                            {
+                                <span class="settings-note compact">将创建为新事件</span>
+                            }
+                        </li>
+                    }
+                </ul>
+                @if (calendarImportPreview.Items.Count > MaximumDisplayedImportEvents)
+                {
+                    <p class="settings-note">预览仅显示前 @MaximumDisplayedImportEvents 个有效事件，确认时会处理全部有效事件。</p>
+                }
+
+                <p class="settings-status failure" role="alert">
+                    只有确认后才会写入本地日历。每个已创建或更新的事件都会生成一个待处理同步操作，
+                    但不会自动开始 OneDrive 或 WebDAV 同步。
+                </p>
+                <div class="settings-actions">
+                    <button type="button"
+                            class="primary-button"
+                            disabled="@isImportingICalendar"
+                            @onclick="ConfirmCalendarImportAsync">
+                        @(isImportingICalendar ? "正在导入…" : "确认导入")
+                    </button>
+                    <button type="button" disabled="@isImportingICalendar" @onclick="CancelCalendarImport">
+                        取消
+                    </button>
+                </div>
+            </section>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(calendarTransferMessage))
+        {
+            <p class="settings-status @(calendarTransferSucceeded ? "success" : "failure")" role="status">
+                @calendarTransferMessage
+            </p>
+        }
+    </section>
 </main>
 
 @code {
@@ -250,6 +366,16 @@
     private bool isUndoConfirmationVisible;
     private Guid restoreFileInputKey = Guid.NewGuid();
     private const long MaximumBackupFileSize = 20 * 1024 * 1024;
+    private bool isExportingICalendar;
+    private bool calendarTransferSucceeded;
+    private string? calendarTransferMessage;
+    private CalendarImportPreview? calendarImportPreview;
+    private readonly Dictionary<int, CalendarImportDuplicateAction> duplicateActions = [];
+    private bool isImportingICalendar;
+    private Guid calendarImportFileInputKey = Guid.NewGuid();
+    private const long MaximumCalendarImportFileSize = 10 * 1024 * 1024;
+    private const int MaximumDisplayedImportEvents = 100;
+    private const int MaximumDisplayedImportMessages = 50;
 
     private bool isAuthenticationConfigured =>
         !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
@@ -346,6 +472,131 @@
             isExportingBackup = false;
         }
     }
+
+    private async Task ExportICalendarAsync()
+    {
+        isExportingICalendar = true;
+        calendarTransferMessage = null;
+        try
+        {
+            var export = await ICalendarExportService.CreateExportAsync();
+            await BrowserFileDownloadService.DownloadICalendarAsync(export.FileName, export.Content);
+            calendarTransferSucceeded = true;
+            calendarTransferMessage = $"日历已导出：{export.FileName}";
+        }
+        catch (Exception exception) when (
+            exception is ICalendarExportException or ICalendarDownloadException or
+                EventRepositoryException or RecurrenceRuleException)
+        {
+            calendarTransferSucceeded = false;
+            calendarTransferMessage = exception.Message;
+        }
+        finally
+        {
+            isExportingICalendar = false;
+        }
+    }
+
+    private async Task SelectCalendarImportFileAsync(InputFileChangeEventArgs args)
+    {
+        if (calendarImportPreview is not null)
+        {
+            ICalendarImportService.Cancel(calendarImportPreview.ImportId);
+            calendarImportPreview = null;
+        }
+
+        duplicateActions.Clear();
+        calendarTransferMessage = null;
+        try
+        {
+            var file = args.File;
+            if (file.Size > MaximumCalendarImportFileSize)
+            {
+                throw new ICalendarImportException("iCalendar 文件超过 10 MB，未读取或修改本地数据。");
+            }
+
+            await using var stream = file.OpenReadStream(MaximumCalendarImportFileSize);
+            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+            var content = await reader.ReadToEndAsync();
+            calendarImportPreview = await ICalendarImportService.PrepareAsync(content, file.Name);
+            foreach (var item in calendarImportPreview.Items.Where(item => item.IsPotentialDuplicate))
+            {
+                duplicateActions[item.ItemNumber] = CalendarImportDuplicateAction.Skip;
+            }
+
+            calendarTransferSucceeded = true;
+            calendarTransferMessage = "文件解析完成。请检查预览和重复项处理方式，再确认导入。";
+        }
+        catch (Exception exception) when (
+            exception is ICalendarImportException or CalendarImportException or
+                EventRepositoryException or IOException or InvalidOperationException)
+        {
+            calendarTransferSucceeded = false;
+            calendarTransferMessage = exception is IOException or InvalidOperationException
+                ? "无法读取 iCalendar 文件，本地数据没有改变。"
+                : exception.Message;
+        }
+    }
+
+    private async Task ConfirmCalendarImportAsync()
+    {
+        if (calendarImportPreview is null)
+        {
+            return;
+        }
+
+        isImportingICalendar = true;
+        calendarTransferMessage = null;
+        try
+        {
+            var result = await ICalendarImportService.ConfirmAsync(
+                calendarImportPreview.ImportId,
+                duplicateActions);
+            calendarImportPreview = null;
+            duplicateActions.Clear();
+            calendarImportFileInputKey = Guid.NewGuid();
+            calendarTransferSucceeded = true;
+            calendarTransferMessage =
+                $"导入完成：新建 {result.CreatedCount} 个，更新 {result.UpdatedCount} 个，跳过 {result.SkippedCount} 个。" +
+                "已生成待处理同步操作，但尚未自动同步到远端。";
+        }
+        catch (Exception exception) when (
+            exception is CalendarImportException or SyncOperationException or EventRepositoryException)
+        {
+            calendarTransferSucceeded = false;
+            calendarTransferMessage = exception.Message;
+        }
+        finally
+        {
+            isImportingICalendar = false;
+        }
+    }
+
+    private void CancelCalendarImport()
+    {
+        if (calendarImportPreview is not null)
+        {
+            ICalendarImportService.Cancel(calendarImportPreview.ImportId);
+            calendarImportPreview = null;
+        }
+
+        duplicateActions.Clear();
+        calendarImportFileInputKey = Guid.NewGuid();
+        calendarTransferSucceeded = true;
+        calendarTransferMessage = "已取消导入，本地数据没有改变。";
+    }
+
+    private void SetDuplicateAction(int itemNumber, string? value)
+    {
+        duplicateActions[itemNumber] = Enum.TryParse<CalendarImportDuplicateAction>(value, out var action)
+            ? action
+            : CalendarImportDuplicateAction.Skip;
+    }
+
+    private static string FormatImportTime(ICalendarImportCandidate candidate) =>
+        candidate.IsAllDay
+            ? $"全天 · {candidate.StartUtc:yyyy-MM-dd} 至 {candidate.EndUtc.AddDays(-1):yyyy-MM-dd}"
+            : $"{candidate.StartUtc.ToLocalTime():yyyy-MM-dd HH:mm} – {candidate.EndUtc.ToLocalTime():yyyy-MM-dd HH:mm}";
 
     private async Task SelectRestoreFileAsync(InputFileChangeEventArgs args)
     {

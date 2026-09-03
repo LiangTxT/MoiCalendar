@@ -16,4 +16,8 @@ public interface ILocalEventChangeRepository
         CalendarEvent deletedEvent,
         SyncOperation operation,
         CancellationToken cancellationToken = default);
+
+    Task ApplyImportAsync(
+        IReadOnlyList<CalendarImportChange> changes,
+        CancellationToken cancellationToken = default);
 }
