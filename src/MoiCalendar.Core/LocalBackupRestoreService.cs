@@ -71,6 +71,7 @@ public sealed class LocalBackupRestoreService(
         "endUtc",
         "timeZoneId",
         "isAllDay",
+        "recurrenceRule",
         "createdAtUtc",
         "updatedAtUtc",
         "deletedAtUtc"
@@ -123,10 +124,12 @@ public sealed class LocalBackupRestoreService(
 
             ValidateAllowedProperties(root, TopLevelProperties, "备份根节点");
             var schemaVersion = ReadSchemaVersion(root);
-            if (schemaVersion != MyCalendarBackup.CurrentSchemaVersion)
+            if (schemaVersion < MyCalendarBackup.MinimumSupportedSchemaVersion ||
+                schemaVersion > MyCalendarBackup.CurrentSchemaVersion)
             {
                 throw new LocalBackupRestoreException(
-                    $"不支持备份 SchemaVersion {schemaVersion}；当前仅支持版本 {MyCalendarBackup.CurrentSchemaVersion}。未修改本地数据。");
+                    $"不支持备份 SchemaVersion {schemaVersion}；当前支持版本 " +
+                    $"{MyCalendarBackup.MinimumSupportedSchemaVersion}–{MyCalendarBackup.CurrentSchemaVersion}。未修改本地数据。");
             }
 
             var exportedAtUtc = ReadExportedAtUtc(root);
@@ -386,6 +389,18 @@ public sealed class LocalBackupRestoreService(
             catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
             {
                 throw new LocalBackupRestoreException("备份包含当前设备无法识别的事件时区，未修改本地数据。", exception);
+            }
+
+            if (calendarEvent.RecurrenceRule is not null)
+            {
+                try
+                {
+                    _ = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule);
+                }
+                catch (RecurrenceRuleException exception)
+                {
+                    throw new LocalBackupRestoreException("备份包含无效或不受支持的重复规则，未修改本地数据。", exception);
+                }
             }
         }
     }

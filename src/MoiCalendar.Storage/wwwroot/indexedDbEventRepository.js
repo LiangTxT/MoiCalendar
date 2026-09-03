@@ -390,6 +390,29 @@ export async function getEventsByRange(startUtc, endUtc) {
             left.title.localeCompare(right.title));
 }
 
+export async function getRecurringEventMasters() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredEventStoreName, "readonly");
+    const request = transaction.objectStore(configuredEventStoreName).getAll();
+    const [records] = await Promise.all([
+        requestAsPromise(request),
+        transactionAsPromise(transaction)
+    ]);
+
+    for (const calendarEvent of records) {
+        validateEvent(calendarEvent);
+    }
+
+    return records
+        .filter(calendarEvent =>
+            !calendarEvent.deletedAtUtc &&
+            typeof calendarEvent.recurrenceRule === "string" &&
+            calendarEvent.recurrenceRule.trim().length > 0)
+        .sort((left, right) =>
+            Date.parse(left.startUtc) - Date.parse(right.startUtc) ||
+            left.id.localeCompare(right.id));
+}
+
 export async function createEventWithSyncOperation(calendarEvent, operation) {
     validateEventAndOperation(calendarEvent, operation, 0);
     const database = await getDatabase();
@@ -765,6 +788,12 @@ function validateEvent(calendarEvent) {
 
     if (calendarEvent.deletedAtUtc !== null && calendarEvent.deletedAtUtc !== undefined) {
         validateDateValue(calendarEvent.deletedAtUtc, "deletedAtUtc");
+    }
+
+    if (calendarEvent.recurrenceRule !== null &&
+        calendarEvent.recurrenceRule !== undefined &&
+        typeof calendarEvent.recurrenceRule !== "string") {
+        throw new Error("事件字段 recurrenceRule 无法序列化。");
     }
 }
 

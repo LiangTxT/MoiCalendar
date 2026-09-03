@@ -101,6 +101,23 @@ public sealed class LocalBackupServiceTests
     }
 
     [Fact]
+    public async Task CreateExportAsync_PreservesRecurrenceRuleOnMasterEvent()
+    {
+        var repository = new InMemoryEventRepository();
+        var recurring = CreateEvent(Guid.NewGuid()) with
+        {
+            RecurrenceRule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=8"
+        };
+        await repository.CreateAsync(recurring);
+
+        var exported = Assert.Single(
+            Deserialize((await CreateService(repository).CreateExportAsync()).Json)
+                .CalendarData.CalendarEvents);
+
+        Assert.Equal(recurring.RecurrenceRule, exported.RecurrenceRule);
+    }
+
+    [Fact]
     public async Task CreateExportAsync_IncludesDeletionMarkerNeededByCalendarData()
     {
         var repository = new InMemoryEventRepository();

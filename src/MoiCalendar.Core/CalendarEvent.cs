@@ -18,6 +18,11 @@ public sealed record CalendarEvent
 
     public required bool IsAllDay { get; init; }
 
+    /// <summary>
+    /// RFC 5545 RRULE 属性值；为空表示事件不重复。
+    /// </summary>
+    public string? RecurrenceRule { get; init; }
+
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
     public required DateTimeOffset UpdatedAtUtc { get; init; }

@@ -66,6 +66,19 @@ public sealed class IndexedDbEventRepositoryTests
         Assert.Equal([active, deleted], events);
     }
 
+    [Fact]
+    public async Task Repository_ReadsRecurringMastersThroughDedicatedQuery()
+    {
+        var recurring = CreateEvent() with { RecurrenceRule = "FREQ=DAILY" };
+        var module = new FakeJsModule { RecurringEvents = [recurring] };
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbEventRepository(connection);
+
+        var events = await repository.GetRecurringMastersAsync();
+
+        Assert.Equal([recurring], events);
+    }
+
     private static CalendarEvent CreateEvent()
     {
         var start = new DateTimeOffset(2026, 8, 24, 9, 0, 0, TimeSpan.Zero);
@@ -110,6 +123,8 @@ public sealed class IndexedDbEventRepositoryTests
 
         public CalendarEvent[] AllEvents { get; init; } = [];
 
+        public CalendarEvent[] RecurringEvents { get; init; } = [];
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -134,6 +149,7 @@ public sealed class IndexedDbEventRepositoryTests
                 "createEvent" => args![0],
                 "getEventsByRange" => Array.Empty<CalendarEvent>(),
                 "getAllEventsIncludingDeleted" => AllEvents,
+                "getRecurringEventMasters" => RecurringEvents,
                 _ => default(TValue)
             };
             return ValueTask.FromResult((TValue)result!);

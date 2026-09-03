@@ -166,4 +166,24 @@ public sealed class InMemoryEventRepository : IEventRepository
             gate.Release();
         }
     }
+
+    public async Task<IReadOnlyList<CalendarEvent>> GetRecurringMastersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            return events.Values
+                .Where(calendarEvent =>
+                    calendarEvent.DeletedAtUtc is null &&
+                    !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
+                .OrderBy(calendarEvent => calendarEvent.StartUtc)
+                .ThenBy(calendarEvent => calendarEvent.Id)
+                .ToArray();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 }

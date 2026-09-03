@@ -28,4 +28,7 @@ public interface IEventRepository
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CalendarEvent>> GetRecurringMastersAsync(
+        CancellationToken cancellationToken = default);
 }

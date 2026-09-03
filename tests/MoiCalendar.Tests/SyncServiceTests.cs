@@ -164,6 +164,74 @@ public sealed class SyncServiceTests
     }
 
     [Fact]
+    public async Task Pull_PreservesRecurrenceRuleOnMasterEvent()
+    {
+        var remoteEvent = CreateEvent("远端重复事件", UpdatedAt(2)) with
+        {
+            RecurrenceRule = "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=10"
+        };
+        var targetEvents = new InMemoryEventRepository();
+
+        var result = await PullAsync(
+            CreateOperation(remoteEvent, SyncOperationType.Create),
+            targetEvents);
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(remoteEvent.RecurrenceRule, (await targetEvents.GetByIdAsync(remoteEvent.Id))?.RecurrenceRule);
+    }
+
+    [Fact]
+    public async Task Push_SerializesRecurrenceRuleOnMasterEvent()
+    {
+        var remoteEvent = CreateEvent("本地重复事件", UpdatedAt(2)) with
+        {
+            RecurrenceRule = "FREQ=YEARLY;INTERVAL=2;COUNT=4"
+        };
+        var operation = CreateOperation(remoteEvent, SyncOperationType.Create);
+        var operations = new InMemoryOperationRepository();
+        await operations.AddAsync(operation);
+        var storage = new FakeSyncStorageProvider();
+        var service = new SyncService(operations, new InMemoryEventRepository(), storage);
+
+        await service.PushAsync();
+        var remoteFile = await storage.DownloadTextAsync(
+            $"{RemoteSyncFormat.OperationsDirectory}/{operation.OperationId:D}.json");
+
+        Assert.NotNull(remoteFile);
+        Assert.Contains(remoteEvent.RecurrenceRule, remoteFile.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pull_RemainsCompatibleWithVersionOneOperationDocuments()
+    {
+        var remoteEvent = CreateEvent("旧版远端事件", UpdatedAt(2));
+        var operation = CreateOperation(remoteEvent, SyncOperationType.Create);
+        using var payload = JsonDocument.Parse(operation.Payload);
+        var document = new RemoteSyncOperationDocument
+        {
+            FormatVersion = RemoteSyncFormat.MinimumSupportedVersion,
+            OperationId = operation.OperationId,
+            DeviceId = operation.DeviceId,
+            EntityId = operation.EntityId,
+            OperationType = operation.OperationType,
+            TimestampUtc = operation.TimestampUtc,
+            Payload = payload.RootElement.Clone()
+        };
+        var storage = new FakeSyncStorageProvider();
+        await storage.UploadTextAsync(
+            RemoteSyncFormat.GetOperationPath(operation.OperationId),
+            JsonSerializer.Serialize(document, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        storage.MarkSeedComplete();
+        var events = new InMemoryEventRepository();
+        var service = new SyncService(new InMemoryOperationRepository(), events, storage);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(remoteEvent, await events.GetByIdAsync(remoteEvent.Id));
+    }
+
+    [Fact]
     public async Task Pull_AppliesNewerRemoteUpdateUsingLastWriteWins()
     {
         var localEvent = CreateEvent("本地旧标题", UpdatedAt(1));

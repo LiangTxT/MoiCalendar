@@ -23,7 +23,7 @@ public sealed class LocalBackupRestoreServiceTests
         Assert.Equal([existing], repository.Events);
         Assert.Equal(0, repository.ReplaceCount);
         Assert.Equal(ExportedAtUtc, preview.ExportedAtUtc);
-        Assert.Equal(1, preview.SchemaVersion);
+        Assert.Equal(MyCalendarBackup.CurrentSchemaVersion, preview.SchemaVersion);
         Assert.Equal(1, preview.EventCount);
 
         var result = await service.RestorePreparedAsync(preview.RestoreId);
@@ -186,6 +186,53 @@ public sealed class LocalBackupRestoreServiceTests
     }
 
     [Fact]
+    public async Task RecurrenceRule_IsRestoredOnMasterEvent()
+    {
+        var recurring = CreateEvent(Guid.NewGuid(), "重复事件") with
+        {
+            RecurrenceRule = "FREQ=MONTHLY;COUNT=6"
+        };
+        var repository = new FakeRestoreRepository([]);
+        var service = new LocalBackupRestoreService(repository);
+
+        var preview = service.PrepareRestore(CreateJson([recurring]));
+        await service.RestorePreparedAsync(preview.RestoreId);
+
+        Assert.Equal(recurring.RecurrenceRule, Assert.Single(repository.Events).RecurrenceRule);
+    }
+
+    [Fact]
+    public void InvalidRecurrenceRule_IsRejectedBeforeWrites()
+    {
+        var existing = CreateEvent(Guid.NewGuid(), "保留");
+        var invalid = CreateEvent(Guid.NewGuid(), "无效重复") with { RecurrenceRule = "FREQ=HOURLY" };
+        var repository = new FakeRestoreRepository([existing]);
+        var service = new LocalBackupRestoreService(repository);
+
+        var exception = Assert.Throws<LocalBackupRestoreException>(
+            () => service.PrepareRestore(CreateJson([invalid])));
+
+        Assert.Contains("重复规则", exception.Message);
+        Assert.Equal([existing], repository.Events);
+        Assert.Equal(0, repository.ReplaceCount);
+    }
+
+    [Fact]
+    public async Task BackupWithoutRecurrenceProperty_RemainsCompatible()
+    {
+        var repository = new FakeRestoreRepository([]);
+        var service = new LocalBackupRestoreService(repository);
+        var root = JsonNode.Parse(CreateJson([CreateEvent(Guid.NewGuid(), "旧版事件")]))!.AsObject();
+        root["schemaVersion"] = MyCalendarBackup.MinimumSupportedSchemaVersion;
+        root["calendarData"]!["calendarEvents"]![0]!.AsObject().Remove("recurrenceRule");
+
+        var preview = service.PrepareRestore(root.ToJsonString());
+        await service.RestorePreparedAsync(preview.RestoreId);
+
+        Assert.Null(Assert.Single(repository.Events).RecurrenceRule);
+    }
+
+    [Fact]
     public async Task UndoLastRestore_RestoresEventsAndOriginalSyncQueue()
     {
         var existing = CreateEvent(Guid.NewGuid(), "恢复前事件");
@@ -228,9 +275,10 @@ public sealed class LocalBackupRestoreServiceTests
     {
         var repository = new FakeRestoreRepository([CreateEvent(Guid.NewGuid(), "保留")]);
         var service = new LocalBackupRestoreService(repository);
+        var schemaProperty = $"\"schemaVersion\":{MyCalendarBackup.CurrentSchemaVersion}";
         var json = CreateJson([]).Replace(
-            "\"schemaVersion\":1",
-            "\"schemaVersion\":1,\"schemaVersion\":1",
+            schemaProperty,
+            $"{schemaProperty},{schemaProperty}",
             StringComparison.Ordinal);
 
         var exception = Assert.Throws<LocalBackupRestoreException>(

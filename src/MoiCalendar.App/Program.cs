@@ -37,6 +37,7 @@ builder.Services.AddMsalAuthentication(options =>
     }
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<IRecurrenceExpansionService, RecurrenceExpansionService>();
 builder.Services.AddScoped<IndexedDbConnection>();
 builder.Services.AddScoped<IndexedDbLocalDataSafety>();
 builder.Services.AddScoped<ILocalDataOperationLock>(sp =>

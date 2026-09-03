@@ -76,7 +76,8 @@ public sealed class SyncArchitectureTests
     [Fact]
     public void RemoteFormat_IsSingleProviderIndependentContract()
     {
-        Assert.Equal(1, RemoteSyncFormat.CurrentVersion);
+        Assert.Equal(1, RemoteSyncFormat.MinimumSupportedVersion);
+        Assert.Equal(2, RemoteSyncFormat.CurrentVersion);
         Assert.Equal("moicalendar.sync.json", RemoteSyncFormat.FileName);
         Assert.Equal("application/json", RemoteSyncFormat.MediaType);
         Assert.Equal("MoiCalendar/operations", RemoteSyncFormat.OperationsDirectory);

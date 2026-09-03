@@ -499,13 +499,25 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         {
             throw new SyncStorageException("远端同步操作类型与事件删除标记不一致。");
         }
+        if (calendarEvent.RecurrenceRule is not null)
+        {
+            try
+            {
+                _ = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule);
+            }
+            catch (RecurrenceRuleException exception)
+            {
+                throw new SyncStorageException("远端同步操作包含无效或不受支持的重复规则。", exception);
+            }
+        }
 
         return calendarEvent;
     }
 
     private static void ValidateDocument(RemoteSyncOperationDocument document, Guid fileOperationId)
     {
-        if (document.FormatVersion != RemoteSyncFormat.CurrentVersion)
+        if (document.FormatVersion < RemoteSyncFormat.MinimumSupportedVersion ||
+            document.FormatVersion > RemoteSyncFormat.CurrentVersion)
         {
             throw new SyncStorageException($"不支持远端同步格式版本 {document.FormatVersion}。");
         }

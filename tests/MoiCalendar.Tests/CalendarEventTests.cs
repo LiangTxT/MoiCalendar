@@ -77,6 +77,34 @@ public sealed class CalendarEventTests
     }
 
     [Fact]
+    public async Task ExistingCrudUpdate_PreservesMasterRecurrenceRule()
+    {
+        var repository = new InMemoryEventRepository();
+        var operationRepository = new InMemoryOperationRepository();
+        var master = CreateEvent(
+            "重复主事件",
+            new DateTimeOffset(2026, 8, 23, 9, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 23, 10, 0, 0, TimeSpan.Zero)) with
+        {
+            RecurrenceRule = "FREQ=WEEKLY;BYDAY=SU"
+        };
+        await repository.CreateAsync(master);
+        var service = new CalendarEventService(
+            repository,
+            new InMemoryDeviceService("recurrence-crud-device"),
+            new InMemoryEventChangeRepository(repository, operationRepository),
+            new TestTimeProvider(master.UpdatedAtUtc.AddHours(1)));
+        var draft = service.CreateDraft(master);
+        draft.Title = "已更新的重复主事件";
+
+        var updated = await service.UpdateAsync(master.Id, draft);
+
+        Assert.Equal(master.RecurrenceRule, updated.RecurrenceRule);
+        var operation = Assert.Single(await operationRepository.GetByStatusAsync(SyncOperationStatus.Pending));
+        Assert.Contains(master.RecurrenceRule, operation.Payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MonthViewOrdersAllDayThenTimedEventsByTime()
     {
         var repository = new InMemoryEventRepository();

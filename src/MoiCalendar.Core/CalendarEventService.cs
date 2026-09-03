@@ -6,11 +6,14 @@ public sealed class CalendarEventService(
     IEventRepository repository,
     IDeviceService deviceService,
     ILocalEventChangeRepository localEventChanges,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IRecurrenceExpansionService? recurrenceExpansionService = null)
 {
     private const int MinutesPerDay = 24 * 60;
     private const int MinimumTimedEventDisplayMinutes = 30;
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
+    private readonly IRecurrenceExpansionService recurrenceExpansionService =
+        recurrenceExpansionService ?? new RecurrenceExpansionService();
 
     public CalendarEventDraft CreateDraft(DateOnly date, string timeZoneId)
     {
@@ -226,7 +229,16 @@ public sealed class CalendarEventService(
         var displayTimeZone = ResolveTimeZone(displayTimeZoneId);
         var rangeStartUtc = ConvertLocalToUtc(firstDate.ToDateTime(TimeOnly.MinValue), displayTimeZone);
         var rangeEndUtc = ConvertLocalToUtc(endDateExclusive.ToDateTime(TimeOnly.MinValue), displayTimeZone);
-        var calendarEvents = await repository.GetByRangeAsync(rangeStartUtc, rangeEndUtc, cancellationToken);
+        var rangeEventsTask = repository.GetByRangeAsync(rangeStartUtc, rangeEndUtc, cancellationToken);
+        var recurringMastersTask = repository.GetRecurringMastersAsync(cancellationToken);
+        await Task.WhenAll(rangeEventsTask, recurringMastersTask);
+
+        var candidates = (await rangeEventsTask)
+            .Concat(await recurringMastersTask)
+            .GroupBy(calendarEvent => calendarEvent.Id)
+            .Select(group => group.First())
+            .ToArray();
+        var calendarEvents = recurrenceExpansionService.Expand(candidates, rangeStartUtc, rangeEndUtc);
         return new EventRangeResult(displayTimeZone, calendarEvents);
     }
 

@@ -68,6 +68,13 @@ public sealed class IndexedDbEventRepository(IndexedDbConnection connection) : I
         return events;
     }
 
+    public async Task<IReadOnlyList<CalendarEvent>> GetRecurringMastersAsync(
+        CancellationToken cancellationToken = default) =>
+        await InvokeAsync<CalendarEvent[]>(
+            "查询重复事件主记录",
+            "getRecurringEventMasters",
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operation,
         string identifier,
