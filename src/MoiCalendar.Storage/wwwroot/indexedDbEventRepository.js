@@ -590,6 +590,28 @@ export async function saveSyncStatusState(state) {
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
 }
 
+export async function getCalendarViewPreference() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const record = await requestAsPromise(
+        transaction.objectStore(configuredSettingsStoreName).get("calendarView"));
+    await completion;
+    return typeof record?.value === "string" ? record.value : null;
+}
+
+export async function saveCalendarViewPreference(viewMode) {
+    if (!["Month", "Week", "Agenda"].includes(viewMode)) {
+        throw new Error("日历视图偏好无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    const request = transaction.objectStore(configuredSettingsStoreName)
+        .put({ key: "calendarView", value: viewMode });
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
 export async function getOrCreateDeviceId() {
     const database = await getDatabase();
     const transaction = database.transaction(configuredSettingsStoreName, "readwrite");

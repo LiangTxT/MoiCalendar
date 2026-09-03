@@ -2,16 +2,33 @@
 @using MoiCalendar.Sync
 @inject CalendarEventService EventService
 @inject ISyncService SyncService
+@inject ICalendarViewPreferenceStore ViewPreferences
+@inject NavigationManager Navigation
 
 <PageTitle>MoiCalendar</PageTitle>
 
 <main class="calendar-shell">
     <h1>MoiCalendar</h1>
 
-    <nav class="month-navigation" aria-label="月份导航">
-        <button type="button" @onclick="ShowPreviousMonthAsync" aria-label="上一个月">&lt; 上一月</button>
-        <strong aria-live="polite">@MonthTitle</strong>
-        <button type="button" @onclick="ShowNextMonthAsync" aria-label="下一个月">下一月 &gt;</button>
+    <nav class="calendar-view-navigation" aria-label="日历视图">
+        <button type="button"
+                class="@(displayMode == CalendarViewMode.Month ? "active" : null)"
+                aria-pressed="@(displayMode == CalendarViewMode.Month ? "true" : "false")"
+                @onclick="() => ShowDisplayMode(CalendarViewMode.Month)">月</button>
+        <button type="button"
+                class="@(displayMode == CalendarViewMode.Week ? "active" : null)"
+                aria-pressed="@(displayMode == CalendarViewMode.Week ? "true" : "false")"
+                @onclick="() => ShowDisplayMode(CalendarViewMode.Week)">周</button>
+        <button type="button"
+                class="@(displayMode == CalendarViewMode.Agenda ? "active" : null)"
+                aria-pressed="@(displayMode == CalendarViewMode.Agenda ? "true" : "false")"
+                @onclick="() => ShowDisplayMode(CalendarViewMode.Agenda)">日程</button>
+    </nav>
+
+    <nav class="period-navigation" aria-label="日期范围导航">
+        <button type="button" @onclick="ShowPreviousPeriodAsync" aria-label="@PreviousPeriodAriaLabel">@PreviousPeriodLabel</button>
+        <strong aria-live="polite">@PeriodTitle</strong>
+        <button type="button" @onclick="ShowNextPeriodAsync" aria-label="@NextPeriodAriaLabel">@NextPeriodLabel</button>
     </nav>
 
     <div class="calendar-actions">
@@ -26,48 +43,103 @@
         <p class="settings-status @(syncSucceeded ? "success" : "failure")" role="status">@syncMessage</p>
     }
 
-    @if (!string.IsNullOrWhiteSpace(storageError))
+    @if (!string.IsNullOrWhiteSpace(LocalError))
     {
-        <p class="storage-error" role="alert">@storageError</p>
+        <p class="storage-error" role="alert">@LocalError</p>
     }
 
-    <section class="calendar" aria-label="@($"{MonthTitle}日历")">
-        <div class="weekday-grid" role="row">
-            @foreach (var weekday in monthView.WeekdayLabels)
-            {
-                <div class="weekday" role="columnheader">@weekday</div>
-            }
-        </div>
+    @if (displayMode == CalendarViewMode.Month)
+    {
+        <section class="calendar" aria-label="@($"{MonthTitle}日历")">
+            <div class="weekday-grid" role="row">
+                @foreach (var weekday in monthView.WeekdayLabels)
+                {
+                    <div class="weekday" role="columnheader">@weekday</div>
+                }
+            </div>
 
-        <div class="month-grid" role="grid">
-            @foreach (var date in monthView.Dates)
-            {
-                <div class="@GetDateClass(date)"
-                     role="gridcell"
-                     tabindex="0"
-                     aria-label="@date.Date.ToString("yyyy-MM-dd")"
-                     aria-current="@(date.IsToday ? "date" : null)"
-                     @onclick="() => OpenCreateEditor(date.Date)"
-                     @onkeydown="args => HandleDateKey(args, date.Date)">
-                    <span class="date-number">@date.DayNumber</span>
+            <div class="month-grid" role="grid">
+                @foreach (var date in monthView.Dates)
+                {
+                    <div class="@GetDateClass(date)"
+                         role="gridcell"
+                         tabindex="0"
+                         aria-label="@date.Date.ToString("yyyy-MM-dd")"
+                         aria-current="@(date.IsToday ? "date" : null)"
+                         @onclick="() => OpenCreateEditor(date.Date)"
+                         @onkeydown="args => HandleDateKey(args, date.Date)">
+                        <span class="date-number">@date.DayNumber</span>
 
-                    <div class="day-events">
-                        @foreach (var calendarEvent in monthEvents.GetEvents(date.Date))
-                        {
-                            <button class="event-chip"
-                                    type="button"
-                                    title="@calendarEvent.Title"
-                                    @onclick="() => OpenEventEditorAsync(calendarEvent.Id)"
-                                    @onclick:stopPropagation="true">
-                                <span class="event-time">@calendarEvent.TimeLabel</span>
-                                <span class="event-title">@calendarEvent.Title</span>
-                            </button>
-                        }
+                        <div class="day-events">
+                            @foreach (var calendarEvent in monthEvents.GetEvents(date.Date))
+                            {
+                                <button class="event-chip"
+                                        type="button"
+                                        title="@calendarEvent.Title"
+                                        @onclick="() => OpenEventEditorAsync(calendarEvent.Id)"
+                                        @onclick:stopPropagation="true">
+                                    <span class="event-time">@calendarEvent.TimeLabel</span>
+                                    <span class="event-title">@calendarEvent.Title</span>
+                                </button>
+                            }
+                        </div>
                     </div>
+                }
+            </div>
+        </section>
+    }
+    else if (displayMode == CalendarViewMode.Agenda)
+    {
+        <section class="agenda" aria-label="@($"{MonthTitle}日程")">
+            @if (agendaEvents.Days.Count == 0)
+            {
+                <div class="agenda-empty">
+                    <h2>本月暂无日程</h2>
+                    <p>这个月还没有任何事件。</p>
+                    <button class="primary-button" type="button" @onclick="() => OpenCreateEditor(AgendaCreateDate)">新建事件</button>
                 </div>
             }
-        </div>
-    </section>
+            else
+            {
+                @foreach (var day in agendaEvents.Days)
+                {
+                    <article class="agenda-day">
+                        <h2>
+                            <time datetime="@day.Date.ToString("yyyy-MM-dd")">@FormatAgendaDate(day.Date)</time>
+                        </h2>
+                        <div class="agenda-events">
+                            @foreach (var calendarEvent in GetVisibleAgendaEvents(day))
+                            {
+                                <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
+                                        type="button"
+                                        title="@calendarEvent.Title"
+                                        @onclick="() => OpenEventEditorAsync(calendarEvent.Id)">
+                                    <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
+                                    <span class="agenda-event-title">@calendarEvent.Title</span>
+                                </button>
+                            }
+
+                            @if (GetRemainingAgendaEventCount(day) > 0)
+                            {
+                                <button class="agenda-show-more"
+                                        type="button"
+                                        @onclick="() => ShowMoreAgendaEvents(day)">
+                                    显示更多（剩余 @GetRemainingAgendaEventCount(day) 项）
+                                </button>
+                            }
+                        </div>
+                    </article>
+                }
+            }
+        </section>
+    }
+    else
+    {
+        <MoiCalendar.App.Components.CalendarWeekView WeekEvents="weekEvents"
+                                                       AriaLabel="@($"{WeekTitle}周视图")"
+                                                       EventSelected="OpenEventEditorAsync"
+                                                       DateSelected="OpenCreateEditor" />
+    }
 </main>
 
 @if (editor is not null)
@@ -151,38 +223,94 @@
 }
 
 @code {
+    private const int AgendaEventPageSize = 25;
+
     private DateOnly today;
     private string displayTimeZoneId = TimeZoneInfo.Utc.Id;
     private CalendarMonthView monthView = null!;
     private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
+    private CalendarAgendaView agendaEvents = CalendarAgendaView.Empty;
+    private CalendarWeekView weekView = null!;
+    private CalendarWeekEventView weekEvents = CalendarWeekEventView.Empty;
+    private CalendarViewMode displayMode;
+    private readonly Dictionary<DateOnly, int> visibleAgendaEventCounts = new();
+    private bool isInitialized;
     private CalendarEventDraft? editor;
     private Guid? editingEventId;
     private string? editorError;
     private string? storageError;
+    private string? preferenceError;
     private string? syncMessage;
     private bool isSyncing;
     private bool syncSucceeded;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
+    private string WeekTitle => FormatWeekTitle(weekView.Week);
+
+    private string PeriodTitle => displayMode == CalendarViewMode.Week ? WeekTitle : MonthTitle;
+
+    private string PreviousPeriodLabel => displayMode == CalendarViewMode.Week ? "< 上一周" : "< 上一月";
+
+    private string NextPeriodLabel => displayMode == CalendarViewMode.Week ? "下一周 >" : "下一月 >";
+
+    private string PreviousPeriodAriaLabel => displayMode == CalendarViewMode.Week ? "上一周" : "上一个月";
+
+    private string NextPeriodAriaLabel => displayMode == CalendarViewMode.Week ? "下一周" : "下一个月";
+
+    private string? LocalError => storageError ?? preferenceError;
+
+    private DateOnly AgendaCreateDate =>
+        monthView.Month == CalendarMonth.FromDate(today)
+            ? today
+            : new DateOnly(monthView.Month.Year, monthView.Month.Month, 1);
+
     private string EditorInputType => editor?.IsAllDay == true ? "date" : "datetime-local";
 
-    protected override async Task OnInitializedAsync()
+    [SupplyParameterFromQuery(Name = "view")]
+    public string? RequestedView { get; set; }
+
+    protected override async Task OnParametersSetAsync()
     {
-        today = DateOnly.FromDateTime(DateTime.Today);
-        displayTimeZoneId = TimeZoneInfo.Local.Id;
-        monthView = CalendarMonth.FromDate(today).CreateView(today);
-        await LoadEventsAsync();
+        var requestedMode = ParseRequestedView(RequestedView);
+
+        if (!isInitialized)
+        {
+            today = DateOnly.FromDateTime(DateTime.Today);
+            displayTimeZoneId = TimeZoneInfo.Local.Id;
+            monthView = CalendarMonth.FromDate(today).CreateView(today);
+            weekView = CalendarWeek.FromDate(today).CreateView(today);
+            displayMode = requestedMode ?? await LoadPreferredViewAsync();
+            isInitialized = true;
+            if (requestedMode is not null)
+            {
+                await SavePreferredViewAsync(displayMode);
+            }
+
+            await LoadEventsAsync();
+        }
+        else if (requestedMode is { } mode && displayMode != mode)
+        {
+            displayMode = mode;
+            await SavePreferredViewAsync(displayMode);
+            await LoadEventsAsync();
+        }
     }
 
-    private Task ShowPreviousMonthAsync() => ShowMonthAsync(monthView.Month.Previous());
+    private Task ShowPreviousPeriodAsync() => displayMode == CalendarViewMode.Week
+        ? ShowWeekAsync(weekView.Week.Previous())
+        : ShowMonthAsync(monthView.Month.Previous());
 
-    private Task ShowNextMonthAsync() => ShowMonthAsync(monthView.Month.Next());
+    private Task ShowNextPeriodAsync() => displayMode == CalendarViewMode.Week
+        ? ShowWeekAsync(weekView.Week.Next())
+        : ShowMonthAsync(monthView.Month.Next());
 
     private Task ShowTodayAsync()
     {
         today = DateOnly.FromDateTime(DateTime.Today);
-        return ShowMonthAsync(CalendarMonth.FromDate(today));
+        return displayMode == CalendarViewMode.Week
+            ? ShowWeekAsync(CalendarWeek.FromDate(today))
+            : ShowMonthAsync(CalendarMonth.FromDate(today));
     }
 
     private async Task ShowMonthAsync(CalendarMonth month)
@@ -191,16 +319,54 @@
         await LoadEventsAsync();
     }
 
+    private async Task ShowWeekAsync(CalendarWeek week)
+    {
+        weekView = week.CreateView(today);
+        await LoadEventsAsync();
+    }
+
+    private void ShowDisplayMode(CalendarViewMode mode)
+    {
+        if (displayMode == mode)
+        {
+            return;
+        }
+
+        var view = mode switch
+        {
+            CalendarViewMode.Month => "month",
+            CalendarViewMode.Week => "week",
+            CalendarViewMode.Agenda => "agenda",
+            _ => "month"
+        };
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("view", view));
+    }
+
     private async Task LoadEventsAsync()
     {
         try
         {
-            monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+            if (displayMode == CalendarViewMode.Month)
+            {
+                monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+            }
+            else if (displayMode == CalendarViewMode.Agenda)
+            {
+                agendaEvents = await EventService.GetAgendaViewAsync(monthView.Month, displayTimeZoneId);
+                visibleAgendaEventCounts.Clear();
+            }
+            else
+            {
+                weekEvents = await EventService.GetWeekViewAsync(weekView, displayTimeZoneId);
+            }
+
             storageError = null;
         }
         catch (EventRepositoryException exception)
         {
             monthEvents = CalendarMonthEventView.Empty;
+            agendaEvents = CalendarAgendaView.Empty;
+            weekEvents = CalendarWeekEventView.Empty;
             storageError = exception.Message;
         }
     }
@@ -347,5 +513,85 @@
         }
 
         return classes;
+    }
+
+    private static string FormatAgendaDate(DateOnly date)
+    {
+        var weekday = date.DayOfWeek switch
+        {
+            DayOfWeek.Monday => "星期一",
+            DayOfWeek.Tuesday => "星期二",
+            DayOfWeek.Wednesday => "星期三",
+            DayOfWeek.Thursday => "星期四",
+            DayOfWeek.Friday => "星期五",
+            DayOfWeek.Saturday => "星期六",
+            DayOfWeek.Sunday => "星期日",
+            _ => string.Empty
+        };
+
+        return $"{date.Month}月{date.Day}日 {weekday}";
+    }
+
+    private IEnumerable<CalendarEventListItem> GetVisibleAgendaEvents(CalendarAgendaDay day) =>
+        day.Events.Take(GetVisibleAgendaEventCount(day));
+
+    private int GetVisibleAgendaEventCount(CalendarAgendaDay day) =>
+        Math.Min(
+            visibleAgendaEventCounts.GetValueOrDefault(day.Date, AgendaEventPageSize),
+            day.Events.Count);
+
+    private int GetRemainingAgendaEventCount(CalendarAgendaDay day) =>
+        day.Events.Count - GetVisibleAgendaEventCount(day);
+
+    private void ShowMoreAgendaEvents(CalendarAgendaDay day)
+    {
+        visibleAgendaEventCounts[day.Date] = Math.Min(
+            GetVisibleAgendaEventCount(day) + AgendaEventPageSize,
+            day.Events.Count);
+    }
+
+    private async Task<CalendarViewMode> LoadPreferredViewAsync()
+    {
+        try
+        {
+            preferenceError = null;
+            return await ViewPreferences.GetAsync() ?? CalendarViewMode.Month;
+        }
+        catch (EventRepositoryException exception)
+        {
+            preferenceError = exception.Message;
+            return CalendarViewMode.Month;
+        }
+    }
+
+    private async Task SavePreferredViewAsync(CalendarViewMode viewMode)
+    {
+        try
+        {
+            await ViewPreferences.SaveAsync(viewMode);
+            preferenceError = null;
+        }
+        catch (EventRepositoryException exception)
+        {
+            preferenceError = exception.Message;
+        }
+    }
+
+    private static CalendarViewMode? ParseRequestedView(string? requestedView) =>
+        requestedView?.ToLowerInvariant() switch
+        {
+            "month" => CalendarViewMode.Month,
+            "week" => CalendarViewMode.Week,
+            "agenda" => CalendarViewMode.Agenda,
+            _ => null
+        };
+
+    private static string FormatWeekTitle(CalendarWeek week)
+    {
+        var start = week.StartDate;
+        var end = week.EndDate;
+        return start.Year == end.Year
+            ? $"{start.Year}年{start.Month}月{start.Day}日–{end.Month}月{end.Day}日"
+            : $"{start.Year}年{start.Month}月{start.Day}日–{end.Year}年{end.Month}月{end.Day}日";
     }
 }

@@ -8,6 +8,8 @@ public sealed class CalendarEventService(
     ILocalEventChangeRepository localEventChanges,
     TimeProvider timeProvider)
 {
+    private const int MinutesPerDay = 24 * 60;
+    private const int MinimumTimedEventDisplayMinutes = 30;
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
 
     public CalendarEventDraft CreateDraft(DateOnly date, string timeZoneId)
@@ -105,19 +107,103 @@ public sealed class CalendarEventService(
         string displayTimeZoneId,
         CancellationToken cancellationToken = default)
     {
-        var displayTimeZone = ResolveTimeZone(displayTimeZoneId);
         var firstDate = monthView.Dates[0].Date;
         var endDateExclusive = monthView.Dates[^1].Date.AddDays(1);
-        var rangeStartUtc = ConvertLocalToUtc(firstDate.ToDateTime(TimeOnly.MinValue), displayTimeZone);
-        var rangeEndUtc = ConvertLocalToUtc(endDateExclusive.ToDateTime(TimeOnly.MinValue), displayTimeZone);
-        var calendarEvents = await repository.GetByRangeAsync(rangeStartUtc, rangeEndUtc, cancellationToken);
-        var groups = monthView.Dates.ToDictionary(
-            date => date.Date,
-            _ => new List<CalendarEventListItem>());
+        var orderedGroups = await GetEventGroupsAsync(
+            firstDate,
+            endDateExclusive,
+            displayTimeZoneId,
+            cancellationToken);
 
-        foreach (var calendarEvent in calendarEvents)
+        return new CalendarMonthEventView(orderedGroups);
+    }
+
+    public async Task<CalendarAgendaView> GetAgendaViewAsync(
+        CalendarMonth month,
+        string displayTimeZoneId,
+        CancellationToken cancellationToken = default)
+    {
+        var firstDate = new DateOnly(month.Year, month.Month, 1);
+        var endDateExclusive = firstDate.AddMonths(1);
+        var orderedGroups = await GetEventGroupsAsync(
+            firstDate,
+            endDateExclusive,
+            displayTimeZoneId,
+            cancellationToken);
+        var days = orderedGroups
+            .Where(pair => pair.Value.Count > 0)
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new CalendarAgendaDay(pair.Key, pair.Value))
+            .ToArray();
+
+        return new CalendarAgendaView(days);
+    }
+
+    public async Task<CalendarWeekEventView> GetWeekViewAsync(
+        CalendarWeekView weekView,
+        string displayTimeZoneId,
+        CancellationToken cancellationToken = default)
+    {
+        var firstDate = weekView.Week.StartDate;
+        var endDateExclusive = weekView.Week.EndDate.AddDays(1);
+        var range = await GetEventsForDateRangeAsync(
+            firstDate,
+            endDateExclusive,
+            displayTimeZoneId,
+            cancellationToken);
+        var allDayGroups = weekView.Dates.ToDictionary(
+            date => date.Date,
+            _ => new List<CalendarWeekAllDayEvent>());
+        var timedGroups = weekView.Dates.ToDictionary(
+            date => date.Date,
+            _ => new List<CalendarWeekTimedEvent>());
+
+        foreach (var calendarEvent in range.Events)
         {
-            AddEventToDates(calendarEvent, displayTimeZone, firstDate, endDateExclusive, groups);
+            AddEventToWeek(
+                calendarEvent,
+                range.DisplayTimeZone,
+                firstDate,
+                endDateExclusive,
+                allDayGroups,
+                timedGroups);
+        }
+
+        var days = weekView.Dates
+            .Select(date => new CalendarWeekDayEvents(
+                date,
+                allDayGroups[date.Date]
+                    .OrderBy(calendarEvent => calendarEvent.Title, StringComparer.CurrentCulture)
+                    .ToArray(),
+                timedGroups[date.Date]
+                    .OrderBy(calendarEvent => calendarEvent.StartMinute)
+                    .ThenBy(calendarEvent => calendarEvent.Title, StringComparer.CurrentCulture)
+                    .ToArray()))
+            .ToArray();
+
+        return new CalendarWeekEventView(days);
+    }
+
+    private async Task<IReadOnlyDictionary<DateOnly, IReadOnlyList<CalendarEventListItem>>> GetEventGroupsAsync(
+        DateOnly firstDate,
+        DateOnly endDateExclusive,
+        string displayTimeZoneId,
+        CancellationToken cancellationToken)
+    {
+        var range = await GetEventsForDateRangeAsync(
+            firstDate,
+            endDateExclusive,
+            displayTimeZoneId,
+            cancellationToken);
+        var groups = Enumerable.Range(0, endDateExclusive.DayNumber - firstDate.DayNumber)
+            .Select(firstDate.AddDays)
+            .ToDictionary(
+                date => date,
+                _ => new List<CalendarEventListItem>());
+
+        foreach (var calendarEvent in range.Events)
+        {
+            AddEventToDates(calendarEvent, range.DisplayTimeZone, firstDate, endDateExclusive, groups);
         }
 
         var orderedGroups = groups.ToDictionary(
@@ -128,7 +214,86 @@ public sealed class CalendarEventService(
                 .ThenBy(item => item.Title, StringComparer.CurrentCulture)
                 .ToArray());
 
-        return new CalendarMonthEventView(orderedGroups);
+        return orderedGroups;
+    }
+
+    private async Task<EventRangeResult> GetEventsForDateRangeAsync(
+        DateOnly firstDate,
+        DateOnly endDateExclusive,
+        string displayTimeZoneId,
+        CancellationToken cancellationToken)
+    {
+        var displayTimeZone = ResolveTimeZone(displayTimeZoneId);
+        var rangeStartUtc = ConvertLocalToUtc(firstDate.ToDateTime(TimeOnly.MinValue), displayTimeZone);
+        var rangeEndUtc = ConvertLocalToUtc(endDateExclusive.ToDateTime(TimeOnly.MinValue), displayTimeZone);
+        var calendarEvents = await repository.GetByRangeAsync(rangeStartUtc, rangeEndUtc, cancellationToken);
+        return new EventRangeResult(displayTimeZone, calendarEvents);
+    }
+
+    private static void AddEventToWeek(
+        CalendarEvent calendarEvent,
+        TimeZoneInfo displayTimeZone,
+        DateOnly firstVisibleDate,
+        DateOnly endVisibleDateExclusive,
+        IDictionary<DateOnly, List<CalendarWeekAllDayEvent>> allDayGroups,
+        IDictionary<DateOnly, List<CalendarWeekTimedEvent>> timedGroups)
+    {
+        var eventTimeZone = calendarEvent.IsAllDay
+            ? ResolveTimeZone(calendarEvent.TimeZoneId)
+            : displayTimeZone;
+        var localStart = TimeZoneInfo.ConvertTime(calendarEvent.StartUtc, eventTimeZone);
+        var localEnd = TimeZoneInfo.ConvertTime(calendarEvent.EndUtc, eventTimeZone);
+        var eventFirstDate = DateOnly.FromDateTime(localStart.DateTime);
+        var eventLastDate = DateOnly.FromDateTime(localEnd.AddTicks(-1).DateTime);
+        var clippedFirstDate = eventFirstDate < firstVisibleDate ? firstVisibleDate : eventFirstDate;
+        var lastVisibleDate = endVisibleDateExclusive.AddDays(-1);
+        var clippedLastDate = eventLastDate > lastVisibleDate ? lastVisibleDate : eventLastDate;
+
+        for (var date = clippedFirstDate; date <= clippedLastDate; date = date.AddDays(1))
+        {
+            if (calendarEvent.IsAllDay)
+            {
+                allDayGroups[date].Add(new CalendarWeekAllDayEvent(calendarEvent.Id, calendarEvent.Title));
+                continue;
+            }
+
+            var startMinute = date == eventFirstDate
+                ? GetMinuteOfDay(localStart.TimeOfDay, roundUp: false)
+                : 0;
+            var endMinute = date == eventLastDate && DateOnly.FromDateTime(localEnd.DateTime) == date
+                ? GetMinuteOfDay(localEnd.TimeOfDay, roundUp: true)
+                : MinutesPerDay;
+            endMinute = Math.Clamp(endMinute, startMinute + 1, MinutesPerDay);
+            var durationMinutes = endMinute - startMinute;
+            var displayDurationMinutes = Math.Min(
+                Math.Max(durationMinutes, MinimumTimedEventDisplayMinutes),
+                MinutesPerDay - startMinute);
+
+            timedGroups[date].Add(new CalendarWeekTimedEvent(
+                calendarEvent.Id,
+                calendarEvent.Title,
+                $"{FormatMinute(startMinute)}–{FormatMinute(endMinute)}",
+                startMinute * 100d / MinutesPerDay,
+                displayDurationMinutes * 100d / MinutesPerDay,
+                startMinute,
+                durationMinutes));
+        }
+    }
+
+    private static int GetMinuteOfDay(TimeSpan time, bool roundUp)
+    {
+        var minutes = time.TotalMinutes;
+        return roundUp ? (int)Math.Ceiling(minutes) : (int)Math.Floor(minutes);
+    }
+
+    private static string FormatMinute(int minute)
+    {
+        if (minute >= MinutesPerDay)
+        {
+            return "24:00";
+        }
+
+        return $"{minute / 60:D2}:{minute % 60:D2}";
     }
 
     private static void AddEventToDates(
@@ -263,4 +428,8 @@ public sealed class CalendarEventService(
         string Location,
         DateTimeOffset StartUtc,
         DateTimeOffset EndUtc);
+
+    private sealed record EventRangeResult(
+        TimeZoneInfo DisplayTimeZone,
+        IReadOnlyList<CalendarEvent> Events);
 }
