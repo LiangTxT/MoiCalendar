@@ -338,9 +338,27 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
                 continue;
             }
 
-            var itemUri = Uri.TryCreate(hrefValue, UriKind.Absolute, out var absoluteUri)
-                ? absoluteUri
-                : new Uri(directoryUri, hrefValue);
+            // A leading slash is an HTTP origin-relative href. Uri.TryCreate(..., Absolute)
+            // interprets it as a file URI on Unix, so classify it before absolute URI parsing.
+            Uri itemUri;
+            if (hrefValue.StartsWith("/", StringComparison.Ordinal))
+            {
+                itemUri = new Uri(directoryUri, hrefValue);
+            }
+            else if (Uri.TryCreate(hrefValue, UriKind.Absolute, out var absoluteUri) &&
+                (absoluteUri.Scheme == Uri.UriSchemeHttp ||
+                    absoluteUri.Scheme == Uri.UriSchemeHttps))
+            {
+                itemUri = absoluteUri;
+            }
+            else if (Uri.TryCreate(directoryUri, hrefValue, out var resolvedUri))
+            {
+                itemUri = resolvedUri;
+            }
+            else
+            {
+                continue;
+            }
             var itemPath = Uri.UnescapeDataString(itemUri.AbsolutePath);
 
             if (!itemPath.StartsWith(directoryPath, StringComparison.Ordinal) ||

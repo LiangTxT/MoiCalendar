@@ -16,7 +16,8 @@ public sealed record SupabaseBackendOptions
     {
         if (string.IsNullOrWhiteSpace(RealtimePath) ||
             !RealtimePath.StartsWith("/", StringComparison.Ordinal) ||
-            Uri.TryCreate(RealtimePath, UriKind.Absolute, out _) ||
+            RealtimePath.StartsWith("//", StringComparison.Ordinal) ||
+            RealtimePath.Contains('\\') ||
             RealtimePath.Contains("?", StringComparison.Ordinal) ||
             RealtimePath.Contains("#", StringComparison.Ordinal))
         {

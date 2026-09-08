@@ -81,6 +81,8 @@ public sealed class CloudArchitectureTests
 
     [Theory]
     [InlineData("realtime/v1/websocket")]
+    [InlineData("//realtime.example.com/socket/websocket")]
+    [InlineData("/realtime\\v1\\websocket")]
     [InlineData("/realtime/v1/websocket?token=secret")]
     [InlineData("https://realtime.example.com/socket/websocket")]
     public void RealtimePath_RejectsNonPathOrQueryValues(string realtimePath)
