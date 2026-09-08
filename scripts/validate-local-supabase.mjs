@@ -103,6 +103,35 @@ const deletedPull = await pull(accessToken, updatedPull.cursor);
 const tombstone = deletedPull.changes.find(change => change.calendar_event?.id === firstEventId);
 assert(tombstone?.calendar_event?.deletedAtUtc, "删除后的 Pull 未返回 tombstone。");
 
+const legacyDeletedEventId = randomUUID();
+const legacyDeletedAt = new Date().toISOString();
+const legacyDeleteRequest = mutation(legacyDeletedEventId, "delete", null, {
+    ...eventPayload(legacyDeletedEventId, "同步启用前已删除"),
+    updatedAtUtc: legacyDeletedAt,
+    deletedAtUtc: legacyDeletedAt
+});
+const legacyDeleted = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", {
+    method: "POST",
+    token: accessToken,
+    body: legacyDeleteRequest
+});
+assert(
+    legacyDeleted.status === "applied" && legacyDeleted.server_revision > deletedPull.cursor,
+    "云端不存在的本地删除未生成 tombstone。");
+const duplicateLegacyDelete = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", {
+    method: "POST",
+    token: accessToken,
+    body: legacyDeleteRequest
+});
+assert(
+    duplicateLegacyDelete.status === "applied" &&
+        duplicateLegacyDelete.server_revision === legacyDeleted.server_revision,
+    "云端不存在的重复删除没有返回稳定的幂等结果。");
+const legacyDeletePull = await pull(accessToken, deletedPull.cursor);
+const legacyTombstone = legacyDeletePull.changes.find(
+    change => change.calendar_event?.id === legacyDeletedEventId);
+assert(legacyTombstone?.calendar_event?.deletedAtUtc, "增量 Pull 未返回历史本地删除的 tombstone。");
+
 const missedEventId = randomUUID();
 const missed = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", {
     method: "POST",
@@ -110,7 +139,7 @@ const missed = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", 
     body: mutation(missedEventId, "create", null, eventPayload(missedEventId, "断线期间事件"))
 });
 assert(missed.status === "applied", "断线期间 mutation 未成功应用。");
-const recoveryPull = await pull(accessToken, deletedPull.cursor);
+const recoveryPull = await pull(accessToken, legacyDeletePull.cursor);
 assert(
     recoveryPull.changes.some(change => change.calendar_event?.id === missedEventId),
     "遗漏 Realtime 通知后，cursor Pull 未恢复变更。");

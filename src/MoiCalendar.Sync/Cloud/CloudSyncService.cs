@@ -103,20 +103,22 @@ public sealed class CloudSyncService(
             MaximumPendingInspectionCount,
             cancellationToken);
         var blockedEntityIds = pendingAtStart
-            .Where(entry => entry.ConflictCode is not null)
+            .Where(entry => entry.ConflictCode is not null && !IsMissingEntityDelete(entry))
             .Select(entry => entry.EntityId)
             .ToHashSet();
         conflicts.AddRange(pendingAtStart
-            .Where(entry => entry.ConflictCode is not null)
+            .Where(entry => entry.ConflictCode is not null && !IsMissingEntityDelete(entry))
             .Select(ToConflict));
 
         while (true)
         {
-            var pending = await outboxRepository.GetReadyAsync(
-                timeProvider.GetUtcNow(),
-                BatchSize,
-                cancellationToken);
-            if (pending.Count == 0)
+            var pending = (await outboxRepository.GetReadyAsync(
+                    timeProvider.GetUtcNow(),
+                    BatchSize,
+                    cancellationToken))
+                .Where(entry => !blockedEntityIds.Contains(entry.EntityId))
+                .ToArray();
+            if (pending.Length == 0)
             {
                 break;
             }
@@ -536,6 +538,10 @@ public sealed class CloudSyncService(
         entry.BaseRevision,
         entry.Payload,
         entry.ConflictRemoteEvent);
+
+    private static bool IsMissingEntityDelete(SyncOutboxEntry entry) =>
+        entry.Operation == SyncOperationType.Delete &&
+        string.Equals(entry.ConflictCode, "entity_not_found", StringComparison.Ordinal);
 
     private static CloudSyncResult Result(
         CloudSyncOutcome outcome,

@@ -783,7 +783,9 @@ export async function getReadySyncOutboxEntries(readyAtUtc, maximumCount) {
         validateSyncOutboxEntry(entry);
     }
     const blockedEntityIds = new Set(entries
-        .filter(entry => entry.conflictCode !== null && entry.conflictCode !== undefined)
+        .filter(entry =>
+            entry.conflictCode !== null && entry.conflictCode !== undefined &&
+            !(entry.operation === 2 && entry.conflictCode === "entity_not_found"))
         .map(entry => `${entry.entityType}:${entry.entityId}`));
     const readyAt = Date.parse(readyAtUtc);
     return entries

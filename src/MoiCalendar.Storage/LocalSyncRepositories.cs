@@ -345,7 +345,10 @@ public sealed class InMemorySyncOutboxRepository : ISyncOutboxRepository
         try
         {
             var blockedEntities = entries.Values
-                .Where(entry => entry.ConflictCode is not null)
+                .Where(entry =>
+                    entry.ConflictCode is not null &&
+                    !(entry.Operation == SyncOperationType.Delete &&
+                      string.Equals(entry.ConflictCode, "entity_not_found", StringComparison.Ordinal)))
                 .Select(entry => (entry.EntityType, entry.EntityId))
                 .ToHashSet();
             return entries.Values

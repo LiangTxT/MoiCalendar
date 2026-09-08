@@ -63,6 +63,65 @@ public sealed class CloudSyncServiceTests
     }
 
     [Fact]
+    public async Task LegacyLocalDelete_MaterializesCloudTombstoneWithoutConflict()
+    {
+        var context = CreateContext();
+        var legacy = CreateEvent(Guid.NewGuid(), "同步启用前的日程");
+        await context.Events.CreateAsync(legacy);
+        await context.Calendar.DeleteAsync(legacy.Id);
+
+        var result = await context.Sync.SynchronizeAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.PushedCount);
+        Assert.Empty(await context.Outbox.GetPendingAsync());
+        Assert.NotNull(context.Transport.GetEvent(legacy.Id)?.DeletedAtUtc);
+        Assert.True(result.Cursor > 0);
+    }
+
+    [Fact]
+    public async Task ExistingMissingEntityDeleteConflict_RetriesAfterServerUpgrade()
+    {
+        var context = CreateContext();
+        var legacy = CreateEvent(Guid.NewGuid(), "已产生旧冲突的日程");
+        await context.Events.CreateAsync(legacy);
+        await context.Calendar.DeleteAsync(legacy.Id);
+        context.Transport.MaterializeMissingDeletes = false;
+
+        var conflicted = await context.Sync.SynchronizeAsync();
+        var retained = Assert.Single(await context.Outbox.GetPendingAsync());
+        context.Transport.MaterializeMissingDeletes = true;
+        var recovered = await context.Sync.SynchronizeAsync();
+
+        Assert.Equal(CloudSyncOutcome.Conflict, conflicted.Outcome);
+        Assert.Equal("entity_not_found", retained.ConflictCode);
+        Assert.True(recovered.IsSuccess);
+        Assert.Equal(1, recovered.PushedCount);
+        Assert.Empty(await context.Outbox.GetPendingAsync());
+        Assert.NotNull(context.Transport.GetEvent(legacy.Id)?.DeletedAtUtc);
+    }
+
+    [Fact]
+    public async Task LegacyLocalUpdate_RemainsAConflict()
+    {
+        var context = CreateContext();
+        var legacy = CreateEvent(Guid.NewGuid(), "同步启用前的日程");
+        await context.Events.CreateAsync(legacy);
+        var draft = context.Calendar.CreateDraft(legacy);
+        draft.Title = "本地更新";
+        await context.Calendar.UpdateAsync(legacy.Id, draft);
+
+        var first = await context.Sync.SynchronizeAsync();
+        var second = await context.Sync.SynchronizeAsync();
+
+        Assert.Equal(CloudSyncOutcome.Conflict, first.Outcome);
+        Assert.Equal("entity_not_found", first.Conflict?.Code);
+        Assert.Equal(CloudSyncOutcome.Conflict, second.Outcome);
+        Assert.Single(await context.Outbox.GetPendingAsync());
+        Assert.Null(context.Transport.GetEvent(legacy.Id));
+    }
+
+    [Fact]
     public async Task ReconnectAfterOfflineEdit_RetriesWithoutLosingLocalChange()
     {
         var context = CreateContext();
@@ -598,6 +657,7 @@ public sealed class CloudSyncServiceTests
         public int FailBeforeApplyCount { get; set; }
         public int AuthenticationFailureCount { get; set; }
         public bool ThrowAfterApplyOnce { get; set; }
+        public bool MaterializeMissingDeletes { get; set; } = true;
         public Dictionary<long, int> FailPullAfterRevisionCount { get; } = [];
         public int LogicalApplyCount { get; private set; }
         public List<long> PullAfterRevisions { get; } = [];
@@ -655,6 +715,18 @@ public sealed class CloudSyncServiceTests
                     return Task.FromResult(new CloudMutationResponse(
                         false, mutation.MutationId, mutation.EntityId, null, "mutation_id_reused"));
                 }
+                if (MaterializeMissingDeletes &&
+                    mutation.Operation == SyncOperationType.Delete &&
+                    string.Equals(
+                        duplicate.Response.ConflictCode,
+                        "entity_not_found",
+                        StringComparison.Ordinal))
+                {
+                    var deletedEvent = JsonSerializer.Deserialize<CalendarEvent>(mutation.Payload, JsonOptions)!;
+                    var upgraded = Apply(mutation, deletedEvent);
+                    mutations[mutation.MutationId] = (mutation, upgraded);
+                    return Task.FromResult(upgraded);
+                }
                 return Task.FromResult(duplicate.Response);
             }
 
@@ -668,7 +740,9 @@ public sealed class CloudSyncServiceTests
             }
             else if (!events.TryGetValue(mutation.EntityId, out var existing))
             {
-                response = Conflict(mutation, "entity_not_found", null);
+                response = MaterializeMissingDeletes && mutation.Operation == SyncOperationType.Delete
+                    ? Apply(mutation, calendarEvent)
+                    : Conflict(mutation, "entity_not_found", null);
             }
             else if (existing.Event.DeletedAtUtc is not null)
             {
