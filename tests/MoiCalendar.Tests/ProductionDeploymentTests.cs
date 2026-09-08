@@ -112,7 +112,7 @@ public sealed class ProductionDeploymentTests
     }
 
     [Fact]
-    public void AuthenticationRedirects_AreWiredAndDocumentedForTheCustomDomain()
+    public void AuthenticationRedirects_AreWiredAndDocumentedForTheConfiguredHost()
     {
         var program = File.ReadAllText(RepositoryPath(
             "src", "MoiCalendar.App", "Program.cs"));
@@ -131,8 +131,6 @@ public sealed class ProductionDeploymentTests
             StringComparison.Ordinal);
         foreach (var url in new[]
         {
-            "https://app.moicalendar.com/settings",
-            "https://app.moicalendar.com/authentication/login-callback",
             "http://localhost:5262/settings",
             "https://localhost:7104/settings",
             "http://localhost:5262/authentication/login-callback",

@@ -128,7 +128,7 @@ dotnet run --project .\src\MoiCalendar.App\MoiCalendar.App.csproj --launch-profi
 --realtime-path /socket/websocket
 ```
 
-在托管项目的 Auth URL Configuration 中，将应用实际的 `/settings` URL 加入允许的 Redirect URLs。默认开发地址是 `http://localhost:5262/settings` 和 `https://localhost:7104/settings`；生产地址是 `https://app.moicalendar.com/settings`，生产 Site URL 是 `https://app.moicalendar.com`。完整配置矩阵见 [生产域名与认证回调](authentication-redirects.md)。Auth 的 Site URL/Redirect allow-list、邮件确认策略、SMTP 和密码策略，以及自托管环境中的网关、TLS 与服务密钥，都是服务部署配置，不能通过 PostgreSQL migration 表达；应由各环境的运维配置管理，不能写入浏览器配置或仓库。
+在托管项目的 Auth URL Configuration 中，将应用实际的 `/settings` URL 加入允许的 Redirect URLs。默认开发地址是 `http://localhost:5262/settings` 和 `https://localhost:7104/settings`；生产地址是 `https://polite-rock-09eddaf00.7.azurestaticapps.net/settings`，生产 Site URL 是 `https://polite-rock-09eddaf00.7.azurestaticapps.net`。完整配置矩阵见 [生产域名与认证回调](authentication-redirects.md)。Auth 的 Site URL/Redirect allow-list、邮件确认策略、SMTP 和密码策略，以及自托管环境中的网关、TLS 与服务密钥，都是服务部署配置，不能通过 PostgreSQL migration 表达；应由各环境的运维配置管理，不能写入浏览器配置或仓库。
 
 应用启动后，重复本地验证中的注册、登录、创建、修改、删除、第二设备、Realtime 和停机恢复步骤。不要使用真实用户数据做开发验证。
 

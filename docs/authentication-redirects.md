@@ -1,13 +1,13 @@
 # MoiCalendar 生产域名与认证回调
 
-MoiCalendar 的计划生产入口是 `https://app.moicalendar.com`。域名只通过部署配置提供；应用、日历服务和同步引擎不依赖该主机名，也不依赖 Azure Static Web Apps 的默认域名。
+MoiCalendar 当前的生产入口是 `https://polite-rock-09eddaf00.7.azurestaticapps.net`。该地址只作为部署环境值管理；应用、日历服务和同步引擎不依赖该主机名，将来切换自定义域名只需修改配置和认证提供商的 allow-list。
 
 ## 浏览器生产配置
 
 在 GitHub repository variable 中设置：
 
 ```text
-MOICALENDAR_PUBLIC_BASE_URL=https://app.moicalendar.com/
+MOICALENDAR_PUBLIC_BASE_URL=https://polite-rock-09eddaf00.7.azurestaticapps.net/
 ```
 
 生产配置生成器会把公开基址规范化为带尾斜杠的绝对 HTTPS URL。该值会进入浏览器可下载的 `appsettings.Production.json`，因此不得包含用户名、密码、令牌或其他秘密。
@@ -18,10 +18,10 @@ MOICALENDAR_PUBLIC_BASE_URL=https://app.moicalendar.com/
 
 ```text
 Site URL
-https://app.moicalendar.com
+https://polite-rock-09eddaf00.7.azurestaticapps.net
 
 Redirect URLs
-https://app.moicalendar.com/settings
+https://polite-rock-09eddaf00.7.azurestaticapps.net/settings
 http://localhost:5262/settings
 https://localhost:7104/settings
 ```
@@ -35,7 +35,7 @@ https://localhost:7104/settings
 在 Microsoft Entra 应用注册的 **Authentication → Single-page application** 中登记以下 Redirect URI：
 
 ```text
-https://app.moicalendar.com/authentication/login-callback
+https://polite-rock-09eddaf00.7.azurestaticapps.net/authentication/login-callback
 http://localhost:5262/authentication/login-callback
 https://localhost:7104/authentication/login-callback
 ```
@@ -55,6 +55,6 @@ Supabase 本地 CLI 的 `site_url` 保持 `http://localhost:5262`，并允许上
 
 ## 不应配置的地址或秘密
 
-- 不需要把任何 `azurestaticapps.net` 地址硬编码进应用；若暂时通过 Azure 默认域名访问，应将它作为环境专用 allow-list 值管理，而不是提交到业务代码。
+- Azure 默认域名只应出现在部署文档、外部环境配置和认证 allow-list 中，不得写入应用、领域或同步业务代码。
 - 不要把 Supabase service-role/secret key、数据库密码、Microsoft client secret、WebDAV 密码或用户令牌放入浏览器配置。
 - Supabase Publishable/anon key 是唯一允许交付给浏览器的 Supabase key；权限边界仍由用户会话、数据库 grants 和 RLS 提供。

@@ -6,11 +6,11 @@ namespace MoiCalendar.Tests;
 public sealed class ProductionUrlConfigurationTests
 {
     [Fact]
-    public void PlannedProductionDomain_GeneratesExactAuthenticationRedirects()
+    public void ConfiguredProductionDomain_GeneratesExactAuthenticationRedirects()
     {
         var configuration = new ConfigurationManager
         {
-            ["MoiCalendar:PublicBaseUrl"] = "https://app.moicalendar.com",
+            ["MoiCalendar:PublicBaseUrl"] = "https://calendar.example.test",
             ["MoiCalendar:MicrosoftAuthentication:RedirectPath"] =
                 "authentication/login-callback"
         };
@@ -19,12 +19,12 @@ public sealed class ProductionUrlConfigurationTests
             configuration,
             new Uri("http://localhost:5262/"));
 
-        Assert.Equal("https://app.moicalendar.com/", result.PublicBaseUrl.AbsoluteUri);
+        Assert.Equal("https://calendar.example.test/", result.PublicBaseUrl.AbsoluteUri);
         Assert.Equal(
-            "https://app.moicalendar.com/settings",
+            "https://calendar.example.test/settings",
             result.CloudAccountRedirectUrl.AbsoluteUri);
         Assert.Equal(
-            "https://app.moicalendar.com/authentication/login-callback",
+            "https://calendar.example.test/authentication/login-callback",
             result.MicrosoftLoginCallbackUrl.AbsoluteUri);
     }
 
@@ -74,7 +74,7 @@ public sealed class ProductionUrlConfigurationTests
     {
         var configuration = new ConfigurationManager
         {
-            ["MoiCalendar:PublicBaseUrl"] = "https://user:password@app.moicalendar.com/"
+            ["MoiCalendar:PublicBaseUrl"] = "https://user:password@calendar.example.test/"
         };
 
         Assert.Throws<InvalidOperationException>(() =>

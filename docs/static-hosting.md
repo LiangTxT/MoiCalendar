@@ -41,7 +41,7 @@ src/MoiCalendar.App/bin/Release/net10.0/publish/wwwroot/
 
 `wwwroot/appsettings.json` 提供平台无关的公开配置入口：
 
-- `MoiCalendar:PublicBaseUrl`：应用公开绝对 URL；为空时使用浏览器实际加载地址。当前生产值为 `https://app.moicalendar.com/`，认证回调清单见 [生产域名与认证回调](authentication-redirects.md)。
+- `MoiCalendar:PublicBaseUrl`：应用公开绝对 URL；为空时使用浏览器实际加载地址。当前生产值为 `https://polite-rock-09eddaf00.7.azurestaticapps.net/`，认证回调清单见 [生产域名与认证回调](authentication-redirects.md)。
 - `MoiCalendar:MicrosoftAuthentication`：为未来 Microsoft 登录保留公开参数边界，目前未启用。
 - `MoiCalendar:Synchronization:Provider`：为未来同步提供者选择保留配置边界，目前未启用。
 - `MoiCalendar:CloudBackend:Enabled`：是否启用云账户与增量同步。
