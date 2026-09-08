@@ -103,6 +103,21 @@ public sealed class OneDriveSyncStorageProviderTests
     }
 
     [Fact]
+    public async Task DownloadTextAsync_RejectsOversizedContentBeforeReadingIt()
+    {
+        var oversized = new ByteArrayContent(new byte[RemoteSyncFormat.MaximumOperationFileBytes + 1]);
+        var handler = new RecordingHandler(
+            JsonResponse("{\"name\":\"large.json\",\"size\":999999}"),
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = oversized });
+        var provider = CreateProvider(handler);
+
+        var exception = await Assert.ThrowsAsync<SyncContentTooLargeException>(
+            () => provider.DownloadTextAsync("large.json"));
+
+        Assert.Contains("字节限制", exception.Message);
+    }
+
+    [Fact]
     public async Task EnsureDirectoryAsync_CreatesNestedFoldersInsideAppFolder()
     {
         var handler = new RecordingHandler(

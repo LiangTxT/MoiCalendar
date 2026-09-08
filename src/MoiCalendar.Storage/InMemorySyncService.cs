@@ -4,8 +4,12 @@ namespace MoiCalendar.Storage;
 
 public sealed class InMemoryEventChangeRepository(
     IEventRepository eventRepository,
-    IOperationRepository operationRepository) : ILocalEventChangeRepository
+    IOperationRepository operationRepository,
+    InMemorySyncOutboxRepository? syncOutboxRepository = null) : ILocalEventChangeRepository
 {
+    private readonly InMemorySyncOutboxRepository syncOutboxRepository =
+        syncOutboxRepository ?? new InMemorySyncOutboxRepository();
+
     public async Task ApplyImportAsync(
         IReadOnlyList<CalendarImportChange> changes,
         CancellationToken cancellationToken = default)
@@ -30,6 +34,7 @@ public sealed class InMemoryEventChangeRepository(
     {
         var saved = await eventRepository.CreateAsync(calendarEvent, cancellationToken);
         await operationRepository.AddAsync(operation, cancellationToken);
+        await syncOutboxRepository.AddLocalOperationAsync(operation, cancellationToken);
         return saved;
     }
 
@@ -40,6 +45,7 @@ public sealed class InMemoryEventChangeRepository(
     {
         var saved = await eventRepository.UpdateAsync(calendarEvent, cancellationToken);
         await operationRepository.AddAsync(operation, cancellationToken);
+        await syncOutboxRepository.AddLocalOperationAsync(operation, cancellationToken);
         return saved;
     }
 
@@ -50,6 +56,7 @@ public sealed class InMemoryEventChangeRepository(
     {
         await eventRepository.UpdateAsync(deletedEvent, cancellationToken);
         await operationRepository.AddAsync(operation, cancellationToken);
+        await syncOutboxRepository.AddLocalOperationAsync(operation, cancellationToken);
         return true;
     }
 }

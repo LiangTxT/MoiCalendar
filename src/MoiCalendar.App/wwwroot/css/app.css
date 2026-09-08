@@ -737,6 +737,51 @@ button:focus-visible {
     opacity: 0.6;
 }
 
+.account-mode-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.account-mode-selector button.active {
+    border-color: #425a48;
+    background: #e5eee7;
+    font-weight: 700;
+}
+
+.account-form {
+    display: grid;
+    gap: 0.55rem;
+    max-width: 26rem;
+    margin-bottom: 1rem;
+}
+
+.account-form h3 {
+    margin: 0 0 0.35rem;
+}
+
+.account-form label {
+    font-size: 0.9rem;
+    font-weight: 650;
+}
+
+.account-form input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.65rem 0.7rem;
+    border: 1px solid #9eaaa1;
+    border-radius: 0.45rem;
+    background: #ffffff;
+    color: inherit;
+    font: inherit;
+}
+
+.account-form button {
+    justify-self: start;
+    margin-top: 0.35rem;
+}
+
 .account-information {
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr);

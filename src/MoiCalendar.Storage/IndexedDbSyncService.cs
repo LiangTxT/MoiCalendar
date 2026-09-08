@@ -80,3 +80,32 @@ public sealed class IndexedDbEventChangeRepository(IndexedDbConnection connectio
         }
     }
 }
+
+public sealed class IndexedDbRemoteSyncApplyRepository(IndexedDbConnection connection)
+    : IRemoteSyncApplyRepository
+{
+    public async Task ApplyAsync(
+        CalendarEvent? calendarEvent,
+        SyncOperation operation,
+        bool operationAlreadyExists,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await connection.InvokeAsync<object?>(
+                "applyRemoteSyncOperation",
+                cancellationToken,
+                calendarEvent,
+                operation,
+                operationAlreadyExists);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException or JSException)
+        {
+            throw new SyncOperationException("应用远端事件及同步操作失败：本地事务未完成。", exception);
+        }
+    }
+}

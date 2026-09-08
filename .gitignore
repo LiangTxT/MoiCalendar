@@ -19,6 +19,9 @@ coverage/
 .env
 .env.*
 appsettings.*.local.json
+src/MoiCalendar.App/wwwroot/appsettings.Local.json
+src/MoiCalendar.App/wwwroot/appsettings.Managed.json
+src/MoiCalendar.App/wwwroot/appsettings.Production.json
 secrets.json
 
 # Operating system files

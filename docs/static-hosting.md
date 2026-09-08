@@ -44,5 +44,11 @@ src/MoiCalendar.App/bin/Release/net10.0/publish/wwwroot/
 - `MoiCalendar:PublicBaseUrl`：应用公开绝对 URL；为空时使用浏览器实际加载地址。
 - `MoiCalendar:MicrosoftAuthentication`：为未来 Microsoft 登录保留公开参数边界，目前未启用。
 - `MoiCalendar:Synchronization:Provider`：为未来同步提供者选择保留配置边界，目前未启用。
+- `MoiCalendar:CloudBackend:Enabled`：是否启用云账户与增量同步。
+- `MoiCalendar:CloudBackend:BaseUrl`：兼容 Supabase API 网关的公开 URL。
+- `MoiCalendar:CloudBackend:PublicKey`：浏览器可见的 Publishable/anon key。
+- `MoiCalendar:CloudBackend:Supabase:RealtimePath`：提供程序专用的 Realtime WebSocket 路径。
 
-静态站点中的配置文件可以被任何访问者下载，因此这里只能保存公开值。密码、访问令牌、刷新令牌、客户端密钥和其他秘密绝不能放入该文件或任何前端发布产物。
+静态站点中的配置文件可以被任何访问者下载，因此这里只能保存公开值。`sb_secret_...`、service-role key、密码、访问令牌、刷新令牌、客户端密钥和其他秘密绝不能放入该文件或任何前端发布产物。详细开发与切换流程见 [Supabase 开发与可移植性](supabase-development.md)。
+
+生产 Azure Static Web Apps 工作流不会从门户 Application settings 隐式读取 Blazor 客户端配置，而是在发布前根据 GitHub repository variables 生成公开的 `appsettings.Production.json`。完整变量清单、构建数据流和路由配置见 [Azure Static Web Apps 生产部署](azure-static-web-apps.md)。

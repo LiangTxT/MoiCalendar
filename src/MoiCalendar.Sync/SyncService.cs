@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Runtime.ExceptionServices;
+using System.Text;
 using MoiCalendar.Core;
 
 namespace MoiCalendar.Sync;
@@ -20,6 +22,7 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
     private readonly TimeProvider timeProvider;
     private readonly ILocalDataOperationLock operationLock;
     private readonly IRestoreSyncGuard? restoreSyncGuard;
+    private readonly IRemoteSyncApplyRepository? remoteSyncApplyRepository;
     private volatile bool isSyncing;
 
     public SyncService(
@@ -31,7 +34,8 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         ISyncStatusRepository? statusRepository = null,
         TimeProvider? timeProvider = null,
         ILocalDataOperationLock? operationLock = null,
-        IRestoreSyncGuard? restoreSyncGuard = null)
+        IRestoreSyncGuard? restoreSyncGuard = null,
+        IRemoteSyncApplyRepository? remoteSyncApplyRepository = null)
     {
         this.operationRepository = operationRepository;
         this.eventRepository = eventRepository;
@@ -42,6 +46,7 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.operationLock = operationLock ?? NoOpLocalDataOperationLock.Instance;
         this.restoreSyncGuard = restoreSyncGuard;
+        this.remoteSyncApplyRepository = remoteSyncApplyRepository;
     }
 
     public async Task<SyncResult> PushAsync(CancellationToken cancellationToken = default)
@@ -73,6 +78,7 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
                 .ToArray();
         }
         var pushedCount = 0;
+        Exception? firstFailure = null;
 
         foreach (var operation in operations)
         {
@@ -81,6 +87,11 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
                 cancellationToken.ThrowIfCancellationRequested();
                 var path = RemoteSyncFormat.GetOperationPath(operation.OperationId);
                 var content = Serialize(operation);
+                if (Encoding.UTF8.GetByteCount(content) > RemoteSyncFormat.MaximumOperationFileBytes)
+                {
+                    throw new SyncStorageException(
+                        $"本地同步操作 {operation.OperationId:D} 超过 {RemoteSyncFormat.MaximumOperationFileBytes} 字节限制，未上传。");
+                }
                 var existing = await storageProvider.DownloadTextAsync(path, cancellationToken);
 
                 if (existing is null)
@@ -117,8 +128,13 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
 
                 exception.Data[OperationIdDataKey] = operation.OperationId;
                 exception.Data[StageDataKey] = SyncLogStage.Push;
-                throw;
+                firstFailure ??= exception;
             }
+        }
+
+        if (firstFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
 
         return new SyncResult(pushedCount, 0, 0);
@@ -141,6 +157,7 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
             cancellationToken);
         var downloadedCount = 0;
         var appliedCount = 0;
+        var provider = await GetProviderNameAsync(cancellationToken);
 
         foreach (var file in files.OrderBy(file => file.Path, StringComparer.Ordinal))
         {
@@ -151,43 +168,115 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
 
             try
             {
+                if (file.Size > RemoteSyncFormat.MaximumOperationFileBytes)
+                {
+                    await TryAddLogAsync(
+                        SyncLogSeverity.Warning,
+                        SyncLogStage.Pull,
+                        provider,
+                        $"远端同步操作文件超过 {RemoteSyncFormat.MaximumOperationFileBytes} 字节限制，已跳过。",
+                        operationId,
+                        "REMOTE_FILE_TOO_LARGE",
+                        cancellationToken);
+                    continue;
+                }
+
                 var localOperation = await operationRepository.GetByIdAsync(operationId, cancellationToken);
                 if (localOperation?.Status == SyncOperationStatus.Applied)
                 {
                     continue;
                 }
 
-                var remoteFile = await storageProvider.DownloadTextAsync(file.Path, cancellationToken);
+                SyncTextFile? remoteFile;
+                try
+                {
+                    remoteFile = await storageProvider.DownloadTextAsync(file.Path, cancellationToken);
+                }
+                catch (SyncContentTooLargeException exception)
+                {
+                    await TryAddLogAsync(
+                        SyncLogSeverity.Warning,
+                        SyncLogStage.Pull,
+                        provider,
+                        CreateSafeErrorSummary(exception),
+                        operationId,
+                        "REMOTE_FILE_TOO_LARGE",
+                        cancellationToken);
+                    continue;
+                }
                 if (remoteFile is null)
                 {
                     continue;
                 }
 
-                var document = Deserialize(remoteFile.Content);
-                ValidateDocument(document, operationId);
-                var remoteEvent = DeserializeEvent(document);
+                RemoteSyncOperationDocument document;
+                CalendarEvent remoteEvent;
+                try
+                {
+                    document = Deserialize(remoteFile.Content);
+                    ValidateDocument(document, operationId);
+                    if (localOperation is not null &&
+                        !RemoteContentsMatch(remoteFile.Content, Serialize(localOperation)))
+                    {
+                        throw new SyncStorageException(
+                            $"远端操作文件 {operationId:D} 与同 ID 的本地操作内容不一致，已跳过该文件。");
+                    }
+
+                    remoteEvent = DeserializeEvent(document);
+                }
+                catch (SyncStorageException exception)
+                {
+                    await TryAddLogAsync(
+                        SyncLogSeverity.Warning,
+                        SyncLogStage.Pull,
+                        provider,
+                        CreateSafeErrorSummary(exception),
+                        operationId,
+                        GetErrorCode(exception),
+                        cancellationToken);
+                    continue;
+                }
+
                 downloadedCount++;
 
                 var localEvent = await eventRepository.GetByIdIncludingDeletedAsync(
                     document.EntityId,
                     cancellationToken);
-                if (localEvent is null || remoteEvent.UpdatedAtUtc > localEvent.UpdatedAtUtc)
-                {
-                    await eventRepository.UpsertAsync(remoteEvent, cancellationToken);
-                    appliedCount++;
-                }
-
                 var appliedOperation = ToLocalOperation(document, SyncOperationStatus.Applied);
-                if (localOperation is null)
+                var eventToApply = localEvent is null || ShouldApplyRemoteEvent(remoteEvent, localEvent)
+                    ? remoteEvent
+                    : null;
+                if (remoteSyncApplyRepository is not null)
                 {
-                    await operationRepository.AddAsync(appliedOperation, cancellationToken);
+                    await remoteSyncApplyRepository.ApplyAsync(
+                        eventToApply,
+                        appliedOperation,
+                        localOperation is not null,
+                        cancellationToken);
                 }
                 else
                 {
-                    await operationRepository.UpdateStatusAsync(
-                        operationId,
-                        SyncOperationStatus.Applied,
-                        cancellationToken);
+                    if (eventToApply is not null)
+                    {
+                        await eventRepository.UpsertAsync(eventToApply, cancellationToken);
+                    }
+
+                    if (localOperation is null)
+                    {
+                        await operationRepository.AddAsync(appliedOperation, cancellationToken);
+                    }
+                    else
+                    {
+                        await operationRepository.UpdateStatusAsync(
+                            operationId,
+                            SyncOperationStatus.Applied,
+                            cancellationToken);
+                    }
+                }
+
+                if (eventToApply is not null)
+                {
+                    appliedCount++;
                 }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -499,6 +588,29 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         {
             throw new SyncStorageException("远端同步操作类型与事件删除标记不一致。");
         }
+
+        if (string.IsNullOrWhiteSpace(calendarEvent.Title) || calendarEvent.Title.Length > 200 ||
+            calendarEvent.Description is null || calendarEvent.Description.Length > 4_000 ||
+            calendarEvent.Location is null || calendarEvent.Location.Length > 300 ||
+            string.IsNullOrWhiteSpace(calendarEvent.TimeZoneId) ||
+            calendarEvent.EndUtc <= calendarEvent.StartUtc ||
+            calendarEvent.UpdatedAtUtc < calendarEvent.CreatedAtUtc ||
+            calendarEvent.DeletedAtUtc > calendarEvent.UpdatedAtUtc ||
+            calendarEvent.ExternalUid is { Length: > 1_024 } ||
+            calendarEvent.ExternalUid is not null && string.IsNullOrWhiteSpace(calendarEvent.ExternalUid))
+        {
+            throw new SyncStorageException("远端同步操作包含无效的事件字段或时间范围。");
+        }
+
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(calendarEvent.TimeZoneId);
+        }
+        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            throw new SyncStorageException("远端同步操作包含当前设备无法识别的事件时区。", exception);
+        }
+
         if (calendarEvent.RecurrenceRule is not null)
         {
             try
@@ -511,7 +623,14 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
             }
         }
 
-        return calendarEvent;
+        return calendarEvent with
+        {
+            StartUtc = calendarEvent.StartUtc.ToUniversalTime(),
+            EndUtc = calendarEvent.EndUtc.ToUniversalTime(),
+            CreatedAtUtc = calendarEvent.CreatedAtUtc.ToUniversalTime(),
+            UpdatedAtUtc = calendarEvent.UpdatedAtUtc.ToUniversalTime(),
+            DeletedAtUtc = calendarEvent.DeletedAtUtc?.ToUniversalTime()
+        };
     }
 
     private static void ValidateDocument(RemoteSyncOperationDocument document, Guid fileOperationId)
@@ -557,6 +676,24 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
         var expectedDocument = Deserialize(expected);
         return JsonSerializer.Serialize(existingDocument, JsonOptions) ==
                JsonSerializer.Serialize(expectedDocument, JsonOptions);
+    }
+
+    private static bool ShouldApplyRemoteEvent(CalendarEvent remoteEvent, CalendarEvent localEvent)
+    {
+        var timestampComparison = remoteEvent.UpdatedAtUtc.CompareTo(localEvent.UpdatedAtUtc);
+        if (timestampComparison != 0)
+        {
+            return timestampComparison > 0;
+        }
+
+        if ((remoteEvent.DeletedAtUtc is not null) != (localEvent.DeletedAtUtc is not null))
+        {
+            return remoteEvent.DeletedAtUtc is not null;
+        }
+
+        var remoteContent = JsonSerializer.Serialize(remoteEvent, JsonOptions);
+        var localContent = JsonSerializer.Serialize(localEvent, JsonOptions);
+        return string.CompareOrdinal(remoteContent, localContent) > 0;
     }
 
     private static bool TryGetOperationId(string path, out Guid operationId)

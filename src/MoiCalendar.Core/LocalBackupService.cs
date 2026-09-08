@@ -5,7 +5,7 @@ namespace MoiCalendar.Core;
 public sealed record MyCalendarBackup
 {
     public const int MinimumSupportedSchemaVersion = 1;
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public required int SchemaVersion { get; init; }
 

@@ -166,15 +166,12 @@ public sealed class OneDriveSyncStorageProvider(
             cancellationToken: cancellationToken);
         await EnsureSuccessAsync(contentResponse, "下载 OneDrive 文件", cancellationToken);
 
-        string content;
-        try
-        {
-            content = await contentResponse.Content.ReadAsStringAsync(cancellationToken);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            throw new SyncStorageException("无法读取 OneDrive 文件内容。", exception);
-        }
+        var content = await BoundedTextContentReader.ReadUtf8Async(
+            contentResponse.Content,
+            RemoteSyncFormat.MaximumOperationFileBytes,
+            $"OneDrive 文件超过 {RemoteSyncFormat.MaximumOperationFileBytes} 字节限制。",
+            "无法读取 OneDrive 文件内容。",
+            cancellationToken);
 
         return new SyncTextFile(path, content, item.ETag, item.LastModifiedDateTime);
     }

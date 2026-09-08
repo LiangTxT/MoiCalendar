@@ -7,6 +7,30 @@ namespace MoiCalendar.Tests;
 public sealed class CalendarEventTests
 {
     [Fact]
+    public async Task CreateUpdateDelete_AcquireLocalDataOperationLock()
+    {
+        var repository = new InMemoryEventRepository();
+        var operations = new InMemoryOperationRepository();
+        var operationLock = new TrackingOperationLock();
+        var service = new CalendarEventService(
+            repository,
+            new InMemoryDeviceService("lock-device"),
+            new InMemoryEventChangeRepository(repository, operations),
+            new TestTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero)),
+            operationLock: operationLock);
+        var draft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
+        draft.Title = "锁测试";
+
+        var created = await service.CreateAsync(draft);
+        draft.Title = "锁测试更新";
+        await service.UpdateAsync(created.Id, draft);
+        await service.DeleteAsync(created.Id);
+
+        Assert.Equal(3, operationLock.AcquireCount);
+        Assert.Equal(3, operationLock.ReleaseCount);
+    }
+
+    [Fact]
     public async Task Service_CreatesUpdatesAndDeletesEvent()
     {
         var repository = new InMemoryEventRepository();
@@ -57,6 +81,31 @@ public sealed class CalendarEventTests
             operations[^1].Payload,
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal(clock.UtcNow, deletePayload?.DeletedAtUtc);
+    }
+
+    [Fact]
+    public async Task Create_RejectsTextFieldsBeyondPersistenceLimits()
+    {
+        var repository = new InMemoryEventRepository();
+        var service = new CalendarEventService(
+            repository,
+            new InMemoryDeviceService("validation-device"),
+            new InMemoryEventChangeRepository(repository, new InMemoryOperationRepository()),
+            new TestTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero)));
+
+        var titleDraft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
+        titleDraft.Title = new string('题', 201);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(titleDraft));
+
+        var descriptionDraft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
+        descriptionDraft.Title = "有效标题";
+        descriptionDraft.Description = new string('说', 4_001);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(descriptionDraft));
+
+        var locationDraft = service.CreateDraft(new DateOnly(2026, 8, 23), TimeZoneInfo.Utc.Id);
+        locationDraft.Title = "有效标题";
+        locationDraft.Location = new string('地', 301);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(locationDraft));
     }
 
     [Fact]
@@ -164,5 +213,27 @@ public sealed class CalendarEventTests
         public DateTimeOffset UtcNow { get; set; } = utcNow;
 
         public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    private sealed class TrackingOperationLock : ILocalDataOperationLock
+    {
+        public int AcquireCount { get; private set; }
+
+        public int ReleaseCount { get; private set; }
+
+        public Task<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken = default)
+        {
+            AcquireCount++;
+            return Task.FromResult<IAsyncDisposable>(new Lease(this));
+        }
+
+        private sealed class Lease(TrackingOperationLock owner) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                owner.ReleaseCount++;
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

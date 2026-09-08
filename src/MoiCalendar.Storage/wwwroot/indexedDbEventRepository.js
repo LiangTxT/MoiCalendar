@@ -6,6 +6,10 @@ let configuredOperationStoreName;
 let configuredSettingsStoreName;
 let configuredSyncLogStoreName;
 let configuredRestoreSnapshotStoreName;
+let configuredDeviceIdentityStoreName;
+let configuredCloudSyncStateStoreName;
+let configuredSyncOutboxStoreName;
+let configuredCloudEntityStateStoreName;
 const heldOperationLocks = new Map();
 const exclusiveOperationLockName = "moicalendar-local-data-operation";
 const latestRestoreSnapshotKey = "latest";
@@ -18,7 +22,11 @@ export async function initialize(
     operationStoreName,
     settingsStoreName,
     syncLogStoreName,
-    restoreSnapshotStoreName) {
+    restoreSnapshotStoreName,
+    deviceIdentityStoreName,
+    cloudSyncStateStoreName,
+    syncOutboxStoreName,
+    cloudEntityStateStoreName) {
     if (
         !databaseName ||
         !eventStoreName ||
@@ -26,6 +34,10 @@ export async function initialize(
         !settingsStoreName ||
         !syncLogStoreName ||
         !restoreSnapshotStoreName ||
+        !deviceIdentityStoreName ||
+        !cloudSyncStateStoreName ||
+        !syncOutboxStoreName ||
+        !cloudEntityStateStoreName ||
         !Number.isInteger(databaseVersion) ||
         databaseVersion < 1) {
         throw new Error("IndexedDB 初始化参数无效。");
@@ -39,7 +51,11 @@ export async function initialize(
             configuredOperationStoreName !== operationStoreName ||
             configuredSettingsStoreName !== settingsStoreName ||
             configuredSyncLogStoreName !== syncLogStoreName ||
-            configuredRestoreSnapshotStoreName !== restoreSnapshotStoreName
+            configuredRestoreSnapshotStoreName !== restoreSnapshotStoreName ||
+            configuredDeviceIdentityStoreName !== deviceIdentityStoreName ||
+            configuredCloudSyncStateStoreName !== cloudSyncStateStoreName ||
+            configuredSyncOutboxStoreName !== syncOutboxStoreName ||
+            configuredCloudEntityStateStoreName !== cloudEntityStateStoreName
         ) {
             throw new Error("IndexedDB 已使用不同配置初始化。");
         }
@@ -55,6 +71,10 @@ export async function initialize(
     configuredSettingsStoreName = settingsStoreName;
     configuredSyncLogStoreName = syncLogStoreName;
     configuredRestoreSnapshotStoreName = restoreSnapshotStoreName;
+    configuredDeviceIdentityStoreName = deviceIdentityStoreName;
+    configuredCloudSyncStateStoreName = cloudSyncStateStoreName;
+    configuredSyncOutboxStoreName = syncOutboxStoreName;
+    configuredCloudEntityStateStoreName = cloudEntityStateStoreName;
     databasePromise = openDatabase(
         databaseName,
         databaseVersion,
@@ -62,7 +82,11 @@ export async function initialize(
         operationStoreName,
         settingsStoreName,
         syncLogStoreName,
-        restoreSnapshotStoreName);
+        restoreSnapshotStoreName,
+        deviceIdentityStoreName,
+        cloudSyncStateStoreName,
+        syncOutboxStoreName,
+        cloudEntityStateStoreName);
 
     try {
         await databasePromise;
@@ -187,7 +211,10 @@ export async function replaceAllEventsAndResetSync(calendarEvents) {
             configuredEventStoreName,
             configuredOperationStoreName,
             configuredSettingsStoreName,
-            configuredRestoreSnapshotStoreName
+            configuredRestoreSnapshotStoreName,
+            configuredCloudSyncStateStoreName,
+            configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName
         ],
         "readwrite");
     const completion = transactionAsPromise(transaction);
@@ -197,10 +224,16 @@ export async function replaceAllEventsAndResetSync(calendarEvents) {
         const operationStore = transaction.objectStore(configuredOperationStoreName);
         const settingsStore = transaction.objectStore(configuredSettingsStoreName);
         const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
-        const [existingEvents, existingOperations, existingSyncGuard] = await Promise.all([
+        const cloudSyncStateStore = transaction.objectStore(configuredCloudSyncStateStoreName);
+        const syncOutboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+        const cloudEntityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
+        const [existingEvents, existingOperations, existingSyncGuard, existingCloudSyncStates, existingSyncOutbox, existingCloudEntityStates] = await Promise.all([
             requestAsPromise(eventStore.getAll()),
             requestAsPromise(operationStore.getAll()),
-            requestAsPromise(settingsStore.get(restoreSyncBlockedSettingKey))
+            requestAsPromise(settingsStore.get(restoreSyncBlockedSettingKey)),
+            requestAsPromise(cloudSyncStateStore.getAll()),
+            requestAsPromise(syncOutboxStore.getAll()),
+            requestAsPromise(cloudEntityStateStore.getAll())
         ]);
         const createdAtUtc = new Date().toISOString();
         const snapshot = {
@@ -208,12 +241,18 @@ export async function replaceAllEventsAndResetSync(calendarEvents) {
             createdAtUtc,
             calendarEvents: existingEvents,
             syncOperations: existingOperations,
+            cloudSyncStates: existingCloudSyncStates,
+            syncOutbox: existingSyncOutbox,
+            cloudEntityStates: existingCloudEntityStates,
             wasSyncBlocked: existingSyncGuard?.value === true
         };
         const requests = [
             snapshotStore.put(snapshot),
             eventStore.clear(),
             operationStore.clear(),
+            cloudSyncStateStore.clear(),
+            syncOutboxStore.clear(),
+            cloudEntityStateStore.clear(),
             settingsStore.delete("syncStatus"),
             settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true }),
             ...calendarEvents.map(calendarEvent => eventStore.put(calendarEvent))
@@ -262,7 +301,10 @@ export async function restoreLatestSafetySnapshot() {
             configuredEventStoreName,
             configuredOperationStoreName,
             configuredSettingsStoreName,
-            configuredRestoreSnapshotStoreName
+            configuredRestoreSnapshotStoreName,
+            configuredCloudSyncStateStoreName,
+            configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName
         ],
         "readwrite");
     const completion = transactionAsPromise(transaction);
@@ -271,6 +313,9 @@ export async function restoreLatestSafetySnapshot() {
         const operationStore = transaction.objectStore(configuredOperationStoreName);
         const settingsStore = transaction.objectStore(configuredSettingsStoreName);
         const snapshotStore = transaction.objectStore(configuredRestoreSnapshotStoreName);
+        const cloudSyncStateStore = transaction.objectStore(configuredCloudSyncStateStoreName);
+        const syncOutboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+        const cloudEntityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
         const snapshot = await requestAsPromise(snapshotStore.get(latestRestoreSnapshotKey));
         if (!snapshot) {
             throw new Error("没有可用的恢复前安全快照。");
@@ -280,12 +325,18 @@ export async function restoreLatestSafetySnapshot() {
         const requests = [
             eventStore.clear(),
             operationStore.clear(),
+            cloudSyncStateStore.clear(),
+            syncOutboxStore.clear(),
+            cloudEntityStateStore.clear(),
             settingsStore.delete("syncStatus"),
             snapshot.wasSyncBlocked
                 ? settingsStore.put({ key: restoreSyncBlockedSettingKey, value: true })
                 : settingsStore.delete(restoreSyncBlockedSettingKey),
             ...snapshot.calendarEvents.map(calendarEvent => eventStore.put(calendarEvent)),
             ...snapshot.syncOperations.map(operation => operationStore.put(operation)),
+            ...(snapshot.cloudSyncStates ?? []).map(state => cloudSyncStateStore.put(state)),
+            ...(snapshot.syncOutbox ?? []).map(entry => syncOutboxStore.put(entry)),
+            ...(snapshot.cloudEntityStates ?? []).map(state => cloudEntityStateStore.put(state)),
             snapshotStore.delete(latestRestoreSnapshotKey)
         ];
         await Promise.all([
@@ -415,19 +466,57 @@ export async function getRecurringEventMasters() {
 
 export async function createEventWithSyncOperation(calendarEvent, operation) {
     validateEventAndOperation(calendarEvent, operation, 0);
+    const outboxEntry = createSyncOutboxEntry(operation, null);
     const database = await getDatabase();
     const transaction = database.transaction(
-        [configuredEventStoreName, configuredOperationStoreName],
+        [configuredEventStoreName, configuredOperationStoreName, configuredSyncOutboxStoreName],
         "readwrite");
     const eventRequest = transaction.objectStore(configuredEventStoreName).add(calendarEvent);
     const operationRequest = transaction.objectStore(configuredOperationStoreName).add(operation);
+    const outboxRequest = transaction.objectStore(configuredSyncOutboxStoreName).add(outboxEntry);
 
     await Promise.all([
         requestAsPromise(eventRequest),
         requestAsPromise(operationRequest),
+        requestAsPromise(outboxRequest),
         transactionAsPromise(transaction)
     ]);
     return calendarEvent;
+}
+
+export async function applyRemoteSyncOperation(calendarEvent, operation, operationAlreadyExists) {
+    validateSyncOperation(operation);
+    if (calendarEvent !== null && calendarEvent !== undefined) {
+        validateEvent(calendarEvent);
+        if (calendarEvent.id !== operation.entityId) {
+            throw new Error("远端同步操作与日历事件不匹配。");
+        }
+    }
+    if (operation.status !== 3 || typeof operationAlreadyExists !== "boolean") {
+        throw new Error("远端同步操作状态无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredOperationStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    try {
+        const operationStore = transaction.objectStore(configuredOperationStoreName);
+        const existingOperation = await requestAsPromise(operationStore.get(operation.operationId));
+        if (operationAlreadyExists !== Boolean(existingOperation)) {
+            throw new Error("同步操作在读取后发生变化，请重新同步。");
+        }
+
+        if (calendarEvent !== null && calendarEvent !== undefined) {
+            transaction.objectStore(configuredEventStoreName).put(calendarEvent);
+        }
+        operationStore.put(operation);
+        await completion;
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
 }
 
 export async function applyCalendarImport(changes) {
@@ -447,12 +536,19 @@ export async function applyCalendarImport(changes) {
 
     const database = await getDatabase();
     const transaction = database.transaction(
-        [configuredEventStoreName, configuredOperationStoreName],
+        [
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName
+        ],
         "readwrite");
     const completion = transactionAsPromise(transaction);
     try {
         const eventStore = transaction.objectStore(configuredEventStoreName);
         const operationStore = transaction.objectStore(configuredOperationStoreName);
+        const outboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+        const entityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
         const existingEvents = await requestAsPromise(eventStore.getAll());
         const externalUidLookup = new Map();
         for (const existingEvent of existingEvents) {
@@ -484,6 +580,11 @@ export async function applyCalendarImport(changes) {
                 eventStore.add(importedEvent);
             }
             operationStore.add(change.operation);
+            const entityState = await requestAsPromise(
+                entityStateStore.get(createCloudEntityStateKey(0, importedEvent.id)));
+            outboxStore.add(createSyncOutboxEntry(
+                change.operation,
+                entityState?.serverRevision ?? null));
         }
 
         await completion;
@@ -497,7 +598,12 @@ export async function updateEventWithSyncOperation(calendarEvent, operation) {
     validateEventAndOperation(calendarEvent, operation, 1);
     const database = await getDatabase();
     const transaction = database.transaction(
-        [configuredEventStoreName, configuredOperationStoreName],
+        [
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName
+        ],
         "readwrite");
     const eventStore = transaction.objectStore(configuredEventStoreName);
     const existing = await requestAsPromise(eventStore.get(calendarEvent.id));
@@ -506,11 +612,18 @@ export async function updateEventWithSyncOperation(calendarEvent, operation) {
         throw new Error("找不到要更新的日历事件。");
     }
 
+    const entityState = await requestAsPromise(
+        transaction.objectStore(configuredCloudEntityStateStoreName)
+            .get(createCloudEntityStateKey(0, calendarEvent.id)));
+    const outboxEntry = createSyncOutboxEntry(operation, entityState?.serverRevision ?? null);
+
     const eventRequest = eventStore.put(calendarEvent);
     const operationRequest = transaction.objectStore(configuredOperationStoreName).add(operation);
+    const outboxRequest = transaction.objectStore(configuredSyncOutboxStoreName).add(outboxEntry);
     await Promise.all([
         requestAsPromise(eventRequest),
         requestAsPromise(operationRequest),
+        requestAsPromise(outboxRequest),
         transactionAsPromise(transaction)
     ]);
     return calendarEvent;
@@ -524,7 +637,12 @@ export async function deleteEventWithSyncOperation(deletedEvent, operation) {
 
     const database = await getDatabase();
     const transaction = database.transaction(
-        [configuredEventStoreName, configuredOperationStoreName],
+        [
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName
+        ],
         "readwrite");
     const eventStore = transaction.objectStore(configuredEventStoreName);
     const existing = await requestAsPromise(eventStore.get(deletedEvent.id));
@@ -533,11 +651,18 @@ export async function deleteEventWithSyncOperation(deletedEvent, operation) {
         return false;
     }
 
+    const entityState = await requestAsPromise(
+        transaction.objectStore(configuredCloudEntityStateStoreName)
+            .get(createCloudEntityStateKey(0, deletedEvent.id)));
+    const outboxEntry = createSyncOutboxEntry(operation, entityState?.serverRevision ?? null);
+
     const eventRequest = eventStore.put(deletedEvent);
     const operationRequest = transaction.objectStore(configuredOperationStoreName).add(operation);
+    const outboxRequest = transaction.objectStore(configuredSyncOutboxStoreName).add(outboxEntry);
     await Promise.all([
         requestAsPromise(eventRequest),
         requestAsPromise(operationRequest),
+        requestAsPromise(outboxRequest),
         transactionAsPromise(transaction)
     ]);
     return true;
@@ -605,6 +730,308 @@ export async function updateSyncOperationStatus(operationId, status) {
     const request = store.put(operation);
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
     return operation;
+}
+
+export async function getSyncOutboxEntryById(mutationId) {
+    validateId(mutationId);
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entry = await requestAsPromise(
+        transaction.objectStore(configuredSyncOutboxStoreName).get(mutationId));
+    await completion;
+    if (entry) {
+        validateSyncOutboxEntry(entry);
+    }
+    return entry ?? null;
+}
+
+export async function getPendingSyncOutboxEntries(maximumCount) {
+    if (!Number.isInteger(maximumCount) || maximumCount < 1 || maximumCount > 1000) {
+        throw new Error("同步发件箱读取数量无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entries = await requestAsPromise(
+        transaction.objectStore(configuredSyncOutboxStoreName).getAll());
+    await completion;
+    for (const entry of entries) {
+        validateSyncOutboxEntry(entry);
+    }
+    return entries
+        .sort((left, right) =>
+            Date.parse(left.createdAtUtc) - Date.parse(right.createdAtUtc) ||
+            left.mutationId.localeCompare(right.mutationId))
+        .slice(0, maximumCount);
+}
+
+export async function getReadySyncOutboxEntries(readyAtUtc, maximumCount) {
+    validateDateValue(readyAtUtc, "readyAtUtc");
+    if (!Number.isInteger(maximumCount) || maximumCount < 1 || maximumCount > 1000) {
+        throw new Error("同步发件箱读取数量无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entries = await requestAsPromise(
+        transaction.objectStore(configuredSyncOutboxStoreName).getAll());
+    await completion;
+    for (const entry of entries) {
+        validateSyncOutboxEntry(entry);
+    }
+    const blockedEntityIds = new Set(entries
+        .filter(entry => entry.conflictCode !== null && entry.conflictCode !== undefined)
+        .map(entry => `${entry.entityType}:${entry.entityId}`));
+    const readyAt = Date.parse(readyAtUtc);
+    return entries
+        .filter(entry =>
+            !blockedEntityIds.has(`${entry.entityType}:${entry.entityId}`) &&
+            entry.lastErrorCategory !== 3 &&
+            (entry.nextAttemptAtUtc === null || entry.nextAttemptAtUtc === undefined ||
+                Date.parse(entry.nextAttemptAtUtc) <= readyAt))
+        .sort((left, right) =>
+            Date.parse(left.createdAtUtc) - Date.parse(right.createdAtUtc) ||
+            left.mutationId.localeCompare(right.mutationId))
+        .slice(0, maximumCount);
+}
+
+export async function recordSyncOutboxAttempt(
+    mutationId,
+    attemptedAtUtc,
+    errorCategory,
+    errorCode,
+    safeErrorMessage,
+    nextAttemptAtUtc) {
+    validateId(mutationId);
+    validateDateValue(attemptedAtUtc, "attemptedAtUtc");
+    validateSyncOutboxError(errorCategory, errorCode, safeErrorMessage, nextAttemptAtUtc);
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readwrite");
+    const store = transaction.objectStore(configuredSyncOutboxStoreName);
+    const entry = await requestAsPromise(store.get(mutationId));
+    if (!entry) {
+        transaction.abort();
+        throw new Error("找不到同步发件箱记录。");
+    }
+
+    entry.attemptCount += 1;
+    entry.lastAttemptAtUtc = attemptedAtUtc;
+    entry.lastError = safeErrorMessage;
+    entry.lastErrorCategory = errorCategory;
+    entry.lastErrorCode = errorCode;
+    entry.nextAttemptAtUtc = nextAttemptAtUtc ?? null;
+    validateSyncOutboxEntry(entry);
+    await Promise.all([
+        requestAsPromise(store.put(entry)),
+        transactionAsPromise(transaction)
+    ]);
+    return entry;
+}
+
+export async function recordSyncOutboxConflict(
+    mutationId,
+    detectedAtUtc,
+    conflictCode,
+    currentServerRevision,
+    remoteEvent) {
+    validateId(mutationId);
+    validateDateValue(detectedAtUtc, "detectedAtUtc");
+    if (typeof conflictCode !== "string" || conflictCode.length === 0 || conflictCode.length > 100) {
+        throw new Error("同步冲突代码无效。");
+    }
+    if (currentServerRevision !== null && currentServerRevision !== undefined) {
+        validateServerRevision(currentServerRevision);
+    }
+    if (remoteEvent !== null && remoteEvent !== undefined) {
+        validateEvent(remoteEvent);
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readwrite");
+    const store = transaction.objectStore(configuredSyncOutboxStoreName);
+    const entry = await requestAsPromise(store.get(mutationId));
+    if (!entry) {
+        transaction.abort();
+        throw new Error("找不到同步发件箱记录。");
+    }
+
+    entry.attemptCount += 1;
+    entry.lastAttemptAtUtc = detectedAtUtc;
+    entry.lastError = `conflict:${conflictCode}`;
+    entry.lastErrorCategory = 2;
+    entry.lastErrorCode = conflictCode;
+    entry.nextAttemptAtUtc = null;
+    entry.conflictCode = conflictCode;
+    entry.conflictServerRevision = currentServerRevision ?? null;
+    entry.conflictRemoteEvent = remoteEvent ?? null;
+    entry.conflictDetectedAtUtc = detectedAtUtc;
+    validateSyncOutboxEntry(entry);
+    await Promise.all([
+        requestAsPromise(store.put(entry)),
+        transactionAsPromise(transaction)
+    ]);
+    return entry;
+}
+
+export async function removeSyncOutboxEntry(mutationId) {
+    validateId(mutationId);
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readwrite");
+    const request = transaction.objectStore(configuredSyncOutboxStoreName).delete(mutationId);
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
+export async function acknowledgeSyncOutboxEntry(mutationId, serverRevision) {
+    validateId(mutationId);
+    validateServerRevision(serverRevision);
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredSyncOutboxStoreName, configuredCloudEntityStateStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    const outboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+    const entityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
+    const acknowledged = await requestAsPromise(outboxStore.get(mutationId));
+    if (!acknowledged) {
+        await completion;
+        return;
+    }
+    validateSyncOutboxEntry(acknowledged);
+
+    const sameEntity = await requestAsPromise(
+        outboxStore.index("entityId").getAll(acknowledged.entityId));
+    for (const entry of sameEntity) {
+        if (entry.mutationId !== mutationId &&
+            entry.entityType === acknowledged.entityType &&
+            entry.baseRevision === acknowledged.baseRevision) {
+            entry.baseRevision = serverRevision;
+            validateSyncOutboxEntry(entry);
+            outboxStore.put(entry);
+        }
+    }
+
+    outboxStore.delete(mutationId);
+    entityStateStore.put({
+        key: createCloudEntityStateKey(acknowledged.entityType, acknowledged.entityId),
+        entityType: acknowledged.entityType,
+        entityId: acknowledged.entityId,
+        serverRevision
+    });
+    await completion;
+}
+
+export async function getCloudSyncBinding() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const record = await requestAsPromise(
+        transaction.objectStore(configuredSettingsStoreName).get("cloudSyncBinding"));
+    await completion;
+    return record?.value ?? null;
+}
+
+export async function bindCloudSyncAccount(accountId, boundAtUtc) {
+    validateId(accountId);
+    validateDateValue(boundAtUtc, "boundAtUtc");
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    const store = transaction.objectStore(configuredSettingsStoreName);
+    const existing = await requestAsPromise(store.get("cloudSyncBinding"));
+    if (existing?.value && existing.value.accountId !== accountId) {
+        transaction.abort();
+        throw new Error("本地日历已绑定到另一个云账户。");
+    }
+
+    const binding = existing?.value ?? { accountId, boundAtUtc };
+    await Promise.all([
+        requestAsPromise(store.put({ key: "cloudSyncBinding", value: binding })),
+        transactionAsPromise(transaction)
+    ]);
+    return binding;
+}
+
+export async function applyCloudChangesAndAdvanceCursor(
+    scope,
+    changes,
+    cursor,
+    synchronizedAtUtc) {
+    validateSyncScope(scope);
+    if (!Array.isArray(changes)) {
+        throw new Error("云端变更列表无效。");
+    }
+    if (!Number.isSafeInteger(cursor) || cursor < 0) {
+        throw new Error("云同步游标无效。");
+    }
+    validateDateValue(synchronizedAtUtc, "synchronizedAtUtc");
+    for (const change of changes) {
+        validateCloudRemoteChange(change);
+        if (change.serverRevision > cursor) {
+            throw new Error("云端变更修订号超过批次游标。");
+        }
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredCloudEntityStateStoreName,
+            configuredCloudSyncStateStoreName, configuredSyncOutboxStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    const eventStore = transaction.objectStore(configuredEventStoreName);
+    const entityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
+    const syncStateStore = transaction.objectStore(configuredCloudSyncStateStoreName);
+    const outboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+    const existingState = await requestAsPromise(syncStateStore.get(scope));
+    if (existingState?.lastSuccessfulServerRevision > cursor) {
+        transaction.abort();
+        throw new Error("云同步游标不能倒退。");
+    }
+
+    const pendingEntries = await requestAsPromise(outboxStore.getAll());
+    const pendingEntityIds = new Set(pendingEntries.map(entry => entry.entityId));
+    for (const change of changes) {
+        if (pendingEntityIds.has(change.calendarEvent.id)) {
+            continue;
+        }
+        eventStore.put(change.calendarEvent);
+        entityStateStore.put({
+            key: createCloudEntityStateKey(0, change.calendarEvent.id),
+            entityType: 0,
+            entityId: change.calendarEvent.id,
+            serverRevision: change.serverRevision
+        });
+    }
+    syncStateStore.put({
+        scope,
+        lastSuccessfulServerRevision: cursor,
+        lastSuccessfulSyncAtUtc: synchronizedAtUtc
+    });
+    await completion;
+}
+
+export async function getCloudSyncState(scope) {
+    validateSyncScope(scope);
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredCloudSyncStateStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const state = await requestAsPromise(
+        transaction.objectStore(configuredCloudSyncStateStoreName).get(scope));
+    await completion;
+    if (state) {
+        validateCloudSyncState(state);
+    }
+    return state ?? null;
+}
+
+export async function saveCloudSyncState(state) {
+    validateCloudSyncState(state);
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredCloudSyncStateStoreName, "readwrite");
+    const request = transaction.objectStore(configuredCloudSyncStateStoreName).put(state);
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
 }
 
 export async function addSyncLogEntry(entry, retentionLimit) {
@@ -698,23 +1125,40 @@ export async function saveCalendarViewPreference(viewMode) {
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
 }
 
-export async function getOrCreateDeviceId() {
+export async function getOrCreateDeviceIdentity() {
     const database = await getDatabase();
-    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
-    const store = transaction.objectStore(configuredSettingsStoreName);
-    const existing = await requestAsPromise(store.get("deviceId"));
+    const transaction = database.transaction(
+        [configuredDeviceIdentityStoreName, configuredSettingsStoreName],
+        "readwrite");
+    const identityStore = transaction.objectStore(configuredDeviceIdentityStoreName);
+    const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+    const existing = await requestAsPromise(identityStore.get("current"));
 
-    if (existing?.value) {
+    if (existing) {
+        validateDeviceIdentity(existing);
         await transactionAsPromise(transaction);
-        return existing.value;
+        return existing;
     }
 
-    const deviceId = typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : createUuid();
-    const request = store.put({ key: "deviceId", value: deviceId });
-    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
-    return deviceId;
+    const legacy = await requestAsPromise(settingsStore.get("deviceId"));
+    const legacyId = typeof legacy?.value === "string" && isUuid(legacy.value)
+        ? legacy.value
+        : null;
+    const identity = {
+        key: "current",
+        deviceId: legacyId ?? (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : createUuid()),
+        createdAtUtc: new Date().toISOString()
+    };
+    validateDeviceIdentity(identity);
+    await Promise.all([
+        requestAsPromise(identityStore.put(identity)),
+        transactionAsPromise(transaction)
+    ]);
+    return identity;
+}
+
+export async function getOrCreateDeviceId() {
+    return (await getOrCreateDeviceIdentity()).deviceId;
 }
 
 async function getStoredEvent(id) {
@@ -743,7 +1187,11 @@ function openDatabase(
     operationStoreName,
     settingsStoreName,
     syncLogStoreName,
-    restoreSnapshotStoreName) {
+    restoreSnapshotStoreName,
+    deviceIdentityStoreName,
+    cloudSyncStateStoreName,
+    syncOutboxStoreName,
+    cloudEntityStateStoreName) {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(databaseName, databaseVersion);
 
@@ -783,6 +1231,30 @@ function openDatabase(
 
             if (!database.objectStoreNames.contains(restoreSnapshotStoreName)) {
                 database.createObjectStore(restoreSnapshotStoreName, { keyPath: "key" });
+            }
+
+            if (!database.objectStoreNames.contains(deviceIdentityStoreName)) {
+                database.createObjectStore(deviceIdentityStoreName, { keyPath: "key" });
+            }
+
+            if (!database.objectStoreNames.contains(cloudSyncStateStoreName)) {
+                database.createObjectStore(cloudSyncStateStoreName, { keyPath: "scope" });
+            }
+
+            const syncOutboxStore = database.objectStoreNames.contains(syncOutboxStoreName)
+                ? request.transaction.objectStore(syncOutboxStoreName)
+                : database.createObjectStore(syncOutboxStoreName, { keyPath: "mutationId" });
+
+            if (!syncOutboxStore.indexNames.contains("createdAtUtc")) {
+                syncOutboxStore.createIndex("createdAtUtc", "createdAtUtc", { unique: false });
+            }
+
+            if (!syncOutboxStore.indexNames.contains("entityId")) {
+                syncOutboxStore.createIndex("entityId", "entityId", { unique: false });
+            }
+
+            if (!database.objectStoreNames.contains(cloudEntityStateStoreName)) {
+                database.createObjectStore(cloudEntityStateStoreName, { keyPath: "key" });
             }
         };
 
@@ -906,11 +1378,190 @@ function validateSyncOperation(operation) {
     validateStatus(operation.status);
 }
 
+function createSyncOutboxEntry(operation, baseRevision) {
+    validateSyncOperation(operation);
+    if (!isUuid(operation.deviceId)) {
+        throw new Error("本地设备标识必须是 UUID。");
+    }
+
+    let calendarEvent;
+    try {
+        calendarEvent = JSON.parse(operation.payload);
+    } catch {
+        throw new Error("同步发件箱事件负载不是有效 JSON。");
+    }
+    validateEvent(calendarEvent);
+    if (calendarEvent.id !== operation.entityId) {
+        throw new Error("同步发件箱事件负载与实体不匹配。");
+    }
+
+    const entry = {
+        mutationId: operation.operationId,
+        deviceId: operation.deviceId,
+        entityType: 0,
+        entityId: operation.entityId,
+        operation: operation.operationType,
+        baseRevision,
+        payload: JSON.stringify(calendarEvent),
+        createdAtUtc: operation.timestampUtc,
+        attemptCount: 0,
+        lastAttemptAtUtc: null,
+        lastError: null,
+        lastErrorCategory: null,
+        lastErrorCode: null,
+        nextAttemptAtUtc: null,
+        conflictCode: null,
+        conflictServerRevision: null,
+        conflictRemoteEvent: null,
+        conflictDetectedAtUtc: null
+    };
+    validateSyncOutboxEntry(entry);
+    return entry;
+}
+
+function validateSyncOutboxEntry(entry) {
+    if (!entry || typeof entry !== "object") {
+        throw new Error("同步发件箱记录不是有效对象。");
+    }
+    validateId(entry.mutationId);
+    if (!isUuid(entry.deviceId)) {
+        throw new Error("同步发件箱设备标识不是 UUID。");
+    }
+    if (entry.entityType !== 0) {
+        throw new Error("同步发件箱实体类型无效。");
+    }
+    validateId(entry.entityId);
+    if (!Number.isInteger(entry.operation) || entry.operation < 0 || entry.operation > 2) {
+        throw new Error("同步发件箱操作类型无效。");
+    }
+    if (entry.baseRevision !== null && entry.baseRevision !== undefined &&
+        (!Number.isSafeInteger(entry.baseRevision) || entry.baseRevision < 0)) {
+        throw new Error("同步发件箱基线修订号无效。");
+    }
+    if (typeof entry.payload !== "string" || entry.payload.length === 0) {
+        throw new Error("同步发件箱负载无效。");
+    }
+    validateDateValue(entry.createdAtUtc, "createdAtUtc");
+    if (!Number.isInteger(entry.attemptCount) || entry.attemptCount < 0) {
+        throw new Error("同步发件箱尝试次数无效。");
+    }
+    if (entry.lastAttemptAtUtc !== null && entry.lastAttemptAtUtc !== undefined) {
+        validateDateValue(entry.lastAttemptAtUtc, "lastAttemptAtUtc");
+    }
+    if (entry.lastError !== null && entry.lastError !== undefined &&
+        (typeof entry.lastError !== "string" || entry.lastError.length > 500)) {
+        throw new Error("同步发件箱错误摘要无效。");
+    }
+    if (entry.lastErrorCategory !== null && entry.lastErrorCategory !== undefined &&
+        (!Number.isInteger(entry.lastErrorCategory) || entry.lastErrorCategory < 0 ||
+            entry.lastErrorCategory > 3)) {
+        throw new Error("同步发件箱错误类别无效。");
+    }
+    if (entry.lastErrorCode !== null && entry.lastErrorCode !== undefined &&
+        (typeof entry.lastErrorCode !== "string" || entry.lastErrorCode.length === 0 ||
+            entry.lastErrorCode.length > 100)) {
+        throw new Error("同步发件箱错误代码无效。");
+    }
+    if (entry.nextAttemptAtUtc !== null && entry.nextAttemptAtUtc !== undefined) {
+        validateDateValue(entry.nextAttemptAtUtc, "nextAttemptAtUtc");
+    }
+    if (entry.conflictCode !== null && entry.conflictCode !== undefined &&
+        (typeof entry.conflictCode !== "string" || entry.conflictCode.length === 0 ||
+            entry.conflictCode.length > 100)) {
+        throw new Error("同步发件箱冲突代码无效。");
+    }
+    if (entry.conflictServerRevision !== null && entry.conflictServerRevision !== undefined) {
+        validateServerRevision(entry.conflictServerRevision);
+    }
+    if (entry.conflictRemoteEvent !== null && entry.conflictRemoteEvent !== undefined) {
+        validateEvent(entry.conflictRemoteEvent);
+    }
+    if (entry.conflictDetectedAtUtc !== null && entry.conflictDetectedAtUtc !== undefined) {
+        validateDateValue(entry.conflictDetectedAtUtc, "conflictDetectedAtUtc");
+    }
+}
+
+function validateSyncOutboxError(errorCategory, errorCode, safeErrorMessage, nextAttemptAtUtc) {
+    if (!Number.isInteger(errorCategory) || errorCategory < 0 || errorCategory > 3) {
+        throw new Error("同步发件箱错误类别无效。");
+    }
+    if (typeof errorCode !== "string" || errorCode.length === 0 || errorCode.length > 100) {
+        throw new Error("同步发件箱错误代码无效。");
+    }
+    if (typeof safeErrorMessage !== "string" || safeErrorMessage.length === 0 ||
+        safeErrorMessage.length > 500) {
+        throw new Error("同步发件箱错误摘要无效。");
+    }
+    if (nextAttemptAtUtc !== null && nextAttemptAtUtc !== undefined) {
+        validateDateValue(nextAttemptAtUtc, "nextAttemptAtUtc");
+    }
+}
+
+function validateDeviceIdentity(identity) {
+    if (!identity || identity.key !== "current" || !isUuid(identity.deviceId)) {
+        throw new Error("设备身份记录无效。");
+    }
+    validateDateValue(identity.createdAtUtc, "createdAtUtc");
+}
+
+function validateSyncScope(scope) {
+    if (typeof scope !== "string" || scope.length === 0 || scope.length > 200) {
+        throw new Error("云同步状态范围无效。");
+    }
+}
+
+function validateCloudSyncState(state) {
+    if (!state || typeof state !== "object") {
+        throw new Error("云同步状态不是有效对象。");
+    }
+    validateSyncScope(state.scope);
+    if (state.lastSuccessfulServerRevision !== null &&
+        state.lastSuccessfulServerRevision !== undefined &&
+        (!Number.isSafeInteger(state.lastSuccessfulServerRevision) ||
+            state.lastSuccessfulServerRevision < 0)) {
+        throw new Error("云同步服务器修订号无效。");
+    }
+    if (state.lastSuccessfulSyncAtUtc !== null && state.lastSuccessfulSyncAtUtc !== undefined) {
+        validateDateValue(state.lastSuccessfulSyncAtUtc, "lastSuccessfulSyncAtUtc");
+    }
+}
+
+function validateCloudRemoteChange(change) {
+    if (!change || typeof change !== "object") {
+        throw new Error("云端变更不是有效对象。");
+    }
+    validateEvent(change.calendarEvent);
+    validateServerRevision(change.serverRevision);
+}
+
+function validateCloudEntityState(state) {
+    if (!state ||
+        state.key !== createCloudEntityStateKey(state.entityType, state.entityId) ||
+        state.entityType !== 0) {
+        throw new Error("云端实体同步状态无效。");
+    }
+    validateId(state.entityId);
+    validateServerRevision(state.serverRevision);
+}
+
+function validateServerRevision(serverRevision) {
+    if (!Number.isSafeInteger(serverRevision) || serverRevision < 1) {
+        throw new Error("服务器修订号无效。");
+    }
+}
+
+function createCloudEntityStateKey(entityType, entityId) {
+    return `${entityType}:${entityId}`;
+}
+
 function validateRestoreSafetySnapshot(snapshot) {
     if (!snapshot ||
         snapshot.key !== latestRestoreSnapshotKey ||
         !Array.isArray(snapshot.calendarEvents) ||
         !Array.isArray(snapshot.syncOperations) ||
+        (snapshot.cloudSyncStates !== undefined && !Array.isArray(snapshot.cloudSyncStates)) ||
+        (snapshot.syncOutbox !== undefined && !Array.isArray(snapshot.syncOutbox)) ||
+        (snapshot.cloudEntityStates !== undefined && !Array.isArray(snapshot.cloudEntityStates)) ||
         typeof snapshot.wasSyncBlocked !== "boolean") {
         throw new Error("本地恢复安全快照无效。");
     }
@@ -921,6 +1572,15 @@ function validateRestoreSafetySnapshot(snapshot) {
     }
     for (const operation of snapshot.syncOperations) {
         validateSyncOperation(operation);
+    }
+    for (const state of snapshot.cloudSyncStates ?? []) {
+        validateCloudSyncState(state);
+    }
+    for (const entry of snapshot.syncOutbox ?? []) {
+        validateSyncOutboxEntry(entry);
+    }
+    for (const state of snapshot.cloudEntityStates ?? []) {
+        validateCloudEntityState(state);
     }
 }
 
@@ -958,6 +1618,11 @@ function validateId(id) {
     if (typeof id !== "string" || id.length === 0) {
         throw new Error("事件 ID 无效。");
     }
+}
+
+function isUuid(value) {
+    return typeof value === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function validateDateValue(value, propertyName) {

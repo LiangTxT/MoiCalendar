@@ -5,11 +5,14 @@ namespace MoiCalendar.Storage;
 
 public sealed class IndexedDbDeviceService(IndexedDbConnection connection) : IDeviceService
 {
-    public async Task<string> GetDeviceIdAsync(CancellationToken cancellationToken = default)
+    public async Task<string> GetDeviceIdAsync(CancellationToken cancellationToken = default) =>
+        (await GetDeviceIdentityAsync(cancellationToken)).DeviceId.ToString("D");
+
+    public async Task<DeviceIdentity> GetDeviceIdentityAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            return await connection.InvokeAsync<string>("getOrCreateDeviceId", cancellationToken);
+            return await connection.InvokeAsync<DeviceIdentity>("getOrCreateDeviceIdentity", cancellationToken);
         }
         catch (OperationCanceledException)
         {

@@ -1,3 +1,7 @@
+@using MoiCalendar.Sync.Cloud
+@implements IAsyncDisposable
+@inject IRealtimeSyncCoordinator RealtimeSyncCoordinator
+
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="typeof(Pages.NotFound)">
         <Found Context="routeData">
@@ -6,3 +10,20 @@
         </Found>
     </Router>
 </CascadingAuthenticationState>
+
+@code {
+    private bool initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || initialized)
+        {
+            return;
+        }
+
+        initialized = true;
+        await RealtimeSyncCoordinator.InitializeAsync();
+    }
+
+    public ValueTask DisposeAsync() => RealtimeSyncCoordinator.DisposeAsync();
+}

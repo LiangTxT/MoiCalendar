@@ -6,6 +6,12 @@ namespace MoiCalendar.Tests;
 
 public sealed class LocalBackupServiceTests
 {
+    [Fact]
+    public void CurrentSchemaVersion_ReflectsExternalUidAddition()
+    {
+        Assert.Equal(3, MyCalendarBackup.CurrentSchemaVersion);
+    }
+
     private static readonly DateTimeOffset ExportedAt =
         new(2026, 8, 28, 6, 30, 0, TimeSpan.Zero);
 

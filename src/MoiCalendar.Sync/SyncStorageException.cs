@@ -1,6 +1,6 @@
 namespace MoiCalendar.Sync;
 
-public sealed class SyncStorageException : Exception
+public class SyncStorageException : Exception
 {
     public SyncStorageException(string message) : base(message)
     {
@@ -11,3 +11,5 @@ public sealed class SyncStorageException : Exception
     {
     }
 }
+
+public sealed class SyncContentTooLargeException(string message) : SyncStorageException(message);

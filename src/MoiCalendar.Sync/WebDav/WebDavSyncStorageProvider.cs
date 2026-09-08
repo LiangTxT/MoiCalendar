@@ -138,19 +138,17 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
 
         await EnsureSuccessAsync(response, "下载 WebDAV 文件", cancellationToken);
 
-        try
-        {
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            return new SyncTextFile(
-                normalizedPath,
-                content,
-                response.Headers.ETag?.ToString(),
-                response.Content.Headers.LastModified);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            throw new SyncStorageException("无法读取 WebDAV 文件内容。", exception);
-        }
+        var content = await BoundedTextContentReader.ReadUtf8Async(
+            response.Content,
+            RemoteSyncFormat.MaximumOperationFileBytes,
+            $"WebDAV 文件超过 {RemoteSyncFormat.MaximumOperationFileBytes} 字节限制。",
+            "无法读取 WebDAV 文件内容。",
+            cancellationToken);
+        return new SyncTextFile(
+            normalizedPath,
+            content,
+            response.Headers.ETag?.ToString(),
+            response.Content.Headers.LastModified);
     }
 
     public async Task<IReadOnlyList<SyncFileMetadata>> ListFilesAsync(

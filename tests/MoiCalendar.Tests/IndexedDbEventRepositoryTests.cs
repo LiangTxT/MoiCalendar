@@ -79,6 +79,32 @@ public sealed class IndexedDbEventRepositoryTests
         Assert.Equal([recurring], events);
     }
 
+    [Fact]
+    public async Task RemoteSyncApply_UsesSingleIndexedDbInteropOperation()
+    {
+        var module = new FakeJsModule();
+        await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
+        var repository = new IndexedDbRemoteSyncApplyRepository(connection);
+        var calendarEvent = CreateEvent();
+        var operation = new SyncOperation
+        {
+            OperationId = Guid.NewGuid(),
+            DeviceId = "remote-device",
+            EntityId = calendarEvent.Id,
+            OperationType = SyncOperationType.Create,
+            TimestampUtc = calendarEvent.UpdatedAtUtc,
+            Payload = "{}",
+            Status = SyncOperationStatus.Applied
+        };
+
+        await repository.ApplyAsync(calendarEvent, operation, operationAlreadyExists: false);
+
+        Assert.Equal("applyRemoteSyncOperation", module.LastIdentifier);
+        Assert.Equal(calendarEvent, module.LastArguments![0]);
+        Assert.Equal(operation, module.LastArguments[1]);
+        Assert.Equal(false, module.LastArguments[2]);
+    }
+
     private static CalendarEvent CreateEvent()
     {
         var start = new DateTimeOffset(2026, 8, 24, 9, 0, 0, TimeSpan.Zero);
@@ -125,6 +151,10 @@ public sealed class IndexedDbEventRepositoryTests
 
         public CalendarEvent[] RecurringEvents { get; init; } = [];
 
+        public string? LastIdentifier { get; private set; }
+
+        public object?[]? LastArguments { get; private set; }
+
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
             InvokeAsync<TValue>(identifier, CancellationToken.None, args);
 
@@ -143,6 +173,9 @@ public sealed class IndexedDbEventRepositoryTests
             {
                 return ValueTask.FromException<TValue>(Failure);
             }
+
+            LastIdentifier = identifier;
+            LastArguments = args;
 
             object? result = identifier switch
             {

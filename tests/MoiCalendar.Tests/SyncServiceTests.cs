@@ -317,6 +317,198 @@ public sealed class SyncServiceTests
             (await targetEvents.GetByIdIncludingDeletedAsync(staleRemoteEvent.Id))?.DeletedAtUtc);
     }
 
+    [Fact]
+    public async Task Pull_MalformedRemoteOperation_DoesNotBlockLaterValidOperation()
+    {
+        var storage = new FakeSyncStorageProvider();
+        var malformedId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        await storage.UploadTextAsync(RemoteSyncFormat.GetOperationPath(malformedId), "{not-json");
+        var validEvent = CreateEvent("后续有效事件", UpdatedAt(2));
+        var validOperation = CreateOperation(validEvent, SyncOperationType.Create) with
+        {
+            OperationId = Guid.Parse("00000000-0000-0000-0000-000000000002")
+        };
+        await SeedOperationAsync(storage, validOperation);
+        storage.MarkSeedComplete();
+        var events = new InMemoryEventRepository();
+        var service = new SyncService(new InMemoryOperationRepository(), events, storage);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(validEvent, await events.GetByIdAsync(validEvent.Id));
+    }
+
+    [Fact]
+    public async Task Pull_InvalidRemoteEvent_DoesNotPersistItOrBlockLaterValidOperation()
+    {
+        var storage = new FakeSyncStorageProvider();
+        var invalidEvent = CreateEvent("无效时间", UpdatedAt(2)) with
+        {
+            EndUtc = new DateTimeOffset(2026, 8, 27, 8, 0, 0, TimeSpan.Zero)
+        };
+        var invalidOperation = CreateOperation(invalidEvent, SyncOperationType.Create) with
+        {
+            OperationId = Guid.Parse("00000000-0000-0000-0000-000000000001")
+        };
+        await SeedOperationAsync(storage, invalidOperation);
+        var validEvent = CreateEvent("有效时间", UpdatedAt(3));
+        var validOperation = CreateOperation(validEvent, SyncOperationType.Create) with
+        {
+            OperationId = Guid.Parse("00000000-0000-0000-0000-000000000002")
+        };
+        await SeedOperationAsync(storage, validOperation);
+        storage.MarkSeedComplete();
+        var events = new InMemoryEventRepository();
+        var service = new SyncService(new InMemoryOperationRepository(), events, storage);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Null(await events.GetByIdIncludingDeletedAsync(invalidEvent.Id));
+        Assert.Equal(validEvent, await events.GetByIdAsync(validEvent.Id));
+    }
+
+    [Fact]
+    public async Task Pull_AppliesEventAndOperationThroughAtomicRepository()
+    {
+        var remoteEvent = CreateEvent("原子应用", UpdatedAt(2));
+        var remoteOperation = CreateOperation(remoteEvent, SyncOperationType.Create);
+        var storage = await CreateRemoteStorageAsync(remoteOperation);
+        var atomicRepository = new RecordingRemoteSyncApplyRepository();
+        var service = new SyncService(
+            new InMemoryOperationRepository(),
+            new InMemoryEventRepository(),
+            storage,
+            remoteSyncApplyRepository: atomicRepository);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(remoteEvent, atomicRepository.CalendarEvent);
+        Assert.Equal(remoteOperation.OperationId, atomicRepository.Operation?.OperationId);
+        Assert.Equal(SyncOperationStatus.Applied, atomicRepository.Operation?.Status);
+        Assert.False(atomicRepository.OperationAlreadyExists);
+    }
+
+    [Fact]
+    public async Task Pull_SkipsOperationWhoseListedSizeExceedsLimit()
+    {
+        var remoteEvent = CreateEvent("过大文件", UpdatedAt(2));
+        var remoteOperation = CreateOperation(remoteEvent, SyncOperationType.Create);
+        var storage = await CreateRemoteStorageAsync(remoteOperation);
+        var path = RemoteSyncFormat.GetOperationPath(remoteOperation.OperationId);
+        storage.ListedSizeOverrides[path] = RemoteSyncFormat.MaximumOperationFileBytes + 1L;
+        var service = new SyncService(
+            new InMemoryOperationRepository(),
+            new InMemoryEventRepository(),
+            storage);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(0, result.DownloadedCount);
+        Assert.Equal(0, result.AppliedCount);
+        Assert.Equal(0, storage.DownloadCountAfterSeed);
+    }
+
+    [Fact]
+    public async Task Pull_LocalOperationIdCollisionWithDifferentRemoteContent_IsNotApplied()
+    {
+        var operationId = Guid.NewGuid();
+        var localEvent = CreateEvent("本地待上传", UpdatedAt(2));
+        var localOperation = CreateOperation(localEvent, SyncOperationType.Create) with { OperationId = operationId };
+        var operations = new InMemoryOperationRepository();
+        await operations.AddAsync(localOperation);
+        var remoteEvent = CreateEvent("冲突远端内容", UpdatedAt(3));
+        var remoteOperation = CreateOperation(remoteEvent, SyncOperationType.Create) with { OperationId = operationId };
+        var storage = new FakeSyncStorageProvider();
+        await SeedOperationAsync(storage, remoteOperation);
+        storage.MarkSeedComplete();
+        var events = new InMemoryEventRepository();
+        var service = new SyncService(operations, events, storage);
+
+        var result = await service.PullAsync();
+
+        Assert.Equal(0, result.AppliedCount);
+        Assert.Null(await events.GetByIdIncludingDeletedAsync(remoteEvent.Id));
+        Assert.Equal(SyncOperationStatus.Pending, (await operations.GetByIdAsync(operationId))?.Status);
+    }
+
+    [Fact]
+    public async Task Pull_EqualTimestampDivergentUpdates_ConvergeDeterministically()
+    {
+        var first = CreateEvent("甲版本", UpdatedAt(3));
+        var second = first with { Title = "乙版本" };
+        var firstRepository = new InMemoryEventRepository();
+        var secondRepository = new InMemoryEventRepository();
+        await firstRepository.UpsertAsync(first);
+        await secondRepository.UpsertAsync(second);
+
+        await PullAsync(CreateOperation(second, SyncOperationType.Update), firstRepository);
+        await PullAsync(CreateOperation(first, SyncOperationType.Update), secondRepository);
+
+        Assert.Equal(
+            (await firstRepository.GetByIdAsync(first.Id))?.Title,
+            (await secondRepository.GetByIdAsync(first.Id))?.Title);
+    }
+
+    [Fact]
+    public async Task Pull_EqualTimestampTombstone_WinsOverLiveEvent()
+    {
+        var live = CreateEvent("同时编辑", UpdatedAt(3));
+        var tombstone = live with { DeletedAtUtc = UpdatedAt(3) };
+        var events = new InMemoryEventRepository();
+        await events.UpsertAsync(live);
+
+        var result = await PullAsync(CreateOperation(tombstone, SyncOperationType.Delete), events);
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Null(await events.GetByIdAsync(live.Id));
+    }
+
+    [Fact]
+    public async Task Push_FailedOperation_DoesNotPreventLaterPendingOperationUpload()
+    {
+        var failedEvent = CreateEvent("失败项", UpdatedAt(1));
+        var successfulEvent = CreateEvent("后续项", UpdatedAt(2));
+        var failedOperation = CreateOperation(failedEvent, SyncOperationType.Create);
+        var successfulOperation = CreateOperation(successfulEvent, SyncOperationType.Create);
+        var operations = new InMemoryOperationRepository();
+        await operations.AddAsync(failedOperation);
+        await operations.AddAsync(successfulOperation);
+        var storage = new FakeSyncStorageProvider();
+        storage.FailUploadPaths.Add(RemoteSyncFormat.GetOperationPath(failedOperation.OperationId));
+        var service = new SyncService(operations, new InMemoryEventRepository(), storage);
+
+        await Assert.ThrowsAsync<SyncStorageException>(() => service.PushAsync());
+
+        Assert.Equal(SyncOperationStatus.Failed, (await operations.GetByIdAsync(failedOperation.OperationId))?.Status);
+        Assert.Equal(SyncOperationStatus.Uploaded, (await operations.GetByIdAsync(successfulOperation.OperationId))?.Status);
+    }
+
+    [Fact]
+    public async Task Push_OversizedLocalOperation_IsFailedWithoutUpload()
+    {
+        var calendarEvent = CreateEvent("过大本地操作", UpdatedAt(2));
+        var operation = CreateOperation(calendarEvent, SyncOperationType.Create) with
+        {
+            Payload = JsonSerializer.Serialize(calendarEvent with
+            {
+                Description = new string('大', RemoteSyncFormat.MaximumOperationFileBytes)
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+        var operations = new InMemoryOperationRepository();
+        await operations.AddAsync(operation);
+        var storage = new FakeSyncStorageProvider();
+        var service = new SyncService(operations, new InMemoryEventRepository(), storage);
+
+        var exception = await Assert.ThrowsAsync<SyncStorageException>(() => service.PushAsync());
+
+        Assert.Contains("未上传", exception.Message);
+        Assert.Equal(0, storage.UploadCount);
+        Assert.Equal(SyncOperationStatus.Failed, (await operations.GetByIdAsync(operation.OperationId))?.Status);
+    }
+
     private static async Task<SyncResult> PullAsync(
         SyncOperation operation,
         InMemoryEventRepository targetEvents)
@@ -338,6 +530,13 @@ public sealed class SyncServiceTests
         await source.PushAsync();
         storage.MarkSeedComplete();
         return storage;
+    }
+
+    private static async Task SeedOperationAsync(FakeSyncStorageProvider storage, SyncOperation operation)
+    {
+        var operations = new InMemoryOperationRepository();
+        await operations.AddAsync(operation);
+        await new SyncService(operations, new InMemoryEventRepository(), storage).PushAsync();
     }
 
     private static SyncOperation CreateOperation(
@@ -381,6 +580,10 @@ public sealed class SyncServiceTests
 
         public bool FailUpload { get; set; }
 
+        public HashSet<string> FailUploadPaths { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, long?> ListedSizeOverrides { get; } = new(StringComparer.Ordinal);
+
         public int UploadCount { get; private set; }
 
         public int DownloadCount { get; private set; }
@@ -402,7 +605,7 @@ public sealed class SyncServiceTests
             string? expectedVersionToken = null,
             CancellationToken cancellationToken = default)
         {
-            if (FailUpload)
+            if (FailUpload || FailUploadPaths.Contains(path))
             {
                 throw new SyncStorageException("模拟网络失败。");
             }
@@ -427,7 +630,11 @@ public sealed class SyncServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<SyncFileMetadata>>(files.Keys
                 .Where(path => path.StartsWith($"{directoryPath}/", StringComparison.Ordinal))
-                .Select(path => new SyncFileMetadata(path, "v1", files[path].Length, null))
+                .Select(path => new SyncFileMetadata(
+                    path,
+                    "v1",
+                    ListedSizeOverrides.GetValueOrDefault(path, files[path].Length),
+                    null))
                 .ToArray());
 
         public Task<bool> DeleteAsync(
@@ -437,6 +644,27 @@ public sealed class SyncServiceTests
             Task.FromResult(files.Remove(path));
 
         public void MarkSeedComplete() => seedDownloadCount = DownloadCount;
+    }
+
+    private sealed class RecordingRemoteSyncApplyRepository : IRemoteSyncApplyRepository
+    {
+        public CalendarEvent? CalendarEvent { get; private set; }
+
+        public SyncOperation? Operation { get; private set; }
+
+        public bool OperationAlreadyExists { get; private set; }
+
+        public Task ApplyAsync(
+            CalendarEvent? calendarEvent,
+            SyncOperation operation,
+            bool operationAlreadyExists,
+            CancellationToken cancellationToken = default)
+        {
+            CalendarEvent = calendarEvent;
+            Operation = operation;
+            OperationAlreadyExists = operationAlreadyExists;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeRestoreSyncGuard : IRestoreSyncGuard

@@ -107,6 +107,21 @@ public sealed class WebDavSyncStorageProviderTests
     }
 
     [Fact]
+    public async Task DownloadTextAsync_RejectsOversizedContent()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(new byte[RemoteSyncFormat.MaximumOperationFileBytes + 1])
+        };
+        var provider = CreateProvider(new RecordingHandler(response));
+
+        var exception = await Assert.ThrowsAsync<SyncContentTooLargeException>(
+            () => provider.DownloadTextAsync("large.json"));
+
+        Assert.Contains("字节限制", exception.Message);
+    }
+
+    [Fact]
     public async Task ListFilesAsync_ParsesMultiStatusAndExcludesCollections()
     {
         const string xml =

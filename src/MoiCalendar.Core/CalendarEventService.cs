@@ -7,13 +7,19 @@ public sealed class CalendarEventService(
     IDeviceService deviceService,
     ILocalEventChangeRepository localEventChanges,
     TimeProvider timeProvider,
-    IRecurrenceExpansionService? recurrenceExpansionService = null)
+    IRecurrenceExpansionService? recurrenceExpansionService = null,
+    ILocalDataOperationLock? operationLock = null)
 {
+    private const int MaximumTitleLength = 200;
+    private const int MaximumDescriptionLength = 4_000;
+    private const int MaximumLocationLength = 300;
     private const int MinutesPerDay = 24 * 60;
     private const int MinimumTimedEventDisplayMinutes = 30;
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly IRecurrenceExpansionService recurrenceExpansionService =
         recurrenceExpansionService ?? new RecurrenceExpansionService();
+    private readonly ILocalDataOperationLock operationLock =
+        operationLock ?? NoOpLocalDataOperationLock.Instance;
 
     public CalendarEventDraft CreateDraft(DateOnly date, string timeZoneId)
     {
@@ -28,6 +34,7 @@ public sealed class CalendarEventService(
         CalendarEventDraft draft,
         CancellationToken cancellationToken = default)
     {
+        await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
         var values = ValidateAndConvert(draft);
         var now = timeProvider.GetUtcNow();
         var calendarEvent = new CalendarEvent
@@ -58,6 +65,7 @@ public sealed class CalendarEventService(
         CalendarEventDraft draft,
         CancellationToken cancellationToken = default)
     {
+        await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException("找不到要更新的日历事件。");
         var values = ValidateAndConvert(draft);
@@ -84,6 +92,7 @@ public sealed class CalendarEventService(
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken);
         if (existing is null)
         {
@@ -360,6 +369,21 @@ public sealed class CalendarEventService(
             throw new ArgumentException("事件标题不能为空。", nameof(draft));
         }
 
+        var description = draft.Description.Trim();
+        var location = draft.Location.Trim();
+        if (title.Length > MaximumTitleLength)
+        {
+            throw new ArgumentException($"事件标题不能超过 {MaximumTitleLength} 个字符。", nameof(draft));
+        }
+        if (description.Length > MaximumDescriptionLength)
+        {
+            throw new ArgumentException($"事件说明不能超过 {MaximumDescriptionLength} 个字符。", nameof(draft));
+        }
+        if (location.Length > MaximumLocationLength)
+        {
+            throw new ArgumentException($"事件地点不能超过 {MaximumLocationLength} 个字符。", nameof(draft));
+        }
+
         var timeZone = ResolveTimeZone(draft.TimeZoneId);
         var startLocal = DateTime.SpecifyKind(
             draft.IsAllDay ? draft.StartLocal.Date : draft.StartLocal,
@@ -377,8 +401,8 @@ public sealed class CalendarEventService(
 
         return new ValidatedEventValues(
             title,
-            draft.Description.Trim(),
-            draft.Location.Trim(),
+            description,
+            location,
             startUtc,
             endUtc,
             draft.Recurrence.ToRecurrenceRule(startLocal));

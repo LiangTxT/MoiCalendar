@@ -72,7 +72,7 @@ public sealed class SyncOperationTests
         var secondDeviceId = await deviceService.GetDeviceIdAsync();
         var saved = await syncService.CreateEventAsync(calendarEvent, operation);
 
-        Assert.Equal("persistent-device", firstDeviceId);
+        Assert.Equal("11111111-1111-4111-8111-111111111111", firstDeviceId);
         Assert.Equal(firstDeviceId, secondDeviceId);
         Assert.Equal(calendarEvent, saved);
         Assert.Equal(1, module.InitializationCount);
@@ -172,7 +172,7 @@ public sealed class SyncOperationTests
             object? result = identifier switch
             {
                 "initialize" => CountInitialization(),
-                "getOrCreateDeviceId" => GetDeviceId(),
+                "getOrCreateDeviceIdentity" => GetDeviceIdentity(),
                 "createEventWithSyncOperation" => SaveEvent(args!),
                 "addSyncLogEntry" => SaveLogEntry(args!),
                 "getSyncLogEntries" => logEntries.ToArray(),
@@ -190,10 +190,12 @@ public sealed class SyncOperationTests
             return null;
         }
 
-        private string GetDeviceId()
+        private DeviceIdentity GetDeviceIdentity()
         {
             DeviceIdReadCount++;
-            return "persistent-device";
+            return new DeviceIdentity(
+                Guid.Parse("11111111-1111-4111-8111-111111111111"),
+                new DateTimeOffset(2026, 8, 27, 0, 0, 0, TimeSpan.Zero));
         }
 
         private object SaveEvent(object?[] args)

@@ -7,6 +7,7 @@ using MoiCalendar.App.Configuration;
 using MoiCalendar.Core;
 using MoiCalendar.Storage;
 using MoiCalendar.Sync;
+using MoiCalendar.Sync.Supabase;
 using MoiCalendar.Sync.OneDrive;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -16,8 +17,14 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 var appConfiguration = MoiCalendarConfiguration.Load(
     builder.Configuration,
     new Uri(builder.HostEnvironment.BaseAddress));
+var supabaseConfiguration = new SupabaseBackendOptions
+{
+    RealtimePath = builder.Configuration[
+        "MoiCalendar:CloudBackend:Supabase:RealtimePath"] ?? "/realtime/v1/websocket"
+};
 
 builder.Services.AddSingleton(appConfiguration);
+builder.Services.AddSupabaseCloudBackend(appConfiguration.CloudBackend, supabaseConfiguration);
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddMsalAuthentication(options =>
@@ -51,7 +58,12 @@ builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>()
 builder.Services.AddScoped<ISyncLogRepository, IndexedDbSyncLogRepository>();
 builder.Services.AddScoped<ISyncStatusRepository, IndexedDbSyncStatusRepository>();
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
+builder.Services.AddScoped<ISyncOutboxRepository, IndexedDbSyncOutboxRepository>();
+builder.Services.AddScoped<ISyncStateRepository, IndexedDbSyncStateRepository>();
+builder.Services.AddScoped<ICloudSyncBindingRepository, IndexedDbCloudSyncBindingRepository>();
+builder.Services.AddScoped<ICloudChangeApplyRepository, IndexedDbCloudChangeApplyRepository>();
 builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
+builder.Services.AddScoped<IRemoteSyncApplyRepository, IndexedDbRemoteSyncApplyRepository>();
 builder.Services.AddScoped<CalendarEventService>();
 builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),

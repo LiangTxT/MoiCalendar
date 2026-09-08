@@ -63,11 +63,14 @@ public sealed class CalendarImportService(
     IEventRepository eventRepository,
     ILocalEventChangeRepository localEventChanges,
     IDeviceService deviceService,
-    TimeProvider timeProvider) : ICalendarImportService
+    TimeProvider timeProvider,
+    ILocalDataOperationLock? operationLock = null) : ICalendarImportService
 {
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly object stateGate = new();
     private readonly SemaphoreSlim confirmationGate = new(1, 1);
+    private readonly ILocalDataOperationLock operationLock =
+        operationLock ?? NoOpLocalDataOperationLock.Instance;
     private PreparedImport? preparedImport;
 
     public async Task<CalendarImportPreview> PrepareAsync(
@@ -111,6 +114,7 @@ public sealed class CalendarImportService(
         await confirmationGate.WaitAsync(cancellationToken);
         try
         {
+            await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
             PreparedImport prepared;
             lock (stateGate)
             {

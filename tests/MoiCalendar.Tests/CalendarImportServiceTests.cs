@@ -16,6 +16,7 @@ public sealed class CalendarImportServiceTests
 
         Assert.Empty(await context.Events.GetAllIncludingDeletedAsync());
         Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+        Assert.Empty(await context.Outbox.GetPendingAsync());
 
         var result = await context.Service.ConfirmAsync(preview.ImportId, new Dictionary<int, CalendarImportDuplicateAction>());
 
@@ -25,6 +26,30 @@ public sealed class CalendarImportServiceTests
         var operation = Assert.Single(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
         Assert.Equal(SyncOperationType.Create, operation.OperationType);
         Assert.Contains("new-uid", operation.Payload, StringComparison.Ordinal);
+        var outboxEntry = Assert.Single(await context.Outbox.GetPendingAsync());
+        Assert.Equal(SyncOperationType.Create, outboxEntry.Operation);
+        Assert.Equal(imported.Id, outboxEntry.EntityId);
+    }
+
+    [Fact]
+    public async Task ConfirmImport_AcquiresLocalDataOperationLock()
+    {
+        var events = new InMemoryEventRepository();
+        var operations = new InMemoryOperationRepository();
+        var operationLock = new TrackingOperationLock();
+        var service = new CalendarImportService(
+            new CalendarImportParser(),
+            events,
+            new InMemoryEventChangeRepository(events, operations),
+            new InMemoryDeviceService("import-lock-device"),
+            new FixedTimeProvider(Now),
+            operationLock);
+        var preview = await service.PrepareAsync(Calendar(Event("lock-uid", "导入锁")));
+
+        await service.ConfirmAsync(preview.ImportId, new Dictionary<int, CalendarImportDuplicateAction>());
+
+        Assert.Equal(1, operationLock.AcquireCount);
+        Assert.Equal(1, operationLock.ReleaseCount);
     }
 
     [Fact]
@@ -41,6 +66,7 @@ public sealed class CalendarImportServiceTests
         Assert.Equal(1, result.SkippedCount);
         Assert.Equal("原事件", Assert.Single(await context.Events.GetAllIncludingDeletedAsync()).Title);
         Assert.Single(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+        Assert.Single(await context.Outbox.GetPendingAsync());
     }
 
     [Fact]
@@ -79,6 +105,7 @@ public sealed class CalendarImportServiceTests
         Assert.Equal(original.CreatedAtUtc, updated.CreatedAtUtc);
         Assert.Equal("已更新", updated.Title);
         Assert.Equal(2, (await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending)).Count);
+        Assert.Equal(2, (await context.Outbox.GetPendingAsync()).Count);
     }
 
     [Fact]
@@ -227,7 +254,8 @@ public sealed class CalendarImportServiceTests
     {
         var events = new InMemoryEventRepository();
         var operations = new InMemoryOperationRepository();
-        var changes = new InMemoryEventChangeRepository(events, operations);
+        var outbox = new InMemorySyncOutboxRepository();
+        var changes = new InMemoryEventChangeRepository(events, operations, outbox);
         return new TestContext(
             new CalendarImportService(
                 new CalendarImportParser(),
@@ -236,7 +264,8 @@ public sealed class CalendarImportServiceTests
                 new InMemoryDeviceService("import-device"),
                 new FixedTimeProvider(Now)),
             events,
-            operations);
+            operations,
+            outbox);
     }
 
     private static string Event(string uid, string title) => $$"""
@@ -259,7 +288,8 @@ public sealed class CalendarImportServiceTests
     private sealed record TestContext(
         CalendarImportService Service,
         InMemoryEventRepository Events,
-        InMemoryOperationRepository Operations);
+        InMemoryOperationRepository Operations,
+        InMemorySyncOutboxRepository Outbox);
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
@@ -279,6 +309,28 @@ public sealed class CalendarImportServiceTests
 
         public Task<bool> DeleteEventAsync(CalendarEvent deletedEvent, SyncOperation operation, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class TrackingOperationLock : ILocalDataOperationLock
+    {
+        public int AcquireCount { get; private set; }
+
+        public int ReleaseCount { get; private set; }
+
+        public Task<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken = default)
+        {
+            AcquireCount++;
+            return Task.FromResult<IAsyncDisposable>(new Lease(this));
+        }
+
+        private sealed class Lease(TrackingOperationLock owner) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                owner.ReleaseCount++;
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 
     private sealed class RecordingSyncStorageProvider : ISyncStorageProvider

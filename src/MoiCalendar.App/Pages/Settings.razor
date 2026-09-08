@@ -3,7 +3,10 @@
 @using Microsoft.AspNetCore.Components.WebAssembly.Authentication
 @using MoiCalendar.App.Configuration
 @using MoiCalendar.Sync
+@using MoiCalendar.Sync.Cloud
 @using MoiCalendar.Sync.OneDrive
+@inject IAccountService CloudAccountService
+@inject ICloudSyncService CloudSyncService
 @inject ISyncProviderSelection ProviderSelection
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IOneDriveConnectionTester OneDriveConnectionTester
@@ -20,6 +23,136 @@
 
 <main class="settings-shell">
     <h1>设置</h1>
+
+    <section class="settings-card" aria-labelledby="cloud-account-heading">
+        <h2 id="cloud-account-heading">MoiCalendar 云账户</h2>
+        <p>
+            云账户当前只用于身份验证。登录、注册或恢复会话都不会上传、下载或改变 IndexedDB 中的本地日历。
+        </p>
+
+        @if (!CloudAccountService.IsAvailable)
+        {
+            <p class="settings-note">
+                云账户尚未配置。你仍可完整使用本地日历、备份和导入导出功能。
+            </p>
+        }
+        else if (cloudAccount is not null)
+        {
+            <dl class="account-information">
+                <dt>账户</dt>
+                <dd>@(cloudAccount.DisplayName ?? cloudAccount.EmailAddress ?? cloudAccount.Id)</dd>
+                @if (!string.IsNullOrWhiteSpace(cloudAccount.EmailAddress))
+                {
+                    <dt>邮箱</dt>
+                    <dd>@cloudAccount.EmailAddress</dd>
+                }
+                <dt>邮箱状态</dt>
+                <dd>@(cloudAccount.IsEmailVerified ? "已验证" : "等待验证")</dd>
+            </dl>
+
+            @if (CloudAccountService.IsPasswordRecovery)
+            {
+                <div class="account-form" aria-labelledby="new-password-heading">
+                    <h3 id="new-password-heading">设置新密码</h3>
+                    <label for="cloud-new-password">新密码</label>
+                    <input id="cloud-new-password"
+                           type="password"
+                           minlength="6"
+                           autocomplete="new-password"
+                           @bind="cloudNewPassword" />
+                    <label for="cloud-confirm-new-password">确认新密码</label>
+                    <input id="cloud-confirm-new-password"
+                           type="password"
+                           minlength="6"
+                           autocomplete="new-password"
+                           @bind="cloudConfirmPassword" />
+                    <button type="button"
+                            class="primary-button"
+                            disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
+                            @onclick="CompletePasswordResetAsync">
+                        @(isCloudAccountBusy ? "正在更新…" : "更新密码")
+                    </button>
+                </div>
+            }
+
+            <div class="settings-actions">
+                <button type="button"
+                        class="primary-button"
+                        disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
+                        @onclick="SynchronizeCloudAsync">
+                    @(isCloudSyncBusy ? "正在同步…" : "同步云端")
+                </button>
+                <button type="button"
+                        disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
+                        @onclick="LogoutCloudAccountAsync">
+                    退出云账户
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="account-mode-selector" aria-label="云账户操作">
+                <button type="button"
+                        class="@(cloudAccountMode == CloudAccountMode.Login ? "active" : null)"
+                        @onclick="() => SetCloudAccountMode(CloudAccountMode.Login)">
+                    登录
+                </button>
+                <button type="button"
+                        class="@(cloudAccountMode == CloudAccountMode.Register ? "active" : null)"
+                        @onclick="() => SetCloudAccountMode(CloudAccountMode.Register)">
+                    注册
+                </button>
+                <button type="button"
+                        class="@(cloudAccountMode == CloudAccountMode.ResetPassword ? "active" : null)"
+                        @onclick="() => SetCloudAccountMode(CloudAccountMode.ResetPassword)">
+                    忘记密码
+                </button>
+            </div>
+
+            <div class="account-form">
+                <label for="cloud-email">电子邮箱</label>
+                <input id="cloud-email"
+                       type="email"
+                       inputmode="email"
+                       autocomplete="email"
+                       @bind="cloudEmailAddress" />
+
+                @if (cloudAccountMode is CloudAccountMode.Login or CloudAccountMode.Register)
+                {
+                    <label for="cloud-password">密码</label>
+                    <input id="cloud-password"
+                           type="password"
+                           minlength="6"
+                           autocomplete="@(cloudAccountMode == CloudAccountMode.Login ? "current-password" : "new-password")"
+                           @bind="cloudPassword" />
+                }
+
+                @if (cloudAccountMode == CloudAccountMode.Register)
+                {
+                    <label for="cloud-confirm-password">确认密码</label>
+                    <input id="cloud-confirm-password"
+                           type="password"
+                           minlength="6"
+                           autocomplete="new-password"
+                           @bind="cloudConfirmPassword" />
+                }
+
+                <button type="button"
+                        class="primary-button"
+                        disabled="@isCloudAccountBusy"
+                        @onclick="SubmitCloudAccountAsync">
+                    @(isCloudAccountBusy ? "正在处理…" : CloudAccountActionLabel)
+                </button>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(cloudAccountMessage))
+        {
+            <p class="settings-status @(cloudAccountSucceeded ? "success" : "failure")" role="status">
+                @cloudAccountMessage
+            </p>
+        }
+    </section>
 
     <fieldset class="settings-group">
         <legend>提供商</legend>
@@ -348,6 +481,16 @@
 </main>
 
 @code {
+    private CloudAccount? cloudAccount;
+    private CloudAccountMode cloudAccountMode = CloudAccountMode.Login;
+    private string cloudEmailAddress = string.Empty;
+    private string cloudPassword = string.Empty;
+    private string cloudConfirmPassword = string.Empty;
+    private string cloudNewPassword = string.Empty;
+    private bool isCloudAccountBusy;
+    private bool isCloudSyncBusy;
+    private bool cloudAccountSucceeded;
+    private string? cloudAccountMessage;
     private SyncProviderType selectedProvider;
     private bool isAuthenticated;
     private bool isTestingConnection;
@@ -380,8 +523,34 @@
     private bool isAuthenticationConfigured =>
         !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
 
+    private string CloudAccountActionLabel => cloudAccountMode switch
+    {
+        CloudAccountMode.Login => "登录",
+        CloudAccountMode.Register => "注册",
+        CloudAccountMode.ResetPassword => "发送重置邮件",
+        _ => "继续"
+    };
+
     protected override async Task OnInitializedAsync()
     {
+        if (CloudAccountService.IsAvailable)
+        {
+            try
+            {
+                cloudAccount = await CloudAccountService.RestoreSessionAsync();
+                if (CloudAccountService.IsPasswordRecovery)
+                {
+                    cloudAccountSucceeded = true;
+                    cloudAccountMessage = "密码恢复链接已验证，请设置新密码。";
+                }
+            }
+            catch (AccountServiceException exception)
+            {
+                cloudAccountSucceeded = false;
+                cloudAccountMessage = exception.Message;
+            }
+        }
+
         var configuration = await ProviderSelection.GetAsync();
         selectedProvider = configuration.ProviderType;
 
@@ -412,6 +581,150 @@
                 ?? FirstClaimValue(user, "emails");
         }
     }
+
+    private void SetCloudAccountMode(CloudAccountMode mode)
+    {
+        cloudAccountMode = mode;
+        cloudPassword = string.Empty;
+        cloudConfirmPassword = string.Empty;
+        cloudAccountMessage = null;
+    }
+
+    private Task SubmitCloudAccountAsync() => cloudAccountMode switch
+    {
+        CloudAccountMode.Login => LoginCloudAccountAsync(),
+        CloudAccountMode.Register => RegisterCloudAccountAsync(),
+        CloudAccountMode.ResetPassword => RequestPasswordResetAsync(),
+        _ => Task.CompletedTask
+    };
+
+    private async Task LoginCloudAccountAsync()
+    {
+        await RunCloudAccountActionAsync(async () =>
+        {
+            cloudAccount = await CloudAccountService.LoginAsync(cloudEmailAddress, cloudPassword);
+            cloudAccountMessage = "云账户登录成功。本地日历尚未上传或同步。";
+        });
+        cloudPassword = string.Empty;
+    }
+
+    private async Task RegisterCloudAccountAsync()
+    {
+        if (!string.Equals(cloudPassword, cloudConfirmPassword, StringComparison.Ordinal))
+        {
+            cloudAccountSucceeded = false;
+            cloudAccountMessage = "两次输入的密码不一致。";
+            return;
+        }
+
+        await RunCloudAccountActionAsync(async () =>
+        {
+            var result = await CloudAccountService.RegisterAsync(
+                cloudEmailAddress,
+                cloudPassword,
+                GetCloudAccountRedirectUrl());
+            cloudAccount = result.IsSignedIn ? result.Account : null;
+            cloudAccountMessage = result.EmailVerificationRequired
+                ? "注册请求已提交，请查看邮箱并完成验证。"
+                : "注册并登录成功。本地日历尚未上传或同步。";
+        });
+        cloudPassword = string.Empty;
+        cloudConfirmPassword = string.Empty;
+    }
+
+    private async Task RequestPasswordResetAsync()
+    {
+        await RunCloudAccountActionAsync(async () =>
+        {
+            await CloudAccountService.RequestPasswordResetAsync(
+                cloudEmailAddress,
+                GetCloudAccountRedirectUrl());
+            cloudAccountMessage = "如果该邮箱存在账户，密码恢复邮件已发送。";
+        });
+    }
+
+    private async Task CompletePasswordResetAsync()
+    {
+        if (!string.Equals(cloudNewPassword, cloudConfirmPassword, StringComparison.Ordinal))
+        {
+            cloudAccountSucceeded = false;
+            cloudAccountMessage = "两次输入的新密码不一致。";
+            return;
+        }
+
+        await RunCloudAccountActionAsync(async () =>
+        {
+            cloudAccount = await CloudAccountService.CompletePasswordResetAsync(cloudNewPassword);
+            cloudAccountMessage = "密码已更新。";
+        });
+        cloudNewPassword = string.Empty;
+        cloudConfirmPassword = string.Empty;
+    }
+
+    private async Task LogoutCloudAccountAsync()
+    {
+        await RunCloudAccountActionAsync(async () =>
+        {
+            await CloudAccountService.LogoutAsync();
+            cloudAccount = null;
+            cloudAccountMessage = "已退出云账户，本地日历数据保持不变。";
+        });
+    }
+
+    private async Task SynchronizeCloudAsync()
+    {
+        isCloudSyncBusy = true;
+        cloudAccountMessage = null;
+        try
+        {
+            var result = await CloudSyncService.SynchronizeAsync();
+            cloudAccountSucceeded = result.IsSuccess;
+            cloudAccountMessage = result.Outcome switch
+            {
+                CloudSyncOutcome.Succeeded =>
+                    $"云同步完成：上传 {result.PushedCount} 项，接收 {result.PulledCount} 项，游标 {result.Cursor}。",
+                CloudSyncOutcome.Conflict => result.Message ??
+                    $"检测到同步冲突（{result.Conflict?.Code}），本地修改和远端版本均已保留。",
+                CloudSyncOutcome.AccountMismatch => result.Message,
+                CloudSyncOutcome.NotAuthenticated => "请先登录云账户。",
+                _ when result.Status == CloudSyncStatus.RetryScheduled && result.NextRetryAtUtc is not null =>
+                    $"云端暂时不可用，本地修改已保留；下次可重试时间：{result.NextRetryAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}。",
+                _ => result.Message ?? "云同步未完成，本地修改已保留。"
+            };
+        }
+        catch (Exception exception) when (exception is SyncOperationException or CloudSyncTransportException)
+        {
+            cloudAccountSucceeded = false;
+            cloudAccountMessage = exception.Message;
+        }
+        finally
+        {
+            isCloudSyncBusy = false;
+        }
+    }
+
+    private async Task RunCloudAccountActionAsync(Func<Task> action)
+    {
+        isCloudAccountBusy = true;
+        cloudAccountMessage = null;
+        try
+        {
+            await action();
+            cloudAccountSucceeded = true;
+        }
+        catch (AccountServiceException exception)
+        {
+            cloudAccountSucceeded = false;
+            cloudAccountMessage = exception.Message;
+        }
+        finally
+        {
+            isCloudAccountBusy = false;
+        }
+    }
+
+    private string GetCloudAccountRedirectUrl() =>
+        new Uri(AppConfiguration.PublicBaseUrl, "settings").AbsoluteUri;
 
     private async Task SelectProviderAsync(SyncProviderType providerType)
     {
@@ -733,4 +1046,11 @@
 
     private static string? FirstClaimValue(ClaimsPrincipal user, string claimType) =>
         user.Claims.FirstOrDefault(claim => claim.Type == claimType)?.Value;
+
+    private enum CloudAccountMode
+    {
+        Login,
+        Register,
+        ResetPassword
+    }
 }
