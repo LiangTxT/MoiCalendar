@@ -724,7 +724,7 @@
     }
 
     private string GetCloudAccountRedirectUrl() =>
-        new Uri(AppConfiguration.PublicBaseUrl, "settings").AbsoluteUri;
+        AppConfiguration.CloudAccountRedirectUrl.AbsoluteUri;
 
     private async Task SelectProviderAsync(SyncProviderType providerType)
     {

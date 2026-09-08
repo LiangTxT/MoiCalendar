@@ -38,10 +38,11 @@ builder.Services.AddMsalAuthentication(options =>
         options.ProviderOptions.DefaultAccessTokenScopes.Add(scope);
     }
 
-    if (appConfiguration.MicrosoftAuthentication.RedirectPath is { } redirectPath)
-    {
-        options.AuthenticationPaths.LogInCallbackPath = redirectPath;
-    }
+    var redirectPath = appConfiguration.MicrosoftAuthentication.RedirectPath ??
+        MoiCalendarConfiguration.DefaultMicrosoftLoginCallbackPath;
+    options.AuthenticationPaths.LogInCallbackPath = redirectPath;
+    options.ProviderOptions.Authentication.RedirectUri =
+        appConfiguration.MicrosoftLoginCallbackUrl.AbsoluteUri;
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IRecurrenceExpansionService, RecurrenceExpansionService>();

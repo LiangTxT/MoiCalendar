@@ -24,7 +24,7 @@ Azure 的正式部署分支是 `main`。功能分支（例如本地当前使用�
 
 | Variable | 必需性 | 浏览器可见 | 内容 |
 | --- | --- | --- | --- |
-| `MOICALENDAR_PUBLIC_BASE_URL` | 必需 | 是 | 生产站点 HTTPS 根 URL，例如 `https://calendar.example.com/` |
+| `MOICALENDAR_PUBLIC_BASE_URL` | 必需 | 是 | 生产站点 HTTPS 根 URL；当前应为 `https://app.moicalendar.com/` |
 | `MOICALENDAR_CLOUD_ENABLED` | 必需 | 是 | `true` 启用 Supabase；`false` 保持完整本地模式 |
 | `MOICALENDAR_CLOUD_BASE_URL` | 云启用时必需 | 是 | 托管或自托管 Supabase HTTPS 网关 URL |
 | `MOICALENDAR_CLOUD_PUBLIC_KEY` | 云启用时必需 | 是 | Supabase Publishable key 或旧版 anon key |
@@ -79,9 +79,11 @@ GitHub repository variables
 
 这些项目不是 PostgreSQL migration，也不能由静态站点配置代替：
 
-1. Supabase Auth：将生产 `/settings` URL 加入 Redirect URLs，并正确设置 Site URL、邮件和 SMTP 策略。
-2. Microsoft Entra：将生产 `authentication/login-callback` URL 注册为 SPA redirect URI；当前临时 `Files.ReadWrite` 权限应在 Microsoft 修复 App Folder 问题后移除，只保留 `Files.ReadWrite.AppFolder`。
+1. Supabase Auth：Site URL 设置为 `https://app.moicalendar.com`，Redirect URLs 至少包含 `https://app.moicalendar.com/settings`。
+2. Microsoft Entra：将 `https://app.moicalendar.com/authentication/login-callback` 注册为 SPA redirect URI；当前临时 `Files.ReadWrite` 权限应在 Microsoft 修复 App Folder 问题后移除，只保留 `Files.ReadWrite.AppFolder`。
 3. Azure Static Web Apps：生产域名和 HTTPS 证书必须有效。
+
+生产与 localhost 的完整回调矩阵见 [生产域名与认证回调](authentication-redirects.md)。
 
 ## 路由与 PWA
 

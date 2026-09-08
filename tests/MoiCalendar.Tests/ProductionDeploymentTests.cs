@@ -111,6 +111,38 @@ public sealed class ProductionDeploymentTests
         Assert.Contains("appsettings.${forbiddenEnvironment}.json", validator, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuthenticationRedirects_AreWiredAndDocumentedForTheCustomDomain()
+    {
+        var program = File.ReadAllText(RepositoryPath(
+            "src", "MoiCalendar.App", "Program.cs"));
+        var settings = File.ReadAllText(RepositoryPath(
+            "src", "MoiCalendar.App", "Pages", "Settings.razor"));
+        var documentation = File.ReadAllText(RepositoryPath(
+            "docs", "authentication-redirects.md"));
+
+        Assert.Contains(
+            "appConfiguration.MicrosoftLoginCallbackUrl.AbsoluteUri",
+            program,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AppConfiguration.CloudAccountRedirectUrl.AbsoluteUri",
+            settings,
+            StringComparison.Ordinal);
+        foreach (var url in new[]
+        {
+            "https://app.moicalendar.com/settings",
+            "https://app.moicalendar.com/authentication/login-callback",
+            "http://localhost:5262/settings",
+            "https://localhost:7104/settings",
+            "http://localhost:5262/authentication/login-callback",
+            "https://localhost:7104/authentication/login-callback"
+        })
+        {
+            Assert.Contains(url, documentation, StringComparison.Ordinal);
+        }
+    }
+
     private static string RepositoryPath(params string[] parts) =>
         Path.Combine(new[] { FindRepositoryRoot() }.Concat(parts).ToArray());
 

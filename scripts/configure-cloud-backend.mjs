@@ -71,8 +71,8 @@ console.log("文件只包含浏览器可见配置；未写入 secret/service-rol
 
 function readProductionEnvironment() {
     const enabled = requiredBooleanEnvironment("MOICALENDAR_CLOUD_ENABLED");
-    const publicBaseUrl = requiredEnvironment("MOICALENDAR_PUBLIC_BASE_URL");
-    validateProductionPublicBaseUrl(publicBaseUrl);
+    const publicBaseUrl = normalizeProductionPublicBaseUrl(
+        requiredEnvironment("MOICALENDAR_PUBLIC_BASE_URL"));
 
     if (!enabled) {
         return { enabled, publicBaseUrl, baseUrl: null, publicKey: null };
@@ -167,16 +167,18 @@ function requiredBooleanEnvironment(name) {
     return value === "true";
 }
 
-function validateProductionPublicBaseUrl(value) {
+function normalizeProductionPublicBaseUrl(value) {
     let url;
     try {
         url = new URL(value);
     } catch {
         fail("MOICALENDAR_PUBLIC_BASE_URL 必须是绝对 HTTPS URL。");
     }
-    if (url.protocol !== "https:" || url.search || url.hash || isLoopbackHostname(url.hostname)) {
-        fail("MOICALENDAR_PUBLIC_BASE_URL 必须是没有查询参数或片段的绝对 HTTPS URL。");
+    if (url.protocol !== "https:" || url.search || url.hash ||
+        url.username || url.password || isLoopbackHostname(url.hostname)) {
+        fail("MOICALENDAR_PUBLIC_BASE_URL 必须是没有凭据、查询参数或片段的绝对 HTTPS URL。");
     }
+    return url.href;
 }
 
 function validateBaseUrl(value) {

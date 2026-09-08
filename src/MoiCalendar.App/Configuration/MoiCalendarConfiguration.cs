@@ -9,6 +9,17 @@ public sealed record MoiCalendarConfiguration(
     SynchronizationConfiguration Synchronization,
     CloudBackendOptions CloudBackend)
 {
+    public const string CloudAccountRedirectPath = "settings";
+    public const string DefaultMicrosoftLoginCallbackPath = "authentication/login-callback";
+
+    public Uri CloudAccountRedirectUrl =>
+        new(PublicBaseUrl, CloudAccountRedirectPath);
+
+    public Uri MicrosoftLoginCallbackUrl =>
+        new(
+            PublicBaseUrl,
+            MicrosoftAuthentication.RedirectPath ?? DefaultMicrosoftLoginCallbackPath);
+
     public static MoiCalendarConfiguration Load(
         IConfiguration configuration,
         Uri fallbackBaseUrl)
@@ -23,7 +34,7 @@ public sealed record MoiCalendarConfiguration(
             new MicrosoftAuthenticationConfiguration(
                 OptionalValue(configuration["MoiCalendar:MicrosoftAuthentication:Authority"]),
                 OptionalValue(configuration["MoiCalendar:MicrosoftAuthentication:ClientId"]),
-                OptionalValue(configuration["MoiCalendar:MicrosoftAuthentication:RedirectPath"])),
+                ParseRedirectPath(configuration["MoiCalendar:MicrosoftAuthentication:RedirectPath"])),
             new SynchronizationConfiguration(
                 OptionalValue(configuration["MoiCalendar:Synchronization:Provider"])),
             new CloudBackendOptions
@@ -49,7 +60,35 @@ public sealed record MoiCalendarConfiguration(
                 "MoiCalendar:PublicBaseUrl 不能包含查询参数或片段。");
         }
 
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+        {
+            throw new InvalidOperationException(
+                "MoiCalendar:PublicBaseUrl 不能包含用户名或密码。");
+        }
+
         return uri;
+    }
+
+    private static string? ParseRedirectPath(string? configuredValue)
+    {
+        var value = OptionalValue(configuredValue);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value.StartsWith("/", StringComparison.Ordinal) ||
+            value.Contains('\\') ||
+            value.Contains("?", StringComparison.Ordinal) ||
+            value.Contains("#", StringComparison.Ordinal) ||
+            value.Contains("://", StringComparison.Ordinal) ||
+            value.Split('/').Any(segment => segment is "" or "." or ".."))
+        {
+            throw new InvalidOperationException(
+                "MoiCalendar:MicrosoftAuthentication:RedirectPath 必须是安全的站点相对路径。");
+        }
+
+        return value;
     }
 
     private static Uri EnsureTrailingSlash(Uri uri)

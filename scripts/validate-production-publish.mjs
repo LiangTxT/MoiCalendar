@@ -112,9 +112,9 @@ function validateRemoteHttpsUrl(value, path) {
     } catch {
         fail(`${path} 必须是绝对 HTTPS URL。`);
     }
-    if (url.protocol !== "https:" || url.search || url.hash ||
+    if (url.protocol !== "https:" || url.search || url.hash || url.username || url.password ||
         url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]") {
-        fail(`${path} 必须是非回环、无查询参数或片段的绝对 HTTPS URL。`);
+        fail(`${path} 必须是非回环、无凭据、查询参数或片段的绝对 HTTPS URL。`);
     }
 }
 
