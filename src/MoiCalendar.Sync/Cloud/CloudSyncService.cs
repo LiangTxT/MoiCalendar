@@ -5,6 +5,7 @@ namespace MoiCalendar.Sync.Cloud;
 public sealed class CloudSyncService(
     IAccountService accountService,
     ICloudSyncTransport transport,
+    ICloudDeviceSyncService cloudDeviceSyncService,
     ISyncOutboxRepository outboxRepository,
     ISyncStateRepository syncStateRepository,
     ICloudSyncBindingRepository bindingRepository,
@@ -87,6 +88,23 @@ public sealed class CloudSyncService(
         {
             return Result(
                 CloudSyncOutcome.AccountMismatch,
+                CloudSyncStatus.Error,
+                message: exception.Message);
+        }
+
+        Guid currentDeviceId;
+        try
+        {
+            currentDeviceId = (await cloudDeviceSyncService.RegisterCurrentDeviceAsync(cancellationToken)).DeviceId;
+        }
+        catch (CloudSyncTransportException exception)
+        {
+            return DeviceFailureResult(exception);
+        }
+        catch (CloudDeviceServiceException exception)
+        {
+            return Result(
+                CloudSyncOutcome.Failed,
                 CloudSyncStatus.Error,
                 message: exception.Message);
         }
@@ -234,7 +252,7 @@ public sealed class CloudSyncService(
 
         while (true)
         {
-            var pull = await PullWithRecoveryAsync(cursor, cancellationToken);
+            var pull = await PullWithRecoveryAsync(currentDeviceId, cursor, cancellationToken);
             if (pull.AuthenticationRequired)
             {
                 return Result(
@@ -248,6 +266,14 @@ public sealed class CloudSyncService(
             }
             if (pull.Failure is not null)
             {
+                if (pull.Failure.ErrorCode is "device_revoked" or "device_not_found" or "device_id_unavailable")
+                {
+                    return DeviceFailureResult(
+                        pull.Failure,
+                        pushedCount,
+                        pulledCount,
+                        cursor);
+                }
                 var status = pull.Failure.ErrorCode == "network_unavailable"
                     ? CloudSyncStatus.Offline
                     : pull.Failure.FailureKind == CloudSyncFailureKind.Transient
@@ -354,6 +380,18 @@ public sealed class CloudSyncService(
                 message: "部分本地修改仍在退避期内，将在稍后重试。");
         }
 
+        try
+        {
+            await cloudDeviceSyncService.AcknowledgeSuccessfulSyncAsync(
+                currentDeviceId,
+                cursor,
+                cancellationToken);
+        }
+        catch (CloudSyncTransportException exception)
+        {
+            return DeviceFailureResult(exception, pushedCount, pulledCount, cursor);
+        }
+
         return Result(
             CloudSyncOutcome.Succeeded,
             CloudSyncStatus.Idle,
@@ -438,6 +476,7 @@ public sealed class CloudSyncService(
     }
 
     private async Task<PullExecution> PullWithRecoveryAsync(
+        Guid deviceId,
         long cursor,
         CancellationToken cancellationToken)
     {
@@ -448,7 +487,11 @@ public sealed class CloudSyncService(
             attempts++;
             try
             {
-                return new PullExecution(await transport.PullAsync(cursor, BatchSize, cancellationToken));
+                return new PullExecution(await transport.PullAsync(
+                    deviceId,
+                    cursor,
+                    BatchSize,
+                    cancellationToken));
             }
             catch (CloudSyncTransportException exception)
             {
@@ -542,6 +585,40 @@ public sealed class CloudSyncService(
     private static bool IsMissingEntityDelete(SyncOutboxEntry entry) =>
         entry.Operation == SyncOperationType.Delete &&
         string.Equals(entry.ConflictCode, "entity_not_found", StringComparison.Ordinal);
+
+    private static CloudSyncResult DeviceFailureResult(
+        CloudSyncTransportException exception,
+        int pushedCount = 0,
+        int pulledCount = 0,
+        long cursor = 0)
+    {
+        if (exception.FailureKind == CloudSyncFailureKind.AuthenticationRequired)
+        {
+            return Result(
+                CloudSyncOutcome.NotAuthenticated,
+                CloudSyncStatus.AuthenticationRequired,
+                pushedCount,
+                pulledCount,
+                cursor,
+                message: "云账户会话已失效；本地修改保持安全，请重新登录。");
+        }
+
+        var status = exception.ErrorCode == "network_unavailable"
+            ? CloudSyncStatus.Offline
+            : exception.FailureKind == CloudSyncFailureKind.Transient
+                ? CloudSyncStatus.RetryScheduled
+                : CloudSyncStatus.Error;
+        var message = exception.ErrorCode is "device_revoked" or "device_not_found" or "device_id_unavailable"
+            ? "当前设备已被移除或不可用，云同步已停止；本地日历和待上传修改保持不变。"
+            : "云设备状态检查失败；本地日历和待上传修改保持不变，可稍后重试。";
+        return Result(
+            CloudSyncOutcome.Failed,
+            status,
+            pushedCount,
+            pulledCount,
+            cursor,
+            message: message);
+    }
 
     private static CloudSyncResult Result(
         CloudSyncOutcome outcome,

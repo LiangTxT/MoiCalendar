@@ -800,6 +800,73 @@ button:focus-visible {
     font-weight: 650;
 }
 
+.technical-identifier {
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 0.84rem;
+}
+
+.settings-heading-row,
+.cloud-device-title,
+.device-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.settings-heading-row {
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.settings-heading-row h2,
+.settings-heading-row p {
+    margin-top: 0;
+}
+
+.cloud-device-list {
+    display: grid;
+    gap: 0.85rem;
+    margin: 1rem 0;
+}
+
+.cloud-device-card {
+    padding: 1rem;
+    border: 1px solid #cbd3cd;
+    border-radius: 0.65rem;
+    background: #f9fbf9;
+}
+
+.cloud-device-card.revoked {
+    opacity: 0.75;
+}
+
+.cloud-device-title {
+    flex-wrap: wrap;
+    margin-bottom: 0.8rem;
+}
+
+.device-badge {
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    background: #dcebe0;
+    color: #284d32;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.device-badge.revoked {
+    background: #f3dddd;
+    color: #812525;
+}
+
+.device-actions {
+    flex-wrap: wrap;
+}
+
+.device-actions input {
+    min-width: min(18rem, 100%);
+}
+
 .settings-actions {
     display: flex;
     flex-wrap: wrap;

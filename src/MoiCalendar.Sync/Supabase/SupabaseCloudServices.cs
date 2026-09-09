@@ -99,8 +99,43 @@ internal sealed class DisabledCloudSyncTransport : ICloudSyncTransport
         Task.FromException<CloudMutationResponse>(new CloudSyncTransportException("云同步尚未启用。"));
 
     public Task<CloudChangeBatch> PullAsync(
+        Guid deviceId,
         long afterRevision,
         int maximumCount,
         CancellationToken cancellationToken = default) =>
         Task.FromException<CloudChangeBatch>(new CloudSyncTransportException("云同步尚未启用。"));
+}
+
+internal sealed class DisabledCloudDeviceTransport : ICloudDeviceTransport
+{
+    public bool IsAvailable => false;
+
+    public Task<CloudDeviceRecord> RegisterAsync(
+        CloudDeviceRegistration registration,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<CloudDeviceRecord>(NotEnabled());
+
+    public Task<IReadOnlyList<CloudDeviceRecord>> GetDevicesAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<IReadOnlyList<CloudDeviceRecord>>(NotEnabled());
+
+    public Task<CloudDeviceRecord> RenameAsync(
+        Guid deviceId,
+        string name,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<CloudDeviceRecord>(NotEnabled());
+
+    public Task<CloudDeviceRecord> RevokeAsync(
+        Guid deviceId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<CloudDeviceRecord>(NotEnabled());
+
+    public Task AcknowledgeSuccessfulSyncAsync(
+        Guid deviceId,
+        long serverRevision,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException(NotEnabled());
+
+    private static CloudSyncTransportException NotEnabled() =>
+        new("云设备管理尚未启用。", CloudSyncFailureKind.Permanent, "not_enabled");
 }

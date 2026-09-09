@@ -93,6 +93,7 @@ public interface ICloudSyncTransport
         CancellationToken cancellationToken = default);
 
     Task<CloudChangeBatch> PullAsync(
+        Guid deviceId,
         long afterRevision,
         int maximumCount,
         CancellationToken cancellationToken = default);

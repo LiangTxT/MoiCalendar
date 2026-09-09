@@ -68,6 +68,7 @@ internal sealed class SupabaseCloudSyncTransport(
     }
 
     public async Task<CloudChangeBatch> PullAsync(
+        Guid deviceId,
         long afterRevision,
         int maximumCount,
         CancellationToken cancellationToken = default)
@@ -82,8 +83,13 @@ internal sealed class SupabaseCloudSyncTransport(
         }
 
         var response = await SendRpcAsync<SupabasePullResponse>(
-            "rpc/moicalendar_pull_calendar_changes",
-            new { p_after_revision = afterRevision, p_limit = maximumCount },
+            "rpc/moicalendar_pull_calendar_changes_for_device",
+            new
+            {
+                p_device_id = deviceId,
+                p_after_revision = afterRevision,
+                p_limit = maximumCount
+            },
             cancellationToken);
         var changes = response.Changes
             .Select(change => new CloudRemoteCalendarChange(
@@ -147,6 +153,26 @@ internal sealed class SupabaseCloudSyncTransport(
             if (!response.IsSuccessStatusCode)
             {
                 var statusCode = (int)response.StatusCode;
+                string? providerMessage = null;
+                if (response.Content.Headers.ContentLength is null or <= 16_384)
+                {
+                    try
+                    {
+                        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                        providerMessage = JsonSerializer.Deserialize<SupabaseError>(errorBody, JsonOptions)?.Message;
+                    }
+                    catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+                    {
+                        // Provider error bodies are never surfaced or logged.
+                    }
+                }
+                var errorCode = providerMessage switch
+                {
+                    "moicalendar_device_revoked" => "device_revoked",
+                    "moicalendar_device_not_found" => "device_not_found",
+                    "moicalendar_device_id_unavailable" => "device_id_unavailable",
+                    _ => $"http_{statusCode}"
+                };
                 var failureKind = statusCode == 401
                     ? CloudSyncFailureKind.AuthenticationRequired
                     : statusCode is 408 or 429 || statusCode >= 500
@@ -155,7 +181,7 @@ internal sealed class SupabaseCloudSyncTransport(
                 throw new CloudSyncTransportException(
                     $"云同步请求失败（HTTP {statusCode}）。",
                     failureKind,
-                    $"http_{statusCode}",
+                    errorCode,
                     statusCode);
             }
 
@@ -213,6 +239,11 @@ internal sealed class SupabaseCloudSyncTransport(
         public bool HasMore { get; init; }
 
         public IReadOnlyList<SupabaseChange> Changes { get; init; } = [];
+    }
+
+    private sealed record SupabaseError
+    {
+        public string? Message { get; init; }
     }
 
     private sealed record SupabaseChange

@@ -11,6 +11,40 @@ public sealed class CloudSyncServiceTests
         new(2026, 9, 5, 2, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task SuccessfulSync_RegistersAndAcknowledgesCurrentDevice()
+    {
+        var context = CreateContext();
+
+        var result = await context.Sync.SynchronizeAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, context.CloudDevices.RegistrationCount);
+        Assert.Equal(1, context.CloudDevices.AcknowledgementCount);
+        Assert.Equal(result.Cursor, context.CloudDevices.LastAcknowledgedRevision);
+    }
+
+    [Fact]
+    public async Task RevokedDevice_IsRejectedBeforePushAndKeepsLocalOutbox()
+    {
+        var context = CreateContext();
+        var created = await CreateLocalEventAsync(context, "撤销后保留");
+        context.CloudDevices.RegistrationFailure = new CloudSyncTransportException(
+            "forbidden",
+            CloudSyncFailureKind.Permanent,
+            "device_revoked",
+            403);
+
+        var result = await context.Sync.SynchronizeAsync();
+
+        Assert.Equal(CloudSyncOutcome.Failed, result.Outcome);
+        Assert.Equal(CloudSyncStatus.Error, result.Status);
+        Assert.Contains("设备已被移除", result.Message, StringComparison.Ordinal);
+        Assert.Single(await context.Outbox.GetPendingAsync());
+        Assert.Equal(created, await context.Events.GetByIdAsync(created.Id));
+        Assert.Equal(0, context.Transport.LogicalApplyCount);
+    }
+
+    [Fact]
     public async Task OneDeviceCreate_PushesAndAdvancesCursor()
     {
         var context = CreateContext();
@@ -165,6 +199,7 @@ public sealed class CloudSyncServiceTests
         var sync = new CloudSyncService(
             context.Account,
             context.Transport,
+            context.CloudDevices,
             interruptingOutbox,
             context.State,
             new InMemoryCloudSyncBindingRepository(),
@@ -341,6 +376,7 @@ public sealed class CloudSyncServiceTests
         var restartedSync = new CloudSyncService(
             context.Account,
             context.Transport,
+            context.CloudDevices,
             context.Outbox,
             context.State,
             new InMemoryCloudSyncBindingRepository(),
@@ -367,6 +403,7 @@ public sealed class CloudSyncServiceTests
         var sync = new CloudSyncService(
             context.Account,
             context.Transport,
+            context.CloudDevices,
             context.Outbox,
             context.State,
             new InMemoryCloudSyncBindingRepository(),
@@ -429,17 +466,20 @@ public sealed class CloudSyncServiceTests
         var outbox = new InMemorySyncOutboxRepository();
         var state = new InMemorySyncStateRepository();
         var clock = new MutableTimeProvider(Now);
+        var localDeviceId = Guid.Parse("11111111-1111-4111-8111-111111111111");
         var calendar = new CalendarEventService(
             events,
-            new InMemoryDeviceService("11111111-1111-4111-8111-111111111111"),
+            new InMemoryDeviceService(localDeviceId.ToString("D")),
             new InMemoryEventChangeRepository(events, operations, outbox),
             clock);
         var transport = new FakeCloudServerTransport();
         var account = new FakeAccountService();
+        var cloudDevices = new FakeCloudDeviceSyncService(localDeviceId);
         var delay = new AdvancingDelay(clock);
         var sync = new CloudSyncService(
             account,
             transport,
+            cloudDevices,
             outbox,
             state,
             new InMemoryCloudSyncBindingRepository(),
@@ -450,7 +490,7 @@ public sealed class CloudSyncServiceTests
             new FakeRetryPolicy(),
             delay);
         return new TestContext(
-            calendar, sync, events, outbox, state, transport, clock, account, delay);
+            calendar, sync, events, outbox, state, transport, cloudDevices, clock, account, delay);
     }
 
     private static async Task<CalendarEvent> CreateLocalEventAsync(TestContext context, string title)
@@ -481,6 +521,7 @@ public sealed class CloudSyncServiceTests
         InMemorySyncOutboxRepository Outbox,
         InMemorySyncStateRepository State,
         FakeCloudServerTransport Transport,
+        FakeCloudDeviceSyncService CloudDevices,
         MutableTimeProvider Clock,
         FakeAccountService Account,
         AdvancingDelay Delay);
@@ -766,7 +807,11 @@ public sealed class CloudSyncServiceTests
             return Task.FromResult(response);
         }
 
-        public Task<CloudChangeBatch> PullAsync(long afterRevision, int maximumCount, CancellationToken cancellationToken = default)
+        public Task<CloudChangeBatch> PullAsync(
+            Guid deviceId,
+            long afterRevision,
+            int maximumCount,
+            CancellationToken cancellationToken = default)
         {
             PullAfterRevisions.Add(afterRevision);
             if (FailPullAfterRevisionCount.GetValueOrDefault(afterRevision) > 0)
@@ -805,5 +850,45 @@ public sealed class CloudSyncServiceTests
                 code,
                 currentRevision,
                 events.GetValueOrDefault(mutation.EntityId).Event);
+    }
+
+    private sealed class FakeCloudDeviceSyncService(Guid deviceId) : ICloudDeviceSyncService
+    {
+        public CloudSyncTransportException? RegistrationFailure { get; set; }
+
+        public int RegistrationCount { get; private set; }
+
+        public int AcknowledgementCount { get; private set; }
+
+        public long? LastAcknowledgedRevision { get; private set; }
+
+        public Task<CloudDevice> RegisterCurrentDeviceAsync(
+            CancellationToken cancellationToken = default)
+        {
+            RegistrationCount++;
+            if (RegistrationFailure is not null)
+            {
+                throw RegistrationFailure;
+            }
+            return Task.FromResult(new CloudDevice(
+                deviceId,
+                "测试设备",
+                "PWA",
+                Now,
+                null,
+                true,
+                false));
+        }
+
+        public Task AcknowledgeSuccessfulSyncAsync(
+            Guid acknowledgedDeviceId,
+            long serverRevision,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(deviceId, acknowledgedDeviceId);
+            AcknowledgementCount++;
+            LastAcknowledgedRevision = serverRevision;
+            return Task.CompletedTask;
+        }
     }
 }

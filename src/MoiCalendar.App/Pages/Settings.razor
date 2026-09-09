@@ -6,6 +6,7 @@
 @using MoiCalendar.Sync.Cloud
 @using MoiCalendar.Sync.OneDrive
 @inject IAccountService CloudAccountService
+@inject ICloudDeviceService CloudDeviceService
 @inject ICloudSyncService CloudSyncService
 @inject ISyncProviderSelection ProviderSelection
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -27,7 +28,7 @@
     <section class="settings-card" aria-labelledby="cloud-account-heading">
         <h2 id="cloud-account-heading">MoiCalendar 云账户</h2>
         <p>
-            云账户当前只用于身份验证。登录、注册或恢复会话都不会上传、下载或改变 IndexedDB 中的本地日历。
+            云账户用于身份验证和可选的增量云同步。仅登录、注册或恢复会话不会上传、下载或改变 IndexedDB 中的本地日历。
         </p>
 
         @if (!CloudAccountService.IsAvailable)
@@ -48,6 +49,10 @@
                 }
                 <dt>邮箱状态</dt>
                 <dd>@(cloudAccount.IsEmailVerified ? "已验证" : "等待验证")</dd>
+                <dt>认证状态</dt>
+                <dd>已登录</dd>
+                <dt>账户 ID</dt>
+                <dd class="technical-identifier">@cloudAccount.Id</dd>
             </dl>
 
             @if (CloudAccountService.IsPasswordRecovery)
@@ -153,6 +158,94 @@
             </p>
         }
     </section>
+
+    @if (cloudAccount is not null && CloudDeviceService.IsAvailable)
+    {
+        <section class="settings-card" aria-labelledby="cloud-devices-heading">
+            <div class="settings-heading-row">
+                <div>
+                    <h2 id="cloud-devices-heading">我的设备</h2>
+                    <p>设备会在首次成功执行云同步时登记。设备名称和状态只属于当前云账户。</p>
+                </div>
+                <button type="button"
+                        disabled="@isCloudDeviceBusy"
+                        @onclick="LoadCloudDevicesAsync">
+                    刷新
+                </button>
+            </div>
+
+            @if (cloudDevices.Count == 0)
+            {
+                <p class="settings-note">尚无已登记设备。请先在当前设备执行一次云同步。</p>
+            }
+            else
+            {
+                <div class="cloud-device-list">
+                    @foreach (var device in cloudDevices)
+                    {
+                        <article class="cloud-device-card @(device.IsRevoked ? "revoked" : null)">
+                            <div class="cloud-device-title">
+                                <strong>@device.Name</strong>
+                                @if (device.IsCurrent)
+                                {
+                                    <span class="device-badge">当前设备</span>
+                                }
+                                @if (device.IsRevoked)
+                                {
+                                    <span class="device-badge revoked">已移除</span>
+                                }
+                            </div>
+                            <dl class="account-information">
+                                <dt>平台</dt>
+                                <dd>@(device.Platform ?? "未知")</dd>
+                                <dt>设备 ID</dt>
+                                <dd class="technical-identifier">@device.DeviceId</dd>
+                                <dt>登记时间</dt>
+                                <dd>@FormatDeviceTime(device.RegisteredAtUtc)</dd>
+                                <dt>最后成功同步</dt>
+                                <dd>@(device.LastSuccessfulSyncAtUtc is null ? "尚未同步" : FormatDeviceTime(device.LastSuccessfulSyncAtUtc.Value))</dd>
+                            </dl>
+
+                            @if (!device.IsRevoked)
+                            {
+                                <div class="device-actions">
+                                    <label for="device-name-@device.DeviceId">设备名称</label>
+                                    <input id="device-name-@device.DeviceId"
+                                           maxlength="200"
+                                           value="@GetDeviceDraftName(device)"
+                                           @oninput="eventArgs => SetDeviceDraftName(device.DeviceId, eventArgs.Value?.ToString())" />
+                                    <button type="button"
+                                            disabled="@isCloudDeviceBusy"
+                                            @onclick="() => RenameCloudDeviceAsync(device.DeviceId)">
+                                        重命名
+                                    </button>
+                                    @if (!device.IsCurrent)
+                                    {
+                                        <button type="button"
+                                                class="danger-button"
+                                                disabled="@isCloudDeviceBusy"
+                                                @onclick="() => RevokeCloudDeviceAsync(device.DeviceId)">
+                                            移除设备
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </article>
+                    }
+                </div>
+            }
+
+            <p class="settings-note">
+                “移除设备”只会阻止该设备 ID 继续使用 MoiCalendar 云同步，不会撤销底层云账户登录会话。
+            </p>
+            @if (!string.IsNullOrWhiteSpace(cloudDeviceMessage))
+            {
+                <p class="settings-status @(cloudDeviceSucceeded ? "success" : "failure")" role="status">
+                    @cloudDeviceMessage
+                </p>
+            }
+        </section>
+    }
 
     <fieldset class="settings-group">
         <legend>提供商</legend>
@@ -491,6 +584,11 @@
     private bool isCloudSyncBusy;
     private bool cloudAccountSucceeded;
     private string? cloudAccountMessage;
+    private IReadOnlyList<CloudDevice> cloudDevices = [];
+    private readonly Dictionary<Guid, string> cloudDeviceDraftNames = [];
+    private bool isCloudDeviceBusy;
+    private bool cloudDeviceSucceeded;
+    private string? cloudDeviceMessage;
     private SyncProviderType selectedProvider;
     private bool isAuthenticated;
     private bool isTestingConnection;
@@ -538,6 +636,10 @@
             try
             {
                 cloudAccount = await CloudAccountService.RestoreSessionAsync();
+                if (cloudAccount is not null)
+                {
+                    await LoadCloudDevicesAsync();
+                }
                 if (CloudAccountService.IsPasswordRecovery)
                 {
                     cloudAccountSucceeded = true;
@@ -604,6 +706,7 @@
         {
             cloudAccount = await CloudAccountService.LoginAsync(cloudEmailAddress, cloudPassword);
             cloudAccountMessage = "云账户登录成功。本地日历尚未上传或同步。";
+            await LoadCloudDevicesAsync();
         });
         cloudPassword = string.Empty;
     }
@@ -627,6 +730,10 @@
             cloudAccountMessage = result.EmailVerificationRequired
                 ? "注册请求已提交，请查看邮箱并完成验证。"
                 : "注册并登录成功。本地日历尚未上传或同步。";
+            if (cloudAccount is not null)
+            {
+                await LoadCloudDevicesAsync();
+            }
         });
         cloudPassword = string.Empty;
         cloudConfirmPassword = string.Empty;
@@ -667,6 +774,9 @@
         {
             await CloudAccountService.LogoutAsync();
             cloudAccount = null;
+            cloudDevices = [];
+            cloudDeviceDraftNames.Clear();
+            cloudDeviceMessage = null;
             cloudAccountMessage = "已退出云账户，本地日历数据保持不变。";
         });
     }
@@ -691,6 +801,10 @@
                     $"云端暂时不可用，本地修改已保留；下次可重试时间：{result.NextRetryAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}。",
                 _ => result.Message ?? "云同步未完成，本地修改已保留。"
             };
+            if (result.IsSuccess)
+            {
+                await LoadCloudDevicesAsync();
+            }
         }
         catch (Exception exception) when (exception is SyncOperationException or CloudSyncTransportException)
         {
@@ -722,6 +836,98 @@
             isCloudAccountBusy = false;
         }
     }
+
+    private async Task LoadCloudDevicesAsync()
+    {
+        if (cloudAccount is null || !CloudDeviceService.IsAvailable)
+        {
+            cloudDevices = [];
+            return;
+        }
+
+        isCloudDeviceBusy = true;
+        cloudDeviceMessage = null;
+        try
+        {
+            cloudDevices = await CloudDeviceService.GetDevicesAsync();
+            cloudDeviceDraftNames.Clear();
+            foreach (var device in cloudDevices)
+            {
+                cloudDeviceDraftNames[device.DeviceId] = device.Name;
+            }
+            cloudDeviceSucceeded = true;
+        }
+        catch (CloudDeviceServiceException exception)
+        {
+            cloudDeviceSucceeded = false;
+            cloudDeviceMessage = exception.Message;
+        }
+        finally
+        {
+            isCloudDeviceBusy = false;
+        }
+    }
+
+    private async Task RenameCloudDeviceAsync(Guid deviceId)
+    {
+        isCloudDeviceBusy = true;
+        cloudDeviceMessage = null;
+        try
+        {
+            var renamed = await CloudDeviceService.RenameAsync(
+                deviceId,
+                cloudDeviceDraftNames.GetValueOrDefault(deviceId) ?? string.Empty);
+            ReplaceCloudDevice(renamed);
+            cloudDeviceDraftNames[renamed.DeviceId] = renamed.Name;
+            cloudDeviceSucceeded = true;
+            cloudDeviceMessage = "设备名称已更新。";
+        }
+        catch (CloudDeviceServiceException exception)
+        {
+            cloudDeviceSucceeded = false;
+            cloudDeviceMessage = exception.Message;
+        }
+        finally
+        {
+            isCloudDeviceBusy = false;
+        }
+    }
+
+    private async Task RevokeCloudDeviceAsync(Guid deviceId)
+    {
+        isCloudDeviceBusy = true;
+        cloudDeviceMessage = null;
+        try
+        {
+            var revoked = await CloudDeviceService.RevokeAsync(deviceId);
+            ReplaceCloudDevice(revoked);
+            cloudDeviceSucceeded = true;
+            cloudDeviceMessage = "设备已从 MoiCalendar 云同步中移除。";
+        }
+        catch (CloudDeviceServiceException exception)
+        {
+            cloudDeviceSucceeded = false;
+            cloudDeviceMessage = exception.Message;
+        }
+        finally
+        {
+            isCloudDeviceBusy = false;
+        }
+    }
+
+    private void ReplaceCloudDevice(CloudDevice updated) =>
+        cloudDevices = cloudDevices
+            .Select(device => device.DeviceId == updated.DeviceId ? updated : device)
+            .ToArray();
+
+    private string GetDeviceDraftName(CloudDevice device) =>
+        cloudDeviceDraftNames.GetValueOrDefault(device.DeviceId) ?? device.Name;
+
+    private void SetDeviceDraftName(Guid deviceId, string? name) =>
+        cloudDeviceDraftNames[deviceId] = name ?? string.Empty;
+
+    private static string FormatDeviceTime(DateTimeOffset value) =>
+        value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
 
     private string GetCloudAccountRedirectUrl() =>
         AppConfiguration.CloudAccountRedirectUrl.AbsoluteUri;

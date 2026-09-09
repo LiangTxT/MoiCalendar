@@ -112,13 +112,20 @@ public sealed class SupabaseCloudSyncTransportTests
             """));
         using var transport = CreateTransport(handler);
 
-        var batch = await transport.PullAsync(12, 100);
+        var deviceId = Guid.NewGuid();
+        var batch = await transport.PullAsync(deviceId, 12, 100);
 
         Assert.Equal(31, batch.Cursor);
         Assert.False(batch.HasMore);
         var change = Assert.Single(batch.Changes);
         Assert.Equal(31, change.ServerRevision);
         Assert.NotNull(change.CalendarEvent.DeletedAtUtc);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(deviceId, body.RootElement.GetProperty("p_device_id").GetGuid());
+        Assert.EndsWith(
+            "/rest/v1/rpc/moicalendar_pull_calendar_changes_for_device",
+            handler.Uri,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -139,7 +146,7 @@ public sealed class SupabaseCloudSyncTransportTests
         using var transport = CreateTransport(handler);
 
         var exception = await Assert.ThrowsAsync<CloudSyncTransportException>(() =>
-            transport.PullAsync(0, 100));
+            transport.PullAsync(Guid.NewGuid(), 0, 100));
 
         Assert.Equal(expectedKind, exception.FailureKind);
         Assert.Equal((int)statusCode, exception.StatusCode);

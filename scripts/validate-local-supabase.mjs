@@ -38,6 +38,17 @@ if (!accessToken || !ownerId) {
     fail("本地登录没有返回有效会话。");
 }
 
+const registeredDevice = await registerDevice(accessToken, deviceId, "开发电脑");
+assert(registeredDevice.id === deviceId, "当前设备登记失败。");
+const revisionBeforeDuplicateRegistration = await currentOwnerRevision(accessToken);
+const duplicateRegistration = await registerDevice(accessToken, deviceId, "不应覆盖名称");
+const revisionAfterDuplicateRegistration = await currentOwnerRevision(accessToken);
+assert(
+    duplicateRegistration.id === deviceId &&
+        duplicateRegistration.name === "开发电脑" &&
+        revisionAfterDuplicateRegistration === revisionBeforeDuplicateRegistration,
+    "重复 DeviceId 登记没有保持幂等、意外覆盖名称或推进了 revision。");
+
 const firstPayload = eventPayload(firstEventId, "本地可移植性测试");
 const createRequest = mutation(firstEventId, "create", null, firstPayload);
 const created = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", {
@@ -151,17 +162,102 @@ const secondSignup = await request("auth/v1/signup", {
     body: { email: secondEmail, password: secondPassword }
 });
 assert(secondSignup.access_token, "第二个隔离测试账户注册失败。");
-const isolatedPull = await pull(secondSignup.access_token, 0);
+const duplicateOwnerAttempt = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_register_device",
+    {
+        method: "POST",
+        token: secondSignup.access_token,
+        body: { p_device_id: deviceId, p_name: "伪造设备", p_platform: "PWA" }
+    });
+assert(
+    duplicateOwnerAttempt.status === 403 &&
+        duplicateOwnerAttempt.body?.message === "moicalendar_device_id_unavailable",
+    "不同用户重复使用 DeviceId 时未被拒绝。");
+const secondDeviceId = randomUUID();
+await registerDevice(secondSignup.access_token, secondDeviceId, "隔离账户设备");
+const isolatedPull = await pull(secondSignup.access_token, 0, secondDeviceId);
 assert(isolatedPull.changes.length === 0, "RLS 隔离失败：第二个用户读取到了其他用户事件。");
 
-console.log("本地 Supabase 可移植性 smoke test 通过：Auth、幂等写入、冲突、增量 Pull、tombstone、RLS、Realtime 唤醒和漏消息恢复均正常。");
+const firstUserDevices = await request("rest/v1/rpc/moicalendar_list_devices", {
+    method: "POST",
+    token: accessToken,
+    body: {}
+});
+const secondUserDevices = await request("rest/v1/rpc/moicalendar_list_devices", {
+    method: "POST",
+    token: secondSignup.access_token,
+    body: {}
+});
+assert(
+    firstUserDevices.every(device => device.id !== secondDeviceId) &&
+        secondUserDevices.every(device => device.id !== deviceId),
+    "设备所有权隔离失败：用户读取到了其他账户的设备。" );
+const firstUserRlsDevices = await request("rest/v1/devices?select=id", {
+    token: accessToken
+});
+const secondUserRlsDevices = await request("rest/v1/devices?select=id", {
+    token: secondSignup.access_token
+});
+assert(
+    firstUserRlsDevices.every(device => device.id !== secondDeviceId) &&
+        secondUserRlsDevices.every(device => device.id !== deviceId),
+    "devices 表 RLS 隔离失败。" );
+
+const oldDeviceId = randomUUID();
+await registerDevice(accessToken, oldDeviceId, "旧设备");
+const renamedDevice = await request("rest/v1/rpc/moicalendar_rename_device", {
+    method: "POST",
+    token: accessToken,
+    body: { p_device_id: oldDeviceId, p_name: "客厅平板" }
+});
+assert(renamedDevice.name === "客厅平板", "设备重命名失败。");
+const revokedDevice = await request("rest/v1/rpc/moicalendar_revoke_device", {
+    method: "POST",
+    token: accessToken,
+    body: { p_device_id: oldDeviceId }
+});
+assert(revokedDevice.deleted_at, "设备撤销没有生成 tombstone。");
+const revokedPull = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_pull_calendar_changes_for_device",
+    {
+        method: "POST",
+        token: accessToken,
+        body: { p_device_id: oldDeviceId, p_after_revision: 0, p_limit: 100 }
+    });
+assert(
+    revokedPull.status === 403 && revokedPull.body?.message === "moicalendar_device_revoked",
+    "已撤销设备仍能执行增量 Pull。" );
+const revokedPushEventId = randomUUID();
+const revokedPush = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_apply_calendar_mutation",
+    {
+        method: "POST",
+        token: accessToken,
+        body: mutation(
+            revokedPushEventId,
+            "create",
+            null,
+            eventPayload(revokedPushEventId, "不应上传"),
+            oldDeviceId)
+    });
+assert(
+    revokedPush.status === 403 && revokedPush.body?.message === "moicalendar_device_revoked",
+    "已撤销设备仍能执行 mutation Push。" );
+
+await request("rest/v1/rpc/moicalendar_acknowledge_device_sync", {
+    method: "POST",
+    token: accessToken,
+    body: { p_device_id: deviceId, p_server_revision: recoveryPull.cursor }
+});
+
+console.log("本地 Supabase 可移植性 smoke test 通过：Auth、设备登记/重命名/撤销/所有权、幂等写入、冲突、增量 Pull、tombstone、RLS、Realtime 唤醒和漏消息恢复均正常。");
 console.log("测试只使用 Publishable key 与普通用户会话；未读取或使用 service-role/secret key。");
 
-function mutation(entityId, operation, baseRevision, payload) {
+function mutation(entityId, operation, baseRevision, payload, mutationDeviceId = deviceId) {
     return {
         p_mutation: {
             mutation_id: randomUUID(),
-            device_id: deviceId,
+            device_id: mutationDeviceId,
             entity_id: entityId,
             operation,
             base_revision: baseRevision,
@@ -191,15 +287,33 @@ function eventPayload(id, title) {
     };
 }
 
-async function pull(token, afterRevision) {
-    return request("rest/v1/rpc/moicalendar_pull_calendar_changes", {
+async function pull(token, afterRevision, currentDeviceId = deviceId) {
+    return request("rest/v1/rpc/moicalendar_pull_calendar_changes_for_device", {
         method: "POST",
         token,
-        body: { p_after_revision: afterRevision, p_limit: 100 }
+        body: { p_device_id: currentDeviceId, p_after_revision: afterRevision, p_limit: 100 }
     });
 }
 
-async function request(path, { method = "GET", token, body } = {}) {
+async function registerDevice(token, currentDeviceId, name) {
+    return request("rest/v1/rpc/moicalendar_register_device", {
+        method: "POST",
+        token,
+        body: { p_device_id: currentDeviceId, p_name: name, p_platform: "PWA" }
+    });
+}
+
+async function currentOwnerRevision(token) {
+    const rows = await request("rest/v1/sync_state?select=latest_revision", { token });
+    assert(rows.length === 1, "无法读取当前账户的同步 revision。");
+    return rows[0].latest_revision;
+}
+
+async function requestAllowFailure(path, options) {
+    return request(path, { ...options, allowFailure: true });
+}
+
+async function request(path, { method = "GET", token, body, allowFailure = false } = {}) {
     const headers = {
         apikey: publicKey,
         "Content-Type": "application/json"
@@ -218,6 +332,15 @@ async function request(path, { method = "GET", token, body } = {}) {
         fail(`无法连接本地 Supabase 路径 ${path}。`);
     }
     if (!response.ok) {
+        if (allowFailure) {
+            let responseBody;
+            try {
+                responseBody = await response.json();
+            } catch {
+                responseBody = null;
+            }
+            return { status: response.status, body: responseBody };
+        }
         fail(`本地 Supabase 请求失败：${path} 返回 HTTP ${response.status}。`);
     }
     return response.json();
