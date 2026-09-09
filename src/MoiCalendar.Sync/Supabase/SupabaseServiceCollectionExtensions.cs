@@ -69,6 +69,7 @@ public static class SupabaseServiceCollectionExtensions
         services.AddSingleton<ICloudSyncRetryPolicy, CloudSyncRetryPolicy>();
         services.AddSingleton<ICloudSyncDelay, SystemCloudSyncDelay>();
         services.AddScoped<ICloudSyncService, CloudSyncService>();
+        services.AddScoped<ICloudSyncStatusService, CloudSyncStatusService>();
         services.AddScoped<IRealtimeSyncCoordinator, RealtimeSyncCoordinator>();
         return services;
     }

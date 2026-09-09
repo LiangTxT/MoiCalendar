@@ -59,7 +59,11 @@ builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>()
 builder.Services.AddScoped<ISyncLogRepository, IndexedDbSyncLogRepository>();
 builder.Services.AddScoped<ISyncStatusRepository, IndexedDbSyncStatusRepository>();
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
-builder.Services.AddScoped<ISyncOutboxRepository, IndexedDbSyncOutboxRepository>();
+builder.Services.AddScoped<IndexedDbSyncOutboxRepository>();
+builder.Services.AddScoped<ISyncOutboxRepository>(sp =>
+    sp.GetRequiredService<IndexedDbSyncOutboxRepository>());
+builder.Services.AddScoped<ICloudConflictRepository>(sp =>
+    sp.GetRequiredService<IndexedDbSyncOutboxRepository>());
 builder.Services.AddScoped<ISyncStateRepository, IndexedDbSyncStateRepository>();
 builder.Services.AddScoped<ICloudSyncBindingRepository, IndexedDbCloudSyncBindingRepository>();
 builder.Services.AddScoped<ICloudChangeApplyRepository, IndexedDbCloudChangeApplyRepository>();

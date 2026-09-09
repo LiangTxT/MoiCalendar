@@ -5,7 +5,7 @@ using MoiCalendar.Core;
 namespace MoiCalendar.Storage;
 
 public sealed class IndexedDbSyncOutboxRepository(IndexedDbConnection connection)
-    : ISyncOutboxRepository
+    : ISyncOutboxRepository, ICloudConflictRepository
 {
     public Task<SyncOutboxEntry?> GetByIdAsync(
         Guid mutationId,
@@ -112,6 +112,44 @@ public sealed class IndexedDbSyncOutboxRepository(IndexedDbConnection connection
             mutationId,
             serverRevision);
     }
+
+    public async Task<IReadOnlyList<SyncOutboxEntry>> GetConflictsAsync(
+        int maximumCount = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (maximumCount is < 1 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        return await InvokeAsync<SyncOutboxEntry[]>(
+            "读取同步冲突",
+            "getSyncOutboxConflicts",
+            cancellationToken,
+            maximumCount);
+    }
+
+    public Task<SyncOutboxEntry> KeepLocalAsync(
+        Guid conflictMutationId,
+        Guid replacementMutationId,
+        DateTimeOffset createdAtUtc,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<SyncOutboxEntry>(
+            "保留本地冲突版本",
+            "resolveSyncConflictKeepLocal",
+            cancellationToken,
+            conflictMutationId,
+            replacementMutationId,
+            createdAtUtc.ToUniversalTime());
+
+    public Task<CalendarEvent> KeepCloudAsync(
+        Guid conflictMutationId,
+        CancellationToken cancellationToken = default) =>
+        InvokeAsync<CalendarEvent>(
+            "保留云端冲突版本",
+            "resolveSyncConflictKeepCloud",
+            cancellationToken,
+            conflictMutationId);
 
     private async Task<T> InvokeAsync<T>(
         string operation,
@@ -256,8 +294,11 @@ public sealed class IndexedDbCloudChangeApplyRepository(IndexedDbConnection conn
     }
 }
 
-public sealed class InMemorySyncOutboxRepository : ISyncOutboxRepository
+public sealed class InMemorySyncOutboxRepository(IEventRepository? eventRepository = null)
+    : ISyncOutboxRepository, ICloudConflictRepository
 {
+    private static readonly JsonSerializerOptions PayloadSerializerOptions =
+        new(JsonSerializerDefaults.Web);
     private readonly Dictionary<Guid, SyncOutboxEntry> entries = [];
     private readonly Dictionary<(SyncEntityType EntityType, Guid EntityId), long> entityRevisions = [];
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -476,6 +517,143 @@ public sealed class InMemorySyncOutboxRepository : ISyncOutboxRepository
                     entries[id] = entry with { BaseRevision = serverRevision };
                 }
             }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<SyncOutboxEntry>> GetConflictsAsync(
+        int maximumCount = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (maximumCount is < 1 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            return entries.Values
+                .Where(entry => entry.ConflictCode is not null &&
+                                !(entry.Operation == SyncOperationType.Delete &&
+                                  string.Equals(
+                                      entry.ConflictCode,
+                                      "entity_not_found",
+                                      StringComparison.Ordinal)))
+                .OrderBy(entry => entry.ConflictDetectedAtUtc)
+                .ThenBy(entry => entry.MutationId)
+                .Take(maximumCount)
+                .ToArray();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task<SyncOutboxEntry> KeepLocalAsync(
+        Guid conflictMutationId,
+        Guid replacementMutationId,
+        DateTimeOffset createdAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var events = eventRepository ?? throw new InvalidOperationException(
+            "冲突解决需要事件仓储。");
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var conflict = entries.GetValueOrDefault(conflictMutationId)
+                ?? throw new KeyNotFoundException("找不到同步冲突。");
+            if (conflict.ConflictCode is not ("stale_revision" or "entity_exists") ||
+                conflict.ConflictServerRevision is not > 0 ||
+                conflict.ConflictRemoteEvent is not { DeletedAtUtc: null } remoteEvent ||
+                remoteEvent.Id != conflict.EntityId)
+            {
+                throw new SyncOperationException("该冲突不能安全地保留本地版本。");
+            }
+            if (replacementMutationId == conflictMutationId ||
+                entries.ContainsKey(replacementMutationId))
+            {
+                throw new SyncOperationException("冲突解决必须使用新的变更标识。");
+            }
+            var localEvent = await events.GetByIdIncludingDeletedAsync(
+                conflict.EntityId,
+                cancellationToken)
+                ?? throw new SyncOperationException("找不到冲突的本地事件版本。");
+            var operation = localEvent.DeletedAtUtc is null
+                ? SyncOperationType.Update
+                : SyncOperationType.Delete;
+            foreach (var entry in entries.Values
+                         .Where(entry => entry.EntityType == conflict.EntityType &&
+                                         entry.EntityId == conflict.EntityId)
+                         .ToArray())
+            {
+                entries.Remove(entry.MutationId);
+            }
+
+            var replacement = conflict with
+            {
+                MutationId = replacementMutationId,
+                Operation = operation,
+                BaseRevision = conflict.ConflictServerRevision,
+                Payload = JsonSerializer.Serialize(localEvent, PayloadSerializerOptions),
+                CreatedAtUtc = createdAtUtc.ToUniversalTime(),
+                AttemptCount = 0,
+                LastAttemptAtUtc = null,
+                LastError = null,
+                LastErrorCategory = null,
+                LastErrorCode = null,
+                NextAttemptAtUtc = null,
+                ConflictCode = null,
+                ConflictServerRevision = null,
+                ConflictRemoteEvent = null,
+                ConflictDetectedAtUtc = null
+            };
+            entries.Add(replacement.MutationId, replacement);
+            return replacement;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task<CalendarEvent> KeepCloudAsync(
+        Guid conflictMutationId,
+        CancellationToken cancellationToken = default)
+    {
+        var events = eventRepository ?? throw new InvalidOperationException(
+            "冲突解决需要事件仓储。");
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var conflict = entries.GetValueOrDefault(conflictMutationId)
+                ?? throw new KeyNotFoundException("找不到同步冲突。");
+            var remoteEvent = conflict.ConflictRemoteEvent
+                ?? throw new SyncOperationException("该冲突没有可安全应用的云端版本。");
+            if (conflict.ConflictServerRevision is not > 0)
+            {
+                throw new SyncOperationException("该冲突缺少有效的云端修订号。");
+            }
+            if (remoteEvent.Id != conflict.EntityId)
+            {
+                throw new SyncOperationException("云端冲突版本与本地实体不匹配。");
+            }
+
+            await events.UpsertAsync(remoteEvent, cancellationToken);
+            foreach (var entry in entries.Values
+                         .Where(entry => entry.EntityType == conflict.EntityType &&
+                                         entry.EntityId == conflict.EntityId)
+                         .ToArray())
+            {
+                entries.Remove(entry.MutationId);
+            }
+            entityRevisions[(conflict.EntityType, conflict.EntityId)] =
+                conflict.ConflictServerRevision.Value;
+            return remoteEvent;
         }
         finally
         {

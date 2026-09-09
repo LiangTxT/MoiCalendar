@@ -879,6 +879,157 @@ export async function recordSyncOutboxConflict(
     return entry;
 }
 
+export async function getSyncOutboxConflicts(maximumCount) {
+    if (!Number.isInteger(maximumCount) || maximumCount < 1 || maximumCount > 1000) {
+        throw new Error("同步冲突读取数量无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSyncOutboxStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entries = await requestAsPromise(
+        transaction.objectStore(configuredSyncOutboxStoreName).getAll());
+    await completion;
+    for (const entry of entries) {
+        validateSyncOutboxEntry(entry);
+    }
+    return entries
+        .filter(entry =>
+            entry.conflictCode !== null && entry.conflictCode !== undefined &&
+            !(entry.operation === 2 && entry.conflictCode === "entity_not_found"))
+        .sort((left, right) =>
+            Date.parse(left.conflictDetectedAtUtc ?? left.createdAtUtc) -
+                Date.parse(right.conflictDetectedAtUtc ?? right.createdAtUtc) ||
+            left.mutationId.localeCompare(right.mutationId))
+        .slice(0, maximumCount);
+}
+
+export async function resolveSyncConflictKeepLocal(
+    conflictMutationId,
+    replacementMutationId,
+    createdAtUtc) {
+    validateId(conflictMutationId);
+    validateId(replacementMutationId);
+    validateDateValue(createdAtUtc, "createdAtUtc");
+    if (conflictMutationId === replacementMutationId) {
+        throw new Error("冲突解决必须使用新的变更标识。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredSyncOutboxStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    try {
+        const eventStore = transaction.objectStore(configuredEventStoreName);
+        const outboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+        const conflict = await requestAsPromise(outboxStore.get(conflictMutationId));
+        if (!conflict) {
+            throw new Error("找不到同步冲突。");
+        }
+        validateSyncOutboxEntry(conflict);
+        if (!["stale_revision", "entity_exists"].includes(conflict.conflictCode) ||
+            !Number.isSafeInteger(conflict.conflictServerRevision) ||
+            conflict.conflictServerRevision < 1 || !conflict.conflictRemoteEvent ||
+            conflict.conflictRemoteEvent.deletedAtUtc) {
+            throw new Error("该冲突不能安全地保留本地版本。");
+        }
+        if (conflict.conflictRemoteEvent.id !== conflict.entityId) {
+            throw new Error("云端冲突版本与本地实体不匹配。");
+        }
+
+        const localEvent = await requestAsPromise(eventStore.get(conflict.entityId));
+        if (!localEvent) {
+            throw new Error("找不到冲突的本地事件版本。");
+        }
+        validateEvent(localEvent);
+
+        const sameEntity = await requestAsPromise(
+            outboxStore.index("entityId").getAll(conflict.entityId));
+        for (const entry of sameEntity) {
+            if (entry.entityType === conflict.entityType) {
+                outboxStore.delete(entry.mutationId);
+            }
+        }
+
+        const replacement = {
+            ...conflict,
+            mutationId: replacementMutationId,
+            operation: localEvent.deletedAtUtc ? 2 : 1,
+            baseRevision: conflict.conflictServerRevision,
+            payload: JSON.stringify(localEvent),
+            createdAtUtc,
+            attemptCount: 0,
+            lastAttemptAtUtc: null,
+            lastError: null,
+            lastErrorCategory: null,
+            lastErrorCode: null,
+            nextAttemptAtUtc: null,
+            conflictCode: null,
+            conflictServerRevision: null,
+            conflictRemoteEvent: null,
+            conflictDetectedAtUtc: null
+        };
+        validateSyncOutboxEntry(replacement);
+        await requestAsPromise(outboxStore.add(replacement));
+        await completion;
+        return replacement;
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
+}
+
+export async function resolveSyncConflictKeepCloud(conflictMutationId) {
+    validateId(conflictMutationId);
+    const database = await getDatabase();
+    const transaction = database.transaction(
+        [configuredEventStoreName, configuredSyncOutboxStoreName,
+            configuredCloudEntityStateStoreName],
+        "readwrite");
+    const completion = transactionAsPromise(transaction);
+    try {
+        const eventStore = transaction.objectStore(configuredEventStoreName);
+        const outboxStore = transaction.objectStore(configuredSyncOutboxStoreName);
+        const entityStateStore = transaction.objectStore(configuredCloudEntityStateStoreName);
+        const conflict = await requestAsPromise(outboxStore.get(conflictMutationId));
+        if (!conflict) {
+            throw new Error("找不到同步冲突。");
+        }
+        validateSyncOutboxEntry(conflict);
+        if (!conflict.conflictCode || !Number.isSafeInteger(conflict.conflictServerRevision) ||
+            conflict.conflictServerRevision < 1 || !conflict.conflictRemoteEvent) {
+            throw new Error("该冲突没有可安全应用的云端版本。");
+        }
+
+        const remoteEvent = conflict.conflictRemoteEvent;
+        validateEvent(remoteEvent);
+        if (remoteEvent.id !== conflict.entityId) {
+            throw new Error("云端冲突版本与本地实体不匹配。");
+        }
+
+        const sameEntity = await requestAsPromise(
+            outboxStore.index("entityId").getAll(conflict.entityId));
+        for (const entry of sameEntity) {
+            if (entry.entityType === conflict.entityType) {
+                outboxStore.delete(entry.mutationId);
+            }
+        }
+        eventStore.put(remoteEvent);
+        entityStateStore.put({
+            key: createCloudEntityStateKey(conflict.entityType, conflict.entityId),
+            entityType: conflict.entityType,
+            entityId: conflict.entityId,
+            serverRevision: conflict.conflictServerRevision
+        });
+        await completion;
+        return remoteEvent;
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
+}
+
 export async function removeSyncOutboxEntry(mutationId) {
     validateId(mutationId);
     const database = await getDatabase();

@@ -155,6 +155,23 @@ public interface ISyncOutboxRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface ICloudConflictRepository
+{
+    Task<IReadOnlyList<SyncOutboxEntry>> GetConflictsAsync(
+        int maximumCount = 100,
+        CancellationToken cancellationToken = default);
+
+    Task<SyncOutboxEntry> KeepLocalAsync(
+        Guid conflictMutationId,
+        Guid replacementMutationId,
+        DateTimeOffset createdAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<CalendarEvent> KeepCloudAsync(
+        Guid conflictMutationId,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISyncStateRepository
 {
     Task<SyncState?> GetAsync(

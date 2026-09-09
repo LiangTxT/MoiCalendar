@@ -7,7 +7,7 @@
 @using MoiCalendar.Sync.OneDrive
 @inject IAccountService CloudAccountService
 @inject ICloudDeviceService CloudDeviceService
-@inject ICloudSyncService CloudSyncService
+@inject ICloudSyncStatusService CloudSyncStatusService
 @inject ISyncProviderSelection ProviderSelection
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IOneDriveConnectionTester OneDriveConnectionTester
@@ -787,29 +787,35 @@
         cloudAccountMessage = null;
         try
         {
-            var result = await CloudSyncService.SynchronizeAsync();
-            cloudAccountSucceeded = result.IsSuccess;
-            cloudAccountMessage = result.Outcome switch
+            var status = await CloudSyncStatusService.SynchronizeNowAsync();
+            cloudAccountSucceeded = status.State is not (
+                CloudSyncDisplayState.Error or
+                CloudSyncDisplayState.Offline or
+                CloudSyncDisplayState.AuthenticationRequired);
+            cloudAccountMessage = status.State switch
             {
-                CloudSyncOutcome.Succeeded =>
-                    $"云同步完成：上传 {result.PushedCount} 项，接收 {result.PulledCount} 项，游标 {result.Cursor}。",
-                CloudSyncOutcome.Conflict => result.Message ??
-                    $"检测到同步冲突（{result.Conflict?.Code}），本地修改和远端版本均已保留。",
-                CloudSyncOutcome.AccountMismatch => result.Message,
-                CloudSyncOutcome.NotAuthenticated => "请先登录云账户。",
-                _ when result.Status == CloudSyncStatus.RetryScheduled && result.NextRetryAtUtc is not null =>
-                    $"云端暂时不可用，本地修改已保留；下次可重试时间：{result.NextRetryAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}。",
-                _ => result.Message ?? "云同步未完成，本地修改已保留。"
+                CloudSyncDisplayState.Synced => "云同步已完成。",
+                CloudSyncDisplayState.Conflict =>
+                    $"检测到 {status.ConflictCount} 个同步冲突；请在“同步状态”页面选择保留的版本。",
+                CloudSyncDisplayState.PendingChanges =>
+                    $"仍有 {status.PendingChangeCount} 项本地变更等待同步。",
+                CloudSyncDisplayState.RetryScheduled when status.NextRetryAtUtc is not null =>
+                    $"云端暂时不可用，本地修改已保留；下次可重试时间：{status.NextRetryAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}。",
+                CloudSyncDisplayState.Offline => "当前离线，本地修改已保留。",
+                CloudSyncDisplayState.AuthenticationRequired => "云账户会话已失效，请重新登录。",
+                CloudSyncDisplayState.SignedOut => "请先登录云账户。",
+                CloudSyncDisplayState.LocalOnly => "云同步未启用，本地日历仍可正常使用。",
+                _ => "云同步未完成，本地修改已保留。"
             };
-            if (result.IsSuccess)
+            if (cloudAccountSucceeded)
             {
                 await LoadCloudDevicesAsync();
             }
         }
-        catch (Exception exception) when (exception is SyncOperationException or CloudSyncTransportException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             cloudAccountSucceeded = false;
-            cloudAccountMessage = exception.Message;
+            cloudAccountMessage = "云同步状态暂时无法读取，本地修改仍安全保留。";
         }
         finally
         {

@@ -14,6 +14,10 @@ public sealed class CloudArchitectureTests
 
         services.AddSupabaseCloudBackend(options);
 
+        Assert.Contains(services, descriptor =>
+            descriptor.ServiceType == typeof(ICloudSyncStatusService) &&
+            descriptor.ImplementationType == typeof(CloudSyncStatusService));
+
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
         var backend = scope.ServiceProvider.GetRequiredService<ICloudBackend>();
@@ -155,6 +159,9 @@ public sealed class CloudArchitectureTests
             typeof(RealtimeWakeUpEventArgs),
             typeof(RealtimeConnectionStateChangedEventArgs),
             typeof(ICloudSyncService),
+            typeof(ICloudSyncStatusService),
+            typeof(CloudSyncSnapshot),
+            typeof(CloudSyncConflictDetails),
             typeof(ICloudSyncTransport),
             typeof(ICloudDeviceService),
             typeof(ICloudDeviceTransport),

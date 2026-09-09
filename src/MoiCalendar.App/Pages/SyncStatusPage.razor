@@ -1,12 +1,17 @@
 @page "/sync-status"
+@using Microsoft.AspNetCore.Components.Rendering
 @using MoiCalendar.Core
-@inject ISyncService SyncService
-@inject ISyncDiagnosticsService SyncDiagnostics
+@using MoiCalendar.Sync
+@using MoiCalendar.Sync.Cloud
+@inject ICloudSyncStatusService SyncStatusService
+@inject ISyncService BackupSyncService
+@inject ISyncDiagnosticsService BackupSyncDiagnostics
 
 <PageTitle>同步状态 | MoiCalendar</PageTitle>
 
 <main class="settings-shell">
-    <h1>同步状态</h1>
+    <h1>云同步状态</h1>
+    <p>IndexedDB 始终是本机日历的数据来源。网络或 Realtime 不可用时仍可继续编辑本地日历。</p>
 
     @if (status is null)
     {
@@ -15,73 +20,163 @@
     else
     {
         <section class="settings-card sync-status-card" aria-labelledby="sync-status-heading">
-            <h2 id="sync-status-heading">当前状态</h2>
-            <dl class="account-information">
-                <dt>活动提供商</dt>
-                <dd>@FormatProvider(status.ActiveProvider)</dd>
-                <dt>状态</dt>
-                <dd>@(status.IsSyncing ? "正在同步" : "空闲")</dd>
+            <div class="sync-heading-row">
+                <div>
+                    <h2 id="sync-status-heading">当前状态</h2>
+                    <span class="sync-state-badge state-@GetStateClass(status.State)">@FormatState(status.State)</span>
+                </div>
+                <p>@DescribeState(status.State)</p>
+            </div>
+
+            <dl class="account-information sync-facts">
                 <dt>上次成功同步</dt>
                 <dd>@FormatTimestamp(status.LastSuccessfulSyncAtUtc)</dd>
-                <dt>待处理操作</dt>
-                <dd>@status.PendingOperationCount</dd>
-                <dt>失败操作</dt>
-                <dd>@status.FailedOperationCount</dd>
-                <dt>最后错误</dt>
-                <dd>@(status.LastErrorSummary ?? "无")</dd>
+                <dt>待同步本地变更</dt>
+                <dd>@status.PendingChangeCount 项</dd>
+                <dt>未解决冲突</dt>
+                <dd>@status.ConflictCount 项</dd>
+                <dt>增量同步游标</dt>
+                <dd>@status.ServerCursor</dd>
+                @if (status.NextRetryAtUtc is not null)
+                {
+                    <dt>计划重试时间</dt>
+                    <dd>@FormatTimestamp(status.NextRetryAtUtc)</dd>
+                }
             </dl>
 
             <div class="settings-actions">
-                <button class="primary-button" type="button" disabled="@isBusy" @onclick="SyncNowAsync">
-                    @(isBusy ? "正在处理…" : "立即同步")
+                <button class="primary-button" type="button" disabled="@(!CanSynchronize || isBusy)" @onclick="SyncNowAsync">
+                    @(isBusy ? "正在同步…" : "立即同步")
                 </button>
-                <button type="button"
-                        disabled="@(isBusy || (status.PendingOperationCount == 0 && status.FailedOperationCount == 0))"
-                        @onclick="RetryFailedAsync">
-                    重试失败项
-                </button>
-                <button type="button" disabled="@isBusy" @onclick="ToggleLogAsync">
-                    @(showLog ? "隐藏同步日志" : "查看同步日志")
-                </button>
-                <button class="danger-button" type="button" disabled="@isBusy" @onclick="ClearLogAsync">
-                    清除同步日志
-                </button>
+                <button type="button" disabled="@isBusy" @onclick="RefreshAsync">刷新状态</button>
+                @if (status.State is CloudSyncDisplayState.SignedOut or CloudSyncDisplayState.AuthenticationRequired)
+                {
+                    <a class="button-link" href="settings">前往账户设置</a>
+                }
             </div>
+        </section>
+
+        <section class="settings-card" aria-labelledby="realtime-heading">
+            <h2 id="realtime-heading">Realtime 连接</h2>
+            <p>
+                当前连接：<strong>@FormatRealtimeState(status.RealtimeState)</strong>。
+                Realtime 只提醒应用运行正常的增量同步，不会直接写入 IndexedDB，也不代表数据已经一致。
+            </p>
+            @if (!status.IsRealtimeAvailable || status.RealtimeState is RealtimeConnectionState.Unavailable or RealtimeConnectionState.Disconnected or RealtimeConnectionState.Reconnecting)
+            {
+                <p class="settings-note">Realtime 当前不可用或正在恢复；手动同步、重新打开应用及恢复连接仍会通过增量游标补齐遗漏变更。</p>
+            }
         </section>
     }
 
     @if (!string.IsNullOrWhiteSpace(actionMessage))
     {
-        <p class="settings-status @(actionSucceeded ? "success" : "failure")" role="status">
-            @actionMessage
-        </p>
+        <p class="settings-status @(actionSucceeded ? "success" : "failure")" role="status">@actionMessage</p>
     }
 
-    @if (showLog)
+    @if (conflicts.Count > 0)
     {
-        <section class="settings-card" aria-labelledby="sync-log-heading">
-            <h2 id="sync-log-heading">同步日志</h2>
-            @if (logEntries.Count == 0)
+        <section class="settings-card" aria-labelledby="conflict-heading">
+            <h2 id="conflict-heading">需要你处理的冲突</h2>
+            <p>自动同步不会覆盖冲突中的本地版本。你可以选择一个版本，或先保留冲突稍后再处理。</p>
+            <ol class="cloud-conflict-list">
+                @foreach (var conflict in conflicts)
+                {
+                    <li @key="conflict.MutationId">
+                        <div class="cloud-conflict-heading">
+                            <div>
+                                <h3>@FormatConflictTitle(conflict)</h3>
+                                <p>@conflict.Reason</p>
+                            </div>
+                            <span>@FormatOperation(conflict.Operation)</span>
+                        </div>
+                        <div class="conflict-version-grid">
+                            <article>
+                                <h4>本地版本</h4>
+                                @RenderEventVersion(conflict.LocalVersion)
+                            </article>
+                            <article>
+                                <h4>云端版本</h4>
+                                @RenderEventVersion(conflict.CloudVersion)
+                            </article>
+                        </div>
+                        <p class="conflict-detected-at">检测时间：@FormatTimestamp(conflict.DetectedAtUtc)</p>
+                        <div class="settings-actions">
+                            <button class="primary-button" type="button"
+                                    disabled="@(isBusy || !conflict.CanKeepLocal)"
+                                    title="@(conflict.CanKeepLocal ? null : "缺少安全重试所需的云端版本或修订号")"
+                                    @onclick="() => ResolveConflictAsync(conflict, CloudConflictResolution.KeepLocal)">
+                                保留本地版本
+                            </button>
+                            <button type="button"
+                                    disabled="@(isBusy || !conflict.CanKeepCloud)"
+                                    title="@(conflict.CanKeepCloud ? null : "缺少可安全应用的云端版本")"
+                                    @onclick="() => ResolveConflictAsync(conflict, CloudConflictResolution.KeepCloud)">
+                                保留云端版本
+                            </button>
+                            <button type="button" disabled="@isBusy" @onclick="ResolveLater">稍后处理</button>
+                        </div>
+                        @if (!conflict.CanKeepLocal || !conflict.CanKeepCloud)
+                        {
+                            <p class="settings-note compact">缺少完整云端版本或修订号的选项会保持禁用；原冲突和本地数据不会被删除。</p>
+                        }
+                    </li>
+                }
+            </ol>
+        </section>
+    }
+
+    @if (backupStatus is not null)
+    {
+        <section class="settings-card" aria-labelledby="backup-sync-heading">
+            <h2 id="backup-sync-heading">可选备份提供商同步</h2>
+            <p>此区域保留 OneDrive/WebDAV 的版本文档同步入口，与主要的增量云同步相互独立。</p>
+            <dl class="account-information">
+                <dt>活动提供商</dt>
+                <dd>@FormatProvider(backupStatus.ActiveProvider)</dd>
+                <dt>状态</dt>
+                <dd>@(backupStatus.IsSyncing ? "正在同步" : "空闲")</dd>
+                <dt>上次成功同步</dt>
+                <dd>@FormatTimestamp(backupStatus.LastSuccessfulSyncAtUtc)</dd>
+                <dt>待处理操作</dt>
+                <dd>@backupStatus.PendingOperationCount</dd>
+                <dt>失败操作</dt>
+                <dd>@backupStatus.FailedOperationCount</dd>
+            </dl>
+            <div class="settings-actions">
+                <button type="button" disabled="@isBusy" @onclick="BackupSyncNowAsync">立即运行备份同步</button>
+                <button type="button"
+                        disabled="@(isBusy || (backupStatus.PendingOperationCount == 0 && backupStatus.FailedOperationCount == 0))"
+                        @onclick="RetryBackupSyncAsync">
+                    重试失败项
+                </button>
+                <button type="button" disabled="@isBusy" @onclick="ToggleBackupLogAsync">
+                    @(showBackupLog ? "隐藏备份同步日志" : "查看备份同步日志")
+                </button>
+                <button class="danger-button" type="button" disabled="@isBusy" @onclick="ClearBackupLogAsync">清除日志</button>
+            </div>
+        </section>
+    }
+
+    @if (showBackupLog)
+    {
+        <section class="settings-card" aria-labelledby="backup-log-heading">
+            <h2 id="backup-log-heading">备份同步日志</h2>
+            @if (backupLogEntries.Count == 0)
             {
                 <p class="settings-note">暂无同步日志。</p>
             }
             else
             {
                 <ol class="sync-log-list">
-                    @foreach (var entry in logEntries)
+                    @foreach (var entry in backupLogEntries)
                     {
                         <li>
                             <div>
                                 <strong>@FormatSeverity(entry.Severity)</strong>
-                                <time datetime="@entry.TimestampUtc.ToString("O")">
-                                    @entry.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                                </time>
+                                <time datetime="@entry.TimestampUtc.ToString("O")">@FormatTimestamp(entry.TimestampUtc)</time>
                             </div>
                             <div>@FormatStage(entry.Stage) · @FormatProvider(entry.Provider)</div>
-                            @if (entry.OperationId is { } operationId)
-                            {
-                                <div>操作：<code>@operationId</code></div>
-                            }
                             <p>@entry.Message</p>
                             @if (!string.IsNullOrWhiteSpace(entry.ErrorCode))
                             {
@@ -96,23 +191,92 @@
 </main>
 
 @code {
-    private SyncStatus? status;
-    private IReadOnlyList<SyncLogEntry> logEntries = [];
+    private CloudSyncSnapshot? status;
+    private IReadOnlyList<CloudSyncConflictDetails> conflicts = [];
+    private SyncStatus? backupStatus;
+    private IReadOnlyList<SyncLogEntry> backupLogEntries = [];
+    private bool showBackupLog;
     private bool isBusy;
-    private bool showLog;
     private bool actionSucceeded;
     private string? actionMessage;
 
-    protected override Task OnInitializedAsync() => RefreshStatusAsync();
+    private bool CanSynchronize => status?.State is not (
+        CloudSyncDisplayState.LocalOnly or CloudSyncDisplayState.SignedOut or
+        CloudSyncDisplayState.AuthenticationRequired or CloudSyncDisplayState.Syncing);
 
-    private async Task SyncNowAsync() =>
-        await RunSyncActionAsync(() => SyncService.SynchronizeAsync(), "同步完成");
+    protected override Task OnInitializedAsync() => LoadAsync();
 
-    private async Task RetryFailedAsync() =>
-        await RunSyncActionAsync(() => SyncDiagnostics.RetryFailedAsync(), "重试完成");
-
-    private async Task RunSyncActionAsync(Func<Task<SyncResult>> action, string successPrefix)
+    private async Task SyncNowAsync()
     {
+        if (isBusy) return;
+        isBusy = true;
+        actionMessage = null;
+        try
+        {
+            status = await SyncStatusService.SynchronizeNowAsync();
+            actionSucceeded = status.State is not CloudSyncDisplayState.Error;
+            actionMessage = FormatSyncActionResult(status);
+            conflicts = await SyncStatusService.GetConflictsAsync();
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "同步状态暂时无法读取。本地修改仍安全保存在此设备上。";
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!isBusy) await LoadAsync();
+    }
+
+    private async Task ResolveConflictAsync(CloudSyncConflictDetails conflict, CloudConflictResolution resolution)
+    {
+        if (isBusy) return;
+        isBusy = true;
+        actionMessage = null;
+        try
+        {
+            status = await SyncStatusService.ResolveConflictAsync(conflict.MutationId, resolution);
+            conflicts = await SyncStatusService.GetConflictsAsync();
+            actionSucceeded = true;
+            actionMessage = resolution == CloudConflictResolution.KeepLocal
+                ? "已保留本地版本，并按当前云端修订号创建新的待同步变更。请再次同步以提交。"
+                : "已采用云端版本，并安全清理该日程的本地冲突变更。";
+        }
+        catch (CloudConflictResolutionException exception)
+        {
+            actionSucceeded = false;
+            actionMessage = exception.Message;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "冲突处理未完成，原冲突和本地数据仍保留。";
+        }
+        finally { isBusy = false; }
+    }
+
+    private void ResolveLater()
+    {
+        actionSucceeded = true;
+        actionMessage = "冲突已保留，你可以稍后回来处理。未冲突的日程仍可继续同步。";
+    }
+
+    private Task BackupSyncNowAsync() => RunBackupSyncActionAsync(
+        () => BackupSyncService.SynchronizeAsync(),
+        "备份同步完成");
+
+    private Task RetryBackupSyncAsync() => RunBackupSyncActionAsync(
+        () => BackupSyncDiagnostics.RetryFailedAsync(),
+        "备份重试完成");
+
+    private async Task RunBackupSyncActionAsync(Func<Task<SyncResult>> action, string successPrefix)
+    {
+        if (isBusy) return;
         isBusy = true;
         actionMessage = null;
         try
@@ -121,68 +285,159 @@
             actionSucceeded = true;
             actionMessage = $"{successPrefix}：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException) { throw; }
+        catch
         {
             actionSucceeded = false;
-            actionMessage = "同步失败，详情请查看同步日志。";
+            actionMessage = "备份同步未完成，详情请查看已脱敏的同步日志。";
         }
         finally
         {
             isBusy = false;
-            await RefreshStatusAsync();
-            if (showLog)
-            {
-                await LoadLogAsync();
-            }
+            backupStatus = await BackupSyncDiagnostics.GetStatusAsync();
+            if (showBackupLog) await LoadBackupLogAsync();
         }
     }
 
-    private async Task ToggleLogAsync()
+    private async Task ToggleBackupLogAsync()
     {
-        showLog = !showLog;
-        if (showLog)
-        {
-            await LoadLogAsync();
-        }
+        showBackupLog = !showBackupLog;
+        if (showBackupLog) await LoadBackupLogAsync();
     }
 
-    private async Task ClearLogAsync()
+    private async Task ClearBackupLogAsync()
     {
-        await SyncDiagnostics.ClearLogAsync();
-        logEntries = [];
+        await BackupSyncDiagnostics.ClearLogAsync();
+        backupLogEntries = [];
         actionSucceeded = true;
-        actionMessage = "同步日志已清除。";
+        actionMessage = "备份同步日志已清除。";
     }
 
-    private async Task RefreshStatusAsync() => status = await SyncDiagnostics.GetStatusAsync();
+    private async Task LoadBackupLogAsync() =>
+        backupLogEntries = await BackupSyncDiagnostics.GetLogEntriesAsync();
 
-    private async Task LoadLogAsync() => logEntries = await SyncDiagnostics.GetLogEntriesAsync();
-
-    private static string FormatProvider(string provider) => provider switch
+    private async Task LoadAsync()
     {
-        "None" => "无",
-        "OneDrive" => "OneDrive",
-        "WebDav" => "WebDAV",
-        _ => provider
+        isBusy = true;
+        try
+        {
+            status = await SyncStatusService.GetStatusAsync();
+            conflicts = await SyncStatusService.GetConflictsAsync();
+            backupStatus = await BackupSyncDiagnostics.GetStatusAsync();
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "同步状态暂时无法读取，本地日历仍可正常使用。";
+        }
+        finally { isBusy = false; }
+    }
+
+    private RenderFragment RenderEventVersion(CalendarEvent? calendarEvent) => builder =>
+    {
+        if (calendarEvent is null)
+        {
+            builder.AddMarkupContent(0, "<p class=\"version-unavailable\">此冲突没有可显示的完整版本。</p>");
+            return;
+        }
+        builder.OpenElement(1, "dl");
+        builder.AddAttribute(2, "class", "conflict-version-details");
+        AddDetail(builder, 3, "标题", calendarEvent.Title);
+        AddDetail(builder, 10, "时间", FormatEventTime(calendarEvent));
+        AddDetail(builder, 20, "地点", string.IsNullOrWhiteSpace(calendarEvent.Location) ? "未填写" : calendarEvent.Location);
+        AddDetail(builder, 30, "状态", calendarEvent.DeletedAtUtc is null ? "有效" : "已删除");
+        AddDetail(builder, 40, "最后修改", FormatTimestamp(calendarEvent.UpdatedAtUtc));
+        builder.CloseElement();
     };
+
+    private static void AddDetail(RenderTreeBuilder builder, int sequence, string label, string value)
+    {
+        builder.OpenElement(sequence, "dt"); builder.AddContent(sequence + 1, label); builder.CloseElement();
+        builder.OpenElement(sequence + 2, "dd"); builder.AddContent(sequence + 3, value); builder.CloseElement();
+    }
+
+    private static string FormatState(CloudSyncDisplayState state) => state switch
+    {
+        CloudSyncDisplayState.LocalOnly => "仅本地", CloudSyncDisplayState.SignedOut => "未登录",
+        CloudSyncDisplayState.Synced => "已同步", CloudSyncDisplayState.Syncing => "正在同步",
+        CloudSyncDisplayState.Offline => "离线", CloudSyncDisplayState.PendingChanges => "有待同步变更",
+        CloudSyncDisplayState.RetryScheduled => "等待重试", CloudSyncDisplayState.AuthenticationRequired => "需要重新登录",
+        CloudSyncDisplayState.Conflict => "存在冲突", CloudSyncDisplayState.Error => "同步错误", _ => "未知"
+    };
+
+    private static string DescribeState(CloudSyncDisplayState state) => state switch
+    {
+        CloudSyncDisplayState.LocalOnly => "云同步未启用；所有日历功能仍在本机可用。",
+        CloudSyncDisplayState.SignedOut => "登录云账户后才能使用增量云同步。",
+        CloudSyncDisplayState.Synced => "没有待处理的本地变更或冲突。",
+        CloudSyncDisplayState.Syncing => "正在通过可靠的 Push/Pull 协议同步。",
+        CloudSyncDisplayState.Offline => "网络暂时不可用，本地修改已保留。",
+        CloudSyncDisplayState.PendingChanges => "本地修改已经保存，等待上传。",
+        CloudSyncDisplayState.RetryScheduled => "上次网络操作未完成，系统会安全重试。",
+        CloudSyncDisplayState.AuthenticationRequired => "云账户会话已失效，请重新登录。",
+        CloudSyncDisplayState.Conflict => "至少一个日程需要你选择保留哪个版本。",
+        CloudSyncDisplayState.Error => "同步未完成，但本地修改没有丢失。", _ => string.Empty
+    };
+
+    private static string GetStateClass(CloudSyncDisplayState state) => state switch
+    {
+        CloudSyncDisplayState.Synced => "success",
+        CloudSyncDisplayState.Syncing or CloudSyncDisplayState.PendingChanges => "active",
+        CloudSyncDisplayState.Conflict or CloudSyncDisplayState.RetryScheduled => "warning",
+        CloudSyncDisplayState.Error or CloudSyncDisplayState.AuthenticationRequired => "danger", _ => "neutral"
+    };
+
+    private static string FormatSyncActionResult(CloudSyncSnapshot snapshot) => snapshot.State switch
+    {
+        CloudSyncDisplayState.Synced => "云同步已完成。",
+        CloudSyncDisplayState.Conflict => $"同步完成，但仍有 {snapshot.ConflictCount} 个冲突需要处理。",
+        CloudSyncDisplayState.PendingChanges => "本地变更仍在等待上传，请稍后重试。",
+        CloudSyncDisplayState.RetryScheduled => "云端暂时不可用，已保留本地修改并安排安全重试。",
+        CloudSyncDisplayState.Offline => "当前离线，本地修改已保留。",
+        CloudSyncDisplayState.AuthenticationRequired => "云账户会话已失效，请重新登录。",
+        CloudSyncDisplayState.SignedOut => "请先登录云账户。",
+        CloudSyncDisplayState.LocalOnly => "云同步未启用，本地日历仍可正常使用。",
+        _ => "同步未完成，本地修改仍安全保留。"
+    };
+
+    private static string FormatRealtimeState(RealtimeConnectionState state) => state switch
+    {
+        RealtimeConnectionState.Disabled => "未启用", RealtimeConnectionState.Disconnected => "未连接",
+        RealtimeConnectionState.Connecting => "正在连接", RealtimeConnectionState.Connected => "已连接（仅用于唤醒）",
+        RealtimeConnectionState.Reconnecting => "正在重新连接", RealtimeConnectionState.Unavailable => "不可用", _ => "未知"
+    };
+
+    private static string FormatConflictTitle(CloudSyncConflictDetails conflict) =>
+        conflict.LocalVersion?.Title ?? conflict.CloudVersion?.Title ?? "未命名日程";
+
+    private static string FormatOperation(SyncOperationType operation) => operation switch
+    {
+        SyncOperationType.Create => "本地新建", SyncOperationType.Update => "本地修改",
+        SyncOperationType.Delete => "本地删除", _ => "本地变更"
+    };
+
+    private static string FormatEventTime(CalendarEvent calendarEvent) => calendarEvent.IsAllDay
+        ? $"{DateOnly.FromDateTime(calendarEvent.StartUtc.UtcDateTime):yyyy-MM-dd}（全天）"
+        : $"{calendarEvent.StartUtc.ToLocalTime():yyyy-MM-dd HH:mm} – {calendarEvent.EndUtc.ToLocalTime():yyyy-MM-dd HH:mm}";
 
     private static string FormatTimestamp(DateTimeOffset? timestamp) =>
         timestamp?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "从未";
 
+    private static string FormatProvider(string provider) => provider switch
+    {
+        "None" => "无", "OneDrive" => "OneDrive", "WebDav" => "WebDAV", _ => provider
+    };
+
     private static string FormatSeverity(SyncLogSeverity severity) => severity switch
     {
-        SyncLogSeverity.Information => "信息",
-        SyncLogSeverity.Warning => "警告",
-        SyncLogSeverity.Error => "错误",
-        _ => severity.ToString()
+        SyncLogSeverity.Information => "信息", SyncLogSeverity.Warning => "警告",
+        SyncLogSeverity.Error => "错误", _ => severity.ToString()
     };
 
     private static string FormatStage(SyncLogStage stage) => stage switch
     {
-        SyncLogStage.Synchronize => "同步",
-        SyncLogStage.Push => "上传",
-        SyncLogStage.Pull => "下载",
-        SyncLogStage.Retry => "重试",
-        _ => stage.ToString()
+        SyncLogStage.Synchronize => "同步", SyncLogStage.Push => "上传",
+        SyncLogStage.Pull => "下载", SyncLogStage.Retry => "重试", _ => stage.ToString()
     };
 }
