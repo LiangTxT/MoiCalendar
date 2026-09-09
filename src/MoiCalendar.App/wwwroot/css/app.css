@@ -800,6 +800,42 @@ button:focus-visible {
     font-weight: 650;
 }
 
+.account-deletion-panel {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #c99090;
+    border-radius: 0.65rem;
+    background: #fff8f8;
+}
+
+.account-deletion-panel h3,
+.account-deletion-panel p {
+    margin: 0;
+}
+
+.account-deletion-panel > label:not(.account-deletion-local-option) {
+    font-weight: 650;
+}
+
+.account-deletion-panel > input[type="text"] {
+    width: 100%;
+    min-width: 0;
+    padding: 0.65rem 0.7rem;
+    border: 1px solid #9eaaa1;
+    border-radius: 0.45rem;
+    background: #ffffff;
+    color: inherit;
+    font: inherit;
+}
+
+.account-deletion-local-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+}
+
 .technical-identifier {
     font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     font-size: 0.84rem;

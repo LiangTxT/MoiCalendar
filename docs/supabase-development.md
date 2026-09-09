@@ -154,8 +154,11 @@ npx supabase db lint --local
 - `moicalendar_apply_calendar_mutation` 幂等 mutation RPC、base revision 冲突检测和 tombstone 删除。
 - `moicalendar_pull_calendar_changes` 基于服务端 revision 的增量 Pull RPC。
 - `sync_state` 的 `supabase_realtime` publication 配置。
+- `moicalendar_export_account_data` 的 owner 限定、白名单式可移植账户导出。
 
 数据库对象不依赖 Dashboard 手工创建。迁移依赖 Supabase 提供的 Auth schema、`auth.uid()`、Data API 角色和 Realtime publication 约定；这些属于 Supabase 平台依赖，而不是托管 Supabase Cloud 专属依赖。
+
+账户永久删除需要 Auth Admin 权限，因此不作为数据库 RPC 或浏览器功能实现。部署迁移后还需把仓库中的 `supabase/functions/delete-account` 部署到同一个 Supabase 环境；完整安全边界、删除顺序和本地保留规则见 [云账户数据导出与永久删除](account-data-lifecycle.md)。
 
 ## 依赖边界
 

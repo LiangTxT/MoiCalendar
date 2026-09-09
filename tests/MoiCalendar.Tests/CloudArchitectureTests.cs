@@ -24,6 +24,7 @@ public sealed class CloudArchitectureTests
         var accounts = scope.ServiceProvider.GetRequiredService<IAccountService>();
         var realtime = scope.ServiceProvider.GetRequiredService<IRealtimeNotifier>();
         var deviceTransport = scope.ServiceProvider.GetRequiredService<ICloudDeviceTransport>();
+        var accountDataTransport = scope.ServiceProvider.GetRequiredService<ICloudAccountDataTransport>();
 
         Assert.Same(options, provider.GetRequiredService<CloudBackendOptions>());
         Assert.Equal("Supabase", backend.ProviderId);
@@ -32,6 +33,7 @@ public sealed class CloudArchitectureTests
         Assert.False(accounts.IsAvailable);
         Assert.False(realtime.IsAvailable);
         Assert.False(deviceTransport.IsAvailable);
+        Assert.False(accountDataTransport.IsAvailable);
     }
 
     [Theory]
@@ -166,6 +168,10 @@ public sealed class CloudArchitectureTests
             typeof(ICloudDeviceService),
             typeof(ICloudDeviceTransport),
             typeof(ICloudDeviceSyncService),
+            typeof(IAccountDataService),
+            typeof(ICloudAccountDataTransport),
+            typeof(CloudAccountExportDocument),
+            typeof(AccountDeletionResult),
             typeof(CloudDevice),
             typeof(CloudMutationRequest),
             typeof(CloudMutationResponse),

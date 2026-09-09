@@ -53,6 +53,10 @@ public static class SupabaseServiceCollectionExtensions
                 new HttpClient { BaseAddress = restBaseUri },
                 options.PublicKey!,
                 serviceProvider.GetRequiredService<ISupabaseAccessTokenProvider>()));
+            services.AddScoped<ICloudAccountDataTransport>(serviceProvider => new SupabaseAccountDataTransport(
+                new HttpClient { BaseAddress = BuildServiceBaseUri(options.BaseUrl!, string.Empty) },
+                options.PublicKey!,
+                serviceProvider.GetRequiredService<ISupabaseAccessTokenProvider>()));
         }
         else
         {
@@ -60,7 +64,9 @@ public static class SupabaseServiceCollectionExtensions
             services.AddScoped<IRealtimeNotifier, DisabledRealtimeNotifier>();
             services.AddScoped<ICloudSyncTransport, DisabledCloudSyncTransport>();
             services.AddScoped<ICloudDeviceTransport, DisabledCloudDeviceTransport>();
+            services.AddScoped<ICloudAccountDataTransport, DisabledCloudAccountDataTransport>();
         }
+        services.AddScoped<IAccountDataService, AccountDataService>();
         services.AddScoped<CloudDeviceService>();
         services.AddScoped<ICloudDeviceService>(serviceProvider =>
             serviceProvider.GetRequiredService<CloudDeviceService>());

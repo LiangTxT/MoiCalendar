@@ -6,6 +6,7 @@
 @using MoiCalendar.Sync.Cloud
 @using MoiCalendar.Sync.OneDrive
 @inject IAccountService CloudAccountService
+@inject IAccountDataService AccountDataService
 @inject ICloudDeviceService CloudDeviceService
 @inject ICloudSyncStatusService CloudSyncStatusService
 @inject ISyncProviderSelection ProviderSelection
@@ -83,12 +84,12 @@
             <div class="settings-actions">
                 <button type="button"
                         class="primary-button"
-                        disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
+                        disabled="@(isCloudAccountBusy || isCloudSyncBusy || isAccountDataBusy)"
                         @onclick="SynchronizeCloudAsync">
                     @(isCloudSyncBusy ? "正在同步…" : "同步云端")
                 </button>
                 <button type="button"
-                        disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
+                        disabled="@(isCloudAccountBusy || isCloudSyncBusy || isAccountDataBusy)"
                         @onclick="LogoutCloudAccountAsync">
                     退出云账户
                 </button>
@@ -158,6 +159,74 @@
             </p>
         }
     </section>
+
+    @if (cloudAccount is not null && AccountDataService.IsAvailable)
+    {
+        <section class="settings-card" aria-labelledby="account-data-heading">
+            <h2 id="account-data-heading">账户数据</h2>
+            <p>
+                你可以下载云端日历和日程的可移植 JSON 副本。导出不包含密码、登录令牌、设备记录、同步诊断或第三方服务凭据。
+            </p>
+            <div class="settings-actions">
+                <button type="button"
+                        disabled="@isAccountDataBusy"
+                        @onclick="ExportCloudAccountDataAsync">
+                    @(isAccountDataBusy ? "正在处理…" : "导出云端数据")
+                </button>
+                <button type="button"
+                        class="danger-button"
+                        disabled="@isAccountDataBusy"
+                        @onclick="ShowAccountDeletionConfirmation">
+                    删除云账户…
+                </button>
+            </div>
+
+            @if (showAccountDeletionConfirmation)
+            {
+                <div class="account-deletion-panel" role="group" aria-labelledby="delete-account-heading">
+                    <h3 id="delete-account-heading">永久删除云账户</h3>
+                    <p class="settings-status failure" role="alert">
+                        此操作会永久删除云账户及其云端日历、日程、设备和同步记录，且无法撤销。请先导出需要保留的数据。
+                    </p>
+                    <p>
+                        默认保留此设备上的 IndexedDB 日历。OneDrive、WebDAV 和已下载的备份文件不会被此操作删除。
+                    </p>
+                    <label class="account-deletion-local-option">
+                        <input type="checkbox" @bind="removeLocalDataWithAccount" />
+                        同时删除此设备上的本地日历和本地恢复记录
+                    </label>
+                    <label for="delete-account-confirmation">
+                        输入“<strong>@RequiredAccountDeletionConfirmation</strong>”确认：
+                    </label>
+                    <input id="delete-account-confirmation"
+                           type="text"
+                           autocomplete="off"
+                           @bind="accountDeletionConfirmation" />
+                    <p class="settings-note">出于安全考虑，如果登录时间已超过 10 分钟，需要先退出并重新登录。</p>
+                    <div class="settings-actions">
+                        <button type="button"
+                                class="danger-button"
+                                disabled="@isAccountDataBusy"
+                                @onclick="DeleteCloudAccountAsync">
+                            @(isAccountDataBusy ? "正在永久删除…" : "永久删除云账户")
+                        </button>
+                        <button type="button"
+                                disabled="@isAccountDataBusy"
+                                @onclick="CancelAccountDeletion">
+                            取消
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(accountDataMessage))
+            {
+                <p class="settings-status @(accountDataSucceeded ? "success" : "failure")" role="status">
+                    @accountDataMessage
+                </p>
+            }
+        </section>
+    }
 
     @if (cloudAccount is not null && CloudDeviceService.IsAvailable)
     {
@@ -584,6 +653,12 @@
     private bool isCloudSyncBusy;
     private bool cloudAccountSucceeded;
     private string? cloudAccountMessage;
+    private bool isAccountDataBusy;
+    private bool showAccountDeletionConfirmation;
+    private bool removeLocalDataWithAccount;
+    private bool accountDataSucceeded;
+    private string accountDeletionConfirmation = string.Empty;
+    private string? accountDataMessage;
     private IReadOnlyList<CloudDevice> cloudDevices = [];
     private readonly Dictionary<Guid, string> cloudDeviceDraftNames = [];
     private bool isCloudDeviceBusy;
@@ -617,6 +692,8 @@
     private const long MaximumCalendarImportFileSize = 10 * 1024 * 1024;
     private const int MaximumDisplayedImportEvents = 100;
     private const int MaximumDisplayedImportMessages = 50;
+    private const string RequiredAccountDeletionConfirmation =
+        IAccountDataService.RequiredDeletionConfirmation;
 
     private bool isAuthenticationConfigured =>
         !string.IsNullOrWhiteSpace(AppConfiguration.MicrosoftAuthentication.ClientId);
@@ -840,6 +917,91 @@
         finally
         {
             isCloudAccountBusy = false;
+        }
+    }
+
+    private async Task ExportCloudAccountDataAsync()
+    {
+        if (isAccountDataBusy)
+        {
+            return;
+        }
+
+        isAccountDataBusy = true;
+        accountDataMessage = null;
+        try
+        {
+            var export = await AccountDataService.ExportAsync();
+            await BrowserFileDownloadService.DownloadJsonAsync(export.FileName, export.Json);
+            accountDataSucceeded = true;
+            accountDataMessage = $"云端数据已导出：{export.CalendarCount} 个日历，{export.EventCount} 个日程。";
+        }
+        catch (AccountDataException exception)
+        {
+            accountDataSucceeded = false;
+            accountDataMessage = exception.Message;
+        }
+        catch (LocalBackupDownloadException)
+        {
+            accountDataSucceeded = false;
+            accountDataMessage = "浏览器无法下载云端数据文件，请检查下载权限后重试。";
+        }
+        finally
+        {
+            isAccountDataBusy = false;
+        }
+    }
+
+    private void ShowAccountDeletionConfirmation()
+    {
+        showAccountDeletionConfirmation = true;
+        accountDeletionConfirmation = string.Empty;
+        removeLocalDataWithAccount = false;
+        accountDataMessage = null;
+    }
+
+    private void CancelAccountDeletion()
+    {
+        showAccountDeletionConfirmation = false;
+        accountDeletionConfirmation = string.Empty;
+        removeLocalDataWithAccount = false;
+        accountDataMessage = null;
+    }
+
+    private async Task DeleteCloudAccountAsync()
+    {
+        if (isAccountDataBusy)
+        {
+            return;
+        }
+
+        isAccountDataBusy = true;
+        accountDataMessage = null;
+        var removeLocalData = removeLocalDataWithAccount;
+        try
+        {
+            var result = await AccountDataService.DeleteAccountAsync(
+                accountDeletionConfirmation,
+                removeLocalData);
+            cloudAccount = null;
+            cloudDevices = [];
+            cloudDeviceDraftNames.Clear();
+            showAccountDeletionConfirmation = false;
+            accountDeletionConfirmation = string.Empty;
+            removeLocalDataWithAccount = false;
+            cloudAccountSucceeded = true;
+            cloudAccountMessage = result.LocalDataRemoved
+                ? "云账户及此设备的本地日历已永久删除。OneDrive、WebDAV 和已下载备份保持不变。"
+                : "云账户已永久删除并退出；此设备的本地日历保持不变，旧云同步队列已清除。";
+        }
+        catch (AccountDataException exception)
+        {
+            accountDataSucceeded = false;
+            accountDataMessage = exception.Message;
+        }
+        finally
+        {
+            isAccountDataBusy = false;
         }
     }
 

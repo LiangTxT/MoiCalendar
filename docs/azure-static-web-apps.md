@@ -82,6 +82,7 @@ GitHub repository variables
 1. Supabase Auth：Site URL 设置为 `https://polite-rock-09eddaf00.7.azurestaticapps.net`，Redirect URLs 至少包含 `https://polite-rock-09eddaf00.7.azurestaticapps.net/settings`。
 2. Microsoft Entra：将 `https://polite-rock-09eddaf00.7.azurestaticapps.net/authentication/login-callback` 注册为 SPA redirect URI；当前临时 `Files.ReadWrite` 权限应在 Microsoft 修复 App Folder 问题后移除，只保留 `Files.ReadWrite.AppFolder`。
 3. Azure Static Web Apps：生产域名和 HTTPS 证书必须有效。
+4. Supabase Edge Functions：将仓库中的 `delete-account` 函数部署到与生产 `CloudBackend.BaseUrl` 相同的 Supabase 项目。其 service-role key 只能位于函数服务器环境，不能进入 GitHub 的浏览器配置变量或 Azure 静态产物。
 
 生产与 localhost 的完整回调矩阵见 [生产域名与认证回调](authentication-redirects.md)。
 
@@ -107,3 +108,5 @@ dotnet publish .\src\MoiCalendar.App\MoiCalendar.App.csproj -c Release
 检查发布目录后删除本机生成的 `appsettings.Production.json`。不要使用真实生产 key 做本地验证。
 
 本地 Supabase 开发继续使用 `cloud:configure:local` 和 `local-supabase` launch profile，详见 [Supabase 开发与可移植性](supabase-development.md)。
+
+账户导出与删除的生产运行边界见 [云账户数据导出与永久删除](account-data-lifecycle.md)。

@@ -139,3 +139,18 @@ internal sealed class DisabledCloudDeviceTransport : ICloudDeviceTransport
     private static CloudSyncTransportException NotEnabled() =>
         new("云设备管理尚未启用。", CloudSyncFailureKind.Permanent, "not_enabled");
 }
+
+internal sealed class DisabledCloudAccountDataTransport : ICloudAccountDataTransport
+{
+    public bool IsAvailable => false;
+
+    public Task<CloudAccountExportDocument> ExportAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<CloudAccountExportDocument>(NotEnabled());
+
+    public Task DeleteCurrentAccountAsync(CancellationToken cancellationToken = default) =>
+        Task.FromException(NotEnabled());
+
+    private static AccountDataException NotEnabled() =>
+        new("云账户功能尚未启用。", AccountDataFailureKind.AuthenticationRequired);
+}

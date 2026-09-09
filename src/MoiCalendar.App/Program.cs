@@ -67,6 +67,7 @@ builder.Services.AddScoped<ICloudConflictRepository>(sp =>
 builder.Services.AddScoped<ISyncStateRepository, IndexedDbSyncStateRepository>();
 builder.Services.AddScoped<ICloudSyncBindingRepository, IndexedDbCloudSyncBindingRepository>();
 builder.Services.AddScoped<ICloudChangeApplyRepository, IndexedDbCloudChangeApplyRepository>();
+builder.Services.AddScoped<IAccountDeletionLocalRepository, IndexedDbAccountDeletionLocalRepository>();
 builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
 builder.Services.AddScoped<IRemoteSyncApplyRepository, IndexedDbRemoteSyncApplyRepository>();
 builder.Services.AddScoped<CalendarEventService>();

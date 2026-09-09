@@ -200,3 +200,11 @@ public interface ICloudChangeApplyRepository
         DateTimeOffset synchronizedAtUtc,
         CancellationToken cancellationToken = default);
 }
+
+public interface IAccountDeletionLocalRepository
+{
+    Task ResetAfterAccountDeletionAsync(
+        string accountId,
+        bool removeLocalData,
+        CancellationToken cancellationToken = default);
+}

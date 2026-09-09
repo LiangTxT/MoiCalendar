@@ -1107,6 +1107,58 @@ export async function bindCloudSyncAccount(accountId, boundAtUtc) {
     return binding;
 }
 
+export async function resetAfterCloudAccountDeletion(accountId, removeLocalData) {
+    validateId(accountId);
+    if (typeof removeLocalData !== "boolean") {
+        throw new Error("本地数据删除选项无效。");
+    }
+
+    const storeNames = [
+        configuredSettingsStoreName,
+        configuredCloudSyncStateStoreName,
+        configuredSyncOutboxStoreName,
+        configuredCloudEntityStateStoreName
+    ];
+    if (removeLocalData) {
+        storeNames.push(
+            configuredEventStoreName,
+            configuredOperationStoreName,
+            configuredSyncLogStoreName,
+            configuredRestoreSnapshotStoreName);
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(storeNames, "readwrite");
+    const completion = transactionAsPromise(transaction);
+    try {
+        const settingsStore = transaction.objectStore(configuredSettingsStoreName);
+        const binding = await requestAsPromise(settingsStore.get("cloudSyncBinding"));
+        if (binding?.value?.accountId && binding.value.accountId !== accountId) {
+            throw new Error("本地云账户绑定与已删除账户不匹配。");
+        }
+
+        settingsStore.delete("cloudSyncBinding");
+        transaction.objectStore(configuredCloudSyncStateStoreName).clear();
+        transaction.objectStore(configuredSyncOutboxStoreName).clear();
+        transaction.objectStore(configuredCloudEntityStateStoreName).clear();
+
+        if (removeLocalData) {
+            transaction.objectStore(configuredEventStoreName).clear();
+            transaction.objectStore(configuredOperationStoreName).clear();
+            transaction.objectStore(configuredSyncLogStoreName).clear();
+            transaction.objectStore(configuredRestoreSnapshotStoreName).clear();
+            settingsStore.delete("calendarView");
+            settingsStore.delete("syncStatus");
+            settingsStore.delete(restoreSyncBlockedSettingKey);
+        }
+
+        await completion;
+    } catch (error) {
+        await abortTransactionAfterFailure(transaction, completion);
+        throw error;
+    }
+}
+
 export async function applyCloudChangesAndAdvanceCursor(
     scope,
     changes,
