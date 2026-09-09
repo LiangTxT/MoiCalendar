@@ -1,3 +1,5 @@
+using MoiCalendar.Core;
+
 namespace MoiCalendar.Sync.Cloud;
 
 public interface IRealtimeSyncCoordinator : IAsyncDisposable
@@ -11,8 +13,11 @@ public interface IRealtimeSyncCoordinator : IAsyncDisposable
 internal sealed class RealtimeSyncCoordinator(
     IRealtimeNotifier notifier,
     ICloudSyncService cloudSyncService,
-    IAccountService accountService) : IRealtimeSyncCoordinator
+    IAccountService accountService,
+    IOperationalDiagnosticsSink? diagnostics = null) : IRealtimeSyncCoordinator
 {
+    private readonly IOperationalDiagnosticsSink diagnosticSink =
+        diagnostics ?? DisabledOperationalDiagnosticsSink.Instance;
     private readonly SemaphoreSlim wakeSignal = new(0, 1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
@@ -38,6 +43,7 @@ internal sealed class RealtimeSyncCoordinator(
             }
 
             notifier.WakeUp += OnWakeUp;
+            notifier.ConnectionStateChanged += OnConnectionStateChanged;
             worker = RunWorkerAsync(lifetime.Token);
             initialized = 1;
 
@@ -82,6 +88,7 @@ internal sealed class RealtimeSyncCoordinator(
         }
 
         notifier.WakeUp -= OnWakeUp;
+        notifier.ConnectionStateChanged -= OnConnectionStateChanged;
         try
         {
             await notifier.StopAsync();
@@ -117,6 +124,36 @@ internal sealed class RealtimeSyncCoordinator(
     }
 
     private void OnWakeUp(object? sender, RealtimeWakeUpEventArgs eventArgs) => RequestSync();
+
+    private void OnConnectionStateChanged(
+        object? sender,
+        RealtimeConnectionStateChangedEventArgs eventArgs)
+    {
+        if (eventArgs.State != RealtimeConnectionState.Unavailable)
+        {
+            return;
+        }
+
+        _ = TryRecordRealtimeFailureAsync();
+    }
+
+    private async Task TryRecordRealtimeFailureAsync()
+    {
+        try
+        {
+            await diagnosticSink.RecordAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.RealtimeConnectionFailure,
+                Outcome = OperationalDiagnosticOutcome.Unavailable,
+                FailureCategory = OperationalFailureCategory.Network,
+                ErrorCode = "realtime_unavailable"
+            });
+        }
+        catch
+        {
+            // Diagnostics are optional and cannot affect the Realtime lifecycle.
+        }
+    }
 
     private void RequestSync()
     {

@@ -11,6 +11,50 @@ public sealed class CloudSyncServiceTests
         new(2026, 9, 5, 2, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task OperationalDiagnostics_RecordSafeSyncLifecycleWithoutCalendarContent()
+    {
+        var diagnostics = new RecordingDiagnosticsSink();
+        var context = CreateContext(diagnostics);
+        _ = await CreateLocalEventAsync(context, "绝密私人日程标题");
+
+        var result = await context.Sync.SynchronizeAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(OperationalDiagnosticKind.SyncStarted, diagnostics.Events.First().Kind);
+        var completed = diagnostics.Events.Single(entry =>
+            entry.Kind == OperationalDiagnosticKind.SyncCompleted);
+        Assert.Equal(OperationalDiagnosticOutcome.Succeeded, completed.Outcome);
+        Assert.Equal(1, completed.PushedCount);
+        Assert.Equal(0, completed.ConflictCount);
+        Assert.DoesNotContain(
+            "绝密私人日程标题",
+            JsonSerializer.Serialize(diagnostics.Events),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OperationalDiagnostics_RecordPushFailureCategoryAndRetryCount()
+    {
+        var diagnostics = new RecordingDiagnosticsSink();
+        var context = CreateContext(diagnostics);
+        _ = await CreateLocalEventAsync(context, "不会进入诊断的标题");
+        context.Transport.FailBeforeApplyCount = 3;
+
+        _ = await context.Sync.SynchronizeAsync();
+
+        var failures = diagnostics.Events
+            .Where(entry => entry.Kind == OperationalDiagnosticKind.PushFailure)
+            .ToArray();
+        Assert.Equal(3, failures.Length);
+        Assert.Equal([0, 1, 2], failures.Select(entry => entry.RetryCount));
+        Assert.All(failures, entry =>
+        {
+            Assert.Equal(OperationalFailureCategory.Network, entry.FailureCategory);
+            Assert.Equal("network_unavailable", entry.ErrorCode);
+        });
+    }
+
+    [Fact]
     public async Task SuccessfulSync_RegistersAndAcknowledgesCurrentDevice()
     {
         var context = CreateContext();
@@ -459,7 +503,7 @@ public sealed class CloudSyncServiceTests
             TimeSpan.FromSeconds(30)));
     }
 
-    private static TestContext CreateContext()
+    private static TestContext CreateContext(IOperationalDiagnosticsSink? diagnostics = null)
     {
         var events = new InMemoryEventRepository();
         var operations = new InMemoryOperationRepository();
@@ -488,7 +532,8 @@ public sealed class CloudSyncServiceTests
             new AllowSyncGuard(),
             clock,
             new FakeRetryPolicy(),
-            delay);
+            delay,
+            diagnostics);
         return new TestContext(
             calendar, sync, events, outbox, state, transport, cloudDevices, clock, account, delay);
     }
@@ -850,6 +895,21 @@ public sealed class CloudSyncServiceTests
                 code,
                 currentRevision,
                 events.GetValueOrDefault(mutation.EntityId).Event);
+    }
+
+    private sealed class RecordingDiagnosticsSink : IOperationalDiagnosticsSink
+    {
+        public bool IsEnabled => true;
+
+        public List<OperationalDiagnosticDraft> Events { get; } = [];
+
+        public ValueTask RecordAsync(
+            OperationalDiagnosticDraft diagnosticEvent,
+            CancellationToken cancellationToken = default)
+        {
+            Events.Add(diagnosticEvent);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FakeCloudDeviceSyncService(Guid deviceId) : ICloudDeviceSyncService

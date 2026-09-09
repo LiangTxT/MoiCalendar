@@ -1,4 +1,5 @@
 using MoiCalendar.Core;
+using MoiCalendar.Sync.Diagnostics;
 
 namespace MoiCalendar.Sync.Cloud;
 
@@ -14,10 +15,13 @@ public sealed class CloudSyncService(
     IRestoreSyncGuard restoreSyncGuard,
     TimeProvider timeProvider,
     ICloudSyncRetryPolicy retryPolicy,
-    ICloudSyncDelay syncDelay) : ICloudSyncService
+    ICloudSyncDelay syncDelay,
+    IOperationalDiagnosticsSink? diagnostics = null) : ICloudSyncService
 {
     private const int BatchSize = 100;
     private const int MaximumPendingInspectionCount = 1_000;
+    private readonly IOperationalDiagnosticsSink diagnosticSink =
+        diagnostics ?? DisabledOperationalDiagnosticsSink.Instance;
 
     public bool IsAvailable => accountService.IsAvailable && transport.IsAvailable;
 
@@ -25,21 +29,52 @@ public sealed class CloudSyncService(
 
     public async Task<CloudSyncResult> SynchronizeAsync(CancellationToken cancellationToken = default)
     {
+        var startedTimestamp = timeProvider.GetTimestamp();
+        await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+        {
+            Kind = OperationalDiagnosticKind.SyncStarted,
+            Outcome = OperationalDiagnosticOutcome.Started
+        }, cancellationToken);
         CurrentStatus = CloudSyncStatus.Syncing;
         try
         {
             var result = await SynchronizeCoreAsync(cancellationToken);
             CurrentStatus = result.Status;
+            await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.SyncCompleted,
+                Outcome = MapOutcome(result),
+                FailureCategory = MapFailureCategory(result),
+                ErrorCode = SafeResultCode(result),
+                DurationMilliseconds = ElapsedMilliseconds(startedTimestamp),
+                PushedCount = result.PushedCount,
+                PulledCount = result.PulledCount,
+                ConflictCount = result.Conflicts?.Count ?? 0
+            }, cancellationToken);
             return result;
         }
         catch (OperationCanceledException)
         {
             CurrentStatus = CloudSyncStatus.Idle;
+            await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.SyncCompleted,
+                Outcome = OperationalDiagnosticOutcome.Cancelled,
+                DurationMilliseconds = ElapsedMilliseconds(startedTimestamp)
+            }, CancellationToken.None);
             throw;
         }
         catch
         {
             CurrentStatus = CloudSyncStatus.Error;
+            await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.SyncCompleted,
+                Outcome = OperationalDiagnosticOutcome.Failed,
+                FailureCategory = OperationalFailureCategory.Unknown,
+                ErrorCode = "unhandled_sync_failure",
+                DurationMilliseconds = ElapsedMilliseconds(startedTimestamp)
+            }, CancellationToken.None);
             throw;
         }
     }
@@ -48,6 +83,13 @@ public sealed class CloudSyncService(
     {
         if (!IsAvailable)
         {
+            await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.CloudEndpointAvailabilityFailure,
+                Outcome = OperationalDiagnosticOutcome.Unavailable,
+                FailureCategory = OperationalFailureCategory.Configuration,
+                ErrorCode = "cloud_backend_not_configured"
+            }, cancellationToken);
             return Result(
                 CloudSyncOutcome.Failed,
                 CloudSyncStatus.Error,
@@ -99,6 +141,11 @@ public sealed class CloudSyncService(
         }
         catch (CloudSyncTransportException exception)
         {
+            await RecordTransportFailureAsync(
+                OperationalDiagnosticKind.CloudEndpointAvailabilityFailure,
+                exception,
+                0,
+                cancellationToken);
             return DeviceFailureResult(exception);
         }
         catch (CloudDeviceServiceException exception)
@@ -389,6 +436,11 @@ public sealed class CloudSyncService(
         }
         catch (CloudSyncTransportException exception)
         {
+            await RecordTransportFailureAsync(
+                OperationalDiagnosticKind.CloudEndpointAvailabilityFailure,
+                exception,
+                0,
+                cancellationToken);
             return DeviceFailureResult(exception, pushedCount, pulledCount, cursor);
         }
 
@@ -424,6 +476,11 @@ public sealed class CloudSyncService(
             }
             catch (CloudSyncTransportException exception)
             {
+                await RecordTransportFailureAsync(
+                    OperationalDiagnosticKind.PushFailure,
+                    exception,
+                    Math.Max(0, operationAttempts - 1),
+                    cancellationToken);
                 if (exception.FailureKind == CloudSyncFailureKind.AuthenticationRequired)
                 {
                     await RecordFailureAsync(entry.MutationId, exception, null, cancellationToken);
@@ -495,6 +552,11 @@ public sealed class CloudSyncService(
             }
             catch (CloudSyncTransportException exception)
             {
+                await RecordTransportFailureAsync(
+                    OperationalDiagnosticKind.PullFailure,
+                    exception,
+                    Math.Max(0, attempts - 1),
+                    cancellationToken);
                 if (exception.FailureKind == CloudSyncFailureKind.AuthenticationRequired)
                 {
                     if (refreshedSession)
@@ -638,6 +700,91 @@ public sealed class CloudSyncService(
             conflicts,
             nextRetryAtUtc,
             message);
+
+    private async ValueTask RecordTransportFailureAsync(
+        OperationalDiagnosticKind kind,
+        CloudSyncTransportException exception,
+        int retryCount,
+        CancellationToken cancellationToken)
+    {
+        var category = DiagnosticErrorClassifier.Classify(exception);
+        var outcome = exception.FailureKind == CloudSyncFailureKind.AuthenticationRequired
+            ? OperationalDiagnosticOutcome.AuthenticationRequired
+            : exception.ErrorCode == "network_unavailable"
+                ? OperationalDiagnosticOutcome.Offline
+                : exception.FailureKind == CloudSyncFailureKind.Transient
+                    ? OperationalDiagnosticOutcome.RetryScheduled
+                    : OperationalDiagnosticOutcome.Failed;
+        await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+        {
+            Kind = kind,
+            Outcome = outcome,
+            FailureCategory = category,
+            ErrorCode = DiagnosticErrorClassifier.SafeCode(exception.ErrorCode),
+            RetryCount = retryCount
+        }, cancellationToken);
+
+        if ((kind is OperationalDiagnosticKind.PushFailure or OperationalDiagnosticKind.PullFailure) &&
+            category is OperationalFailureCategory.Network or OperationalFailureCategory.Server)
+        {
+            await RecordDiagnosticAsync(new OperationalDiagnosticDraft
+            {
+                Kind = OperationalDiagnosticKind.CloudEndpointAvailabilityFailure,
+                Outcome = outcome,
+                FailureCategory = category,
+                ErrorCode = DiagnosticErrorClassifier.SafeCode(exception.ErrorCode),
+                RetryCount = retryCount
+            }, cancellationToken);
+        }
+    }
+
+    private async ValueTask RecordDiagnosticAsync(
+        OperationalDiagnosticDraft diagnosticEvent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await diagnosticSink.RecordAsync(diagnosticEvent, cancellationToken);
+        }
+        catch
+        {
+            // Diagnostics are optional and cannot make synchronization fail.
+        }
+    }
+
+    private long ElapsedMilliseconds(long startedTimestamp) =>
+        Math.Clamp((long)timeProvider.GetElapsedTime(startedTimestamp).TotalMilliseconds, 0, 86_400_000);
+
+    private static OperationalDiagnosticOutcome MapOutcome(CloudSyncResult result) => result.Status switch
+    {
+        CloudSyncStatus.Idle when result.Outcome == CloudSyncOutcome.Succeeded =>
+            OperationalDiagnosticOutcome.Succeeded,
+        CloudSyncStatus.Offline => OperationalDiagnosticOutcome.Offline,
+        CloudSyncStatus.AuthenticationRequired => OperationalDiagnosticOutcome.AuthenticationRequired,
+        CloudSyncStatus.Conflict => OperationalDiagnosticOutcome.Conflict,
+        CloudSyncStatus.RetryScheduled => OperationalDiagnosticOutcome.RetryScheduled,
+        _ => OperationalDiagnosticOutcome.Failed
+    };
+
+    private static OperationalFailureCategory MapFailureCategory(CloudSyncResult result) => result.Status switch
+    {
+        CloudSyncStatus.Offline => OperationalFailureCategory.Network,
+        CloudSyncStatus.AuthenticationRequired => OperationalFailureCategory.Authentication,
+        CloudSyncStatus.Conflict => OperationalFailureCategory.Conflict,
+        CloudSyncStatus.RetryScheduled => OperationalFailureCategory.Network,
+        CloudSyncStatus.Error => OperationalFailureCategory.Unknown,
+        _ => OperationalFailureCategory.None
+    };
+
+    private static string? SafeResultCode(CloudSyncResult result) => result.Status switch
+    {
+        CloudSyncStatus.Offline => "offline",
+        CloudSyncStatus.AuthenticationRequired => "authentication_required",
+        CloudSyncStatus.Conflict => "conflict_detected",
+        CloudSyncStatus.RetryScheduled => "retry_scheduled",
+        CloudSyncStatus.Error => "sync_error",
+        _ => null
+    };
 
     private static void ValidateBatch(CloudChangeBatch batch, long previousCursor)
     {

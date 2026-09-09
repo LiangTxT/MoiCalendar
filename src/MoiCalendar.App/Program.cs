@@ -9,6 +9,8 @@ using MoiCalendar.Storage;
 using MoiCalendar.Sync;
 using MoiCalendar.Sync.Supabase;
 using MoiCalendar.Sync.OneDrive;
+using MoiCalendar.Sync.Diagnostics;
+using MoiCalendar.Sync.Cloud;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -24,6 +26,7 @@ var supabaseConfiguration = new SupabaseBackendOptions
 };
 
 builder.Services.AddSingleton(appConfiguration);
+builder.Services.AddSingleton(appConfiguration.Diagnostics);
 builder.Services.AddSupabaseCloudBackend(appConfiguration.CloudBackend, supabaseConfiguration);
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddCascadingAuthenticationState();
@@ -58,6 +61,18 @@ builder.Services.AddScoped<IBackupRestoreRepository, IndexedDbBackupRestoreRepos
 builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
 builder.Services.AddScoped<ISyncLogRepository, IndexedDbSyncLogRepository>();
 builder.Services.AddScoped<ISyncStatusRepository, IndexedDbSyncStatusRepository>();
+builder.Services.AddScoped<IOperationalDiagnosticRepository, IndexedDbOperationalDiagnosticRepository>();
+builder.Services.AddScoped<ILocalStorageHealthService, IndexedDbLocalStorageHealthService>();
+builder.Services.AddScoped<IClientPlatformProvider, BrowserClientPlatformProvider>();
+builder.Services.AddScoped<LocalOperationalDiagnosticsSink>(serviceProvider =>
+    new LocalOperationalDiagnosticsSink(
+        appConfiguration.Diagnostics,
+        serviceProvider.GetRequiredService<IOperationalDiagnosticRepository>(),
+        serviceProvider.GetRequiredService<IClientPlatformProvider>(),
+        serviceProvider.GetRequiredService<TimeProvider>(),
+        typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown"));
+builder.Services.AddScoped<IOperationalDiagnosticsSink>(serviceProvider =>
+    serviceProvider.GetRequiredService<LocalOperationalDiagnosticsSink>());
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
 builder.Services.AddScoped<IndexedDbSyncOutboxRepository>();
 builder.Services.AddScoped<ISyncOutboxRepository>(sp =>
@@ -83,6 +98,18 @@ builder.Services.AddScoped<ICalendarExportService, CalendarExportService>();
 builder.Services.AddScoped<ICalendarImportParser, CalendarImportParser>();
 builder.Services.AddScoped<ICalendarImportService, CalendarImportService>();
 builder.Services.AddScoped<IBrowserFileDownloadService, BrowserFileDownloadService>();
+builder.Services.AddScoped<IDiagnosticReportService>(serviceProvider =>
+    new DiagnosticReportService(
+        appConfiguration.Diagnostics,
+        serviceProvider.GetRequiredService<IOperationalDiagnosticRepository>(),
+        serviceProvider.GetRequiredService<ILocalStorageHealthService>(),
+        serviceProvider.GetRequiredService<IClientPlatformProvider>(),
+        serviceProvider.GetRequiredService<ICloudBackend>(),
+        serviceProvider.GetRequiredService<IAccountService>(),
+        serviceProvider.GetRequiredService<ICloudSyncStatusService>(),
+        serviceProvider.GetRequiredService<IRealtimeNotifier>(),
+        serviceProvider.GetRequiredService<TimeProvider>(),
+        typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown"));
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();
 builder.Services.AddScoped(sp => new OneDriveSyncStorageProvider(

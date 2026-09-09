@@ -1,3 +1,4 @@
+using MoiCalendar.Core;
 using MoiCalendar.Sync.Cloud;
 
 namespace MoiCalendar.Tests;
@@ -40,7 +41,13 @@ public sealed class RealtimeSyncCoordinatorTests
 
         Assert.Collection(properties, property => Assert.Equal("Reason", property.Name));
         Assert.Equal(
-            new[] { typeof(IRealtimeNotifier), typeof(ICloudSyncService), typeof(IAccountService) },
+            new[]
+            {
+                typeof(IRealtimeNotifier),
+                typeof(ICloudSyncService),
+                typeof(IAccountService),
+                typeof(IOperationalDiagnosticsSink)
+            },
             dependencies);
         Assert.DoesNotContain(dependencies, type =>
             type.Name.Contains("Repository", StringComparison.OrdinalIgnoreCase) ||
@@ -208,6 +215,7 @@ public sealed class RealtimeSyncCoordinatorTests
         notifier.Notify(RealtimeWakeUpReason.ChangeNotification);
 
         await sync.WaitForCallAsync(1);
+        await coordinator.DisposeAsync();
         Assert.Equal(CloudSyncOutcome.Succeeded, sync.LastResult!.Outcome);
         Assert.Equal(0, sync.LastResult.PulledCount);
     }

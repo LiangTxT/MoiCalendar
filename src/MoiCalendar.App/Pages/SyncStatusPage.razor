@@ -3,9 +3,12 @@
 @using MoiCalendar.Core
 @using MoiCalendar.Sync
 @using MoiCalendar.Sync.Cloud
+@using MoiCalendar.Sync.Diagnostics
 @inject ICloudSyncStatusService SyncStatusService
 @inject ISyncService BackupSyncService
 @inject ISyncDiagnosticsService BackupSyncDiagnostics
+@inject IDiagnosticReportService DiagnosticReportService
+@inject IBrowserFileDownloadService BrowserFileDownloadService
 
 <PageTitle>同步状态 | MoiCalendar</PageTitle>
 
@@ -17,7 +20,94 @@
     {
         <p class="settings-note">正在读取同步状态…</p>
     }
+
     else
+    {
+        @if (diagnosticReport is not null)
+        {
+            <section class="settings-card" aria-labelledby="diagnostics-heading">
+            <h2 id="diagnostics-heading">运行诊断</h2>
+            <p>
+                诊断只保存在此浏览器，不会自动上传。它只包含运行状态、计数、耗时和安全错误类别，不包含日历标题、说明、地点或登录凭据。
+            </p>
+            <dl class="account-information sync-facts">
+                <dt>应用版本</dt>
+                <dd>@diagnosticReport.Health.ApplicationVersion</dd>
+                <dt>客户端平台</dt>
+                <dd>@diagnosticReport.Health.ClientPlatform</dd>
+                <dt>IndexedDB</dt>
+                <dd>@FormatLocalStorageState(diagnosticReport.Health.LocalIndexedDbState)</dd>
+                <dt>云后端配置</dt>
+                <dd>@(diagnosticReport.Health.CloudBackendConfigured ? "已配置" : "未配置（仅本地）")</dd>
+                <dt>认证状态</dt>
+                <dd>@FormatAuthenticationState(diagnosticReport.Health.AuthenticationState)</dd>
+                <dt>上次成功同步</dt>
+                <dd>@FormatTimestamp(diagnosticReport.Health.LastSuccessfulSyncAtUtc)</dd>
+                <dt>待处理 Outbox</dt>
+                <dd>@(diagnosticReport.Health.PendingOutboxCount?.ToString() ?? "暂时无法读取")</dd>
+                <dt>同步状态</dt>
+                <dd>@FormatDiagnosticSyncState(diagnosticReport.Health.CurrentSyncState)</dd>
+                <dt>Realtime</dt>
+                <dd>@FormatRealtimeState(diagnosticReport.Health.RealtimeState)</dd>
+                <dt>本地运行事件</dt>
+                <dd>@(diagnosticReport.OperationalEventCollectionEnabled ? $"{diagnosticReport.OperationalEvents.Count} 条" : "已关闭")</dd>
+            </dl>
+            <div class="settings-actions">
+                <button type="button" disabled="@isDiagnosticBusy" @onclick="ExportDiagnosticsAsync">
+                    @(isDiagnosticBusy ? "正在生成…" : "导出支持诊断")
+                </button>
+                <button type="button" disabled="@isDiagnosticBusy" @onclick="LoadDiagnosticsAsync">刷新诊断</button>
+                @if (diagnosticReport.OperationalEventCollectionEnabled)
+                {
+                    <button type="button" class="danger-button" disabled="@isDiagnosticBusy" @onclick="ClearDiagnosticsAsync">
+                        清除本地诊断事件
+                    </button>
+                }
+            </div>
+
+            @if (!diagnosticReport.OperationalEventCollectionEnabled)
+            {
+                <p class="settings-note">运行事件收集已通过配置关闭；按需生成的健康摘要仍可导出。</p>
+            }
+            else if (diagnosticReport.OperationalEvents.Count > 0)
+            {
+                <details class="diagnostic-event-details">
+                    <summary>查看最近的结构化事件</summary>
+                    <ol class="sync-log-list">
+                        @foreach (var entry in diagnosticReport.OperationalEvents.Take(20))
+                        {
+                            <li>
+                                <div>
+                                    <strong>@FormatDiagnosticKind(entry.Kind)</strong>
+                                    <time datetime="@entry.TimestampUtc.ToString("O")">@FormatTimestamp(entry.TimestampUtc)</time>
+                                </div>
+                                <div>@FormatDiagnosticOutcome(entry.Outcome) · @FormatFailureCategory(entry.FailureCategory)</div>
+                                @if (entry.DurationMilliseconds is not null)
+                                {
+                                    <div>耗时：@entry.DurationMilliseconds ms</div>
+                                }
+                                @if (entry.PushedCount is not null || entry.PulledCount is not null || entry.ConflictCount is not null)
+                                {
+                                    <div>上传 @(entry.PushedCount ?? 0) · 接收 @(entry.PulledCount ?? 0) · 冲突 @(entry.ConflictCount ?? 0)</div>
+                                }
+                                @if (entry.RetryCount is not null)
+                                {
+                                    <div>此前重试：@entry.RetryCount 次</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.ErrorCode))
+                                {
+                                    <div>安全错误代码：@entry.ErrorCode</div>
+                                }
+                            </li>
+                        }
+                    </ol>
+                </details>
+            }
+            </section>
+        }
+    }
+
+    @if (status is not null)
     {
         <section class="settings-card sync-status-card" aria-labelledby="sync-status-heading">
             <div class="sync-heading-row">
@@ -195,8 +285,10 @@
     private IReadOnlyList<CloudSyncConflictDetails> conflicts = [];
     private SyncStatus? backupStatus;
     private IReadOnlyList<SyncLogEntry> backupLogEntries = [];
+    private DiagnosticReport? diagnosticReport;
     private bool showBackupLog;
     private bool isBusy;
+    private bool isDiagnosticBusy;
     private bool actionSucceeded;
     private string? actionMessage;
 
@@ -324,6 +416,7 @@
             status = await SyncStatusService.GetStatusAsync();
             conflicts = await SyncStatusService.GetConflictsAsync();
             backupStatus = await BackupSyncDiagnostics.GetStatusAsync();
+            diagnosticReport = await DiagnosticReportService.GetReportAsync();
         }
         catch (OperationCanceledException) { throw; }
         catch
@@ -332,6 +425,96 @@
             actionMessage = "同步状态暂时无法读取，本地日历仍可正常使用。";
         }
         finally { isBusy = false; }
+    }
+
+    private async Task LoadDiagnosticsAsync()
+    {
+        if (isDiagnosticBusy)
+        {
+            return;
+        }
+
+        isDiagnosticBusy = true;
+        try
+        {
+            diagnosticReport = await DiagnosticReportService.GetReportAsync();
+            actionSucceeded = true;
+            actionMessage = "诊断摘要已刷新。";
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "暂时无法读取本地诊断；日历功能不受影响。";
+        }
+        finally
+        {
+            isDiagnosticBusy = false;
+        }
+    }
+
+    private async Task ExportDiagnosticsAsync()
+    {
+        if (isDiagnosticBusy)
+        {
+            return;
+        }
+
+        isDiagnosticBusy = true;
+        try
+        {
+            var export = await DiagnosticReportService.CreateExportAsync();
+            await BrowserFileDownloadService.DownloadJsonAsync(export.FileName, export.Json);
+            diagnosticReport = await DiagnosticReportService.GetReportAsync();
+            actionSucceeded = true;
+            actionMessage = $"支持诊断已导出，共 {export.EventCount} 条结构化运行事件。请在发送前自行检查文件内容。";
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "诊断文件未能下载；日历和同步数据没有改变。";
+        }
+        finally
+        {
+            isDiagnosticBusy = false;
+        }
+    }
+
+    private async Task ClearDiagnosticsAsync()
+    {
+        if (isDiagnosticBusy)
+        {
+            return;
+        }
+
+        isDiagnosticBusy = true;
+        try
+        {
+            await DiagnosticReportService.ClearEventsAsync();
+            diagnosticReport = await DiagnosticReportService.GetReportAsync();
+            actionSucceeded = true;
+            actionMessage = "此浏览器中的运行诊断事件已清除。";
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            actionSucceeded = false;
+            actionMessage = "未能清除本地诊断事件；日历数据没有改变。";
+        }
+        finally
+        {
+            isDiagnosticBusy = false;
+        }
     }
 
     private RenderFragment RenderEventVersion(CalendarEvent? calendarEvent) => builder =>
@@ -406,6 +589,74 @@
         RealtimeConnectionState.Disabled => "未启用", RealtimeConnectionState.Disconnected => "未连接",
         RealtimeConnectionState.Connecting => "正在连接", RealtimeConnectionState.Connected => "已连接（仅用于唤醒）",
         RealtimeConnectionState.Reconnecting => "正在重新连接", RealtimeConnectionState.Unavailable => "不可用", _ => "未知"
+    };
+
+    private static string FormatLocalStorageState(DiagnosticLocalStorageState state) => state switch
+    {
+        DiagnosticLocalStorageState.Available => "可用",
+        _ => "不可用"
+    };
+
+    private static string FormatAuthenticationState(DiagnosticAuthenticationState state) => state switch
+    {
+        DiagnosticAuthenticationState.Disabled => "未启用",
+        DiagnosticAuthenticationState.SignedOut => "未登录",
+        DiagnosticAuthenticationState.SignedIn => "已登录",
+        _ => "暂时无法验证"
+    };
+
+    private static string FormatDiagnosticSyncState(DiagnosticSyncState state) => state switch
+    {
+        DiagnosticSyncState.LocalOnly => "仅本地",
+        DiagnosticSyncState.SignedOut => "未登录",
+        DiagnosticSyncState.Synced => "已同步",
+        DiagnosticSyncState.Syncing => "正在同步",
+        DiagnosticSyncState.Offline => "离线",
+        DiagnosticSyncState.PendingChanges => "有待处理变更",
+        DiagnosticSyncState.RetryScheduled => "等待重试",
+        DiagnosticSyncState.AuthenticationRequired => "需要重新登录",
+        DiagnosticSyncState.Conflict => "存在冲突",
+        DiagnosticSyncState.Error => "错误",
+        _ => "暂时无法读取"
+    };
+
+    private static string FormatDiagnosticKind(OperationalDiagnosticKind kind) => kind switch
+    {
+        OperationalDiagnosticKind.SyncStarted => "同步开始",
+        OperationalDiagnosticKind.SyncCompleted => "同步完成",
+        OperationalDiagnosticKind.PushFailure => "上传失败",
+        OperationalDiagnosticKind.PullFailure => "下载失败",
+        OperationalDiagnosticKind.RealtimeConnectionFailure => "Realtime 连接失败",
+        OperationalDiagnosticKind.AuthenticationRefreshFailure => "认证刷新失败",
+        OperationalDiagnosticKind.CloudEndpointAvailabilityFailure => "云端可用性失败",
+        _ => "运行事件"
+    };
+
+    private static string FormatDiagnosticOutcome(OperationalDiagnosticOutcome outcome) => outcome switch
+    {
+        OperationalDiagnosticOutcome.Started => "开始",
+        OperationalDiagnosticOutcome.Succeeded => "成功",
+        OperationalDiagnosticOutcome.Offline => "离线",
+        OperationalDiagnosticOutcome.Conflict => "冲突",
+        OperationalDiagnosticOutcome.RetryScheduled => "已安排重试",
+        OperationalDiagnosticOutcome.AuthenticationRequired => "需要认证",
+        OperationalDiagnosticOutcome.Unavailable => "不可用",
+        OperationalDiagnosticOutcome.Cancelled => "已取消",
+        _ => "失败"
+    };
+
+    private static string FormatFailureCategory(OperationalFailureCategory category) => category switch
+    {
+        OperationalFailureCategory.None => "无错误",
+        OperationalFailureCategory.Network => "网络",
+        OperationalFailureCategory.Authentication => "认证",
+        OperationalFailureCategory.Conflict => "冲突",
+        OperationalFailureCategory.RateLimited => "频率限制",
+        OperationalFailureCategory.Server => "服务端",
+        OperationalFailureCategory.LocalStorage => "本地存储",
+        OperationalFailureCategory.Configuration => "配置",
+        OperationalFailureCategory.InvalidData => "数据格式",
+        _ => "未知"
     };
 
     private static string FormatConflictTitle(CloudSyncConflictDetails conflict) =>

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
+using MoiCalendar.Core;
 using MoiCalendar.Sync.Cloud;
 
 namespace MoiCalendar.Sync.Supabase;
@@ -42,9 +43,12 @@ public static class SupabaseServiceCollectionExtensions
             services.AddScoped<IRealtimeNotifier>(serviceProvider =>
                 serviceProvider.GetRequiredService<SupabaseRealtimeNotifier>());
             services.AddScoped<IAccountService>(serviceProvider =>
-                new RealtimeAwareAccountService(
-                    serviceProvider.GetRequiredService<SupabaseAccountService>(),
-                    serviceProvider.GetRequiredService<IRealtimeNotifier>()));
+                new DiagnosticsAwareAccountService(
+                    new RealtimeAwareAccountService(
+                        serviceProvider.GetRequiredService<SupabaseAccountService>(),
+                        serviceProvider.GetRequiredService<IRealtimeNotifier>()),
+                    serviceProvider.GetService<IOperationalDiagnosticsSink>() ??
+                        DisabledOperationalDiagnosticsSink.Instance));
             services.AddScoped<ICloudSyncTransport>(serviceProvider => new SupabaseCloudSyncTransport(
                 new HttpClient { BaseAddress = restBaseUri },
                 options.PublicKey!,

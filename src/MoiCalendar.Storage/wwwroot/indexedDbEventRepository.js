@@ -10,6 +10,7 @@ let configuredDeviceIdentityStoreName;
 let configuredCloudSyncStateStoreName;
 let configuredSyncOutboxStoreName;
 let configuredCloudEntityStateStoreName;
+let configuredOperationalDiagnosticsStoreName;
 const heldOperationLocks = new Map();
 const exclusiveOperationLockName = "moicalendar-local-data-operation";
 const latestRestoreSnapshotKey = "latest";
@@ -26,7 +27,8 @@ export async function initialize(
     deviceIdentityStoreName,
     cloudSyncStateStoreName,
     syncOutboxStoreName,
-    cloudEntityStateStoreName) {
+    cloudEntityStateStoreName,
+    operationalDiagnosticsStoreName) {
     if (
         !databaseName ||
         !eventStoreName ||
@@ -38,6 +40,7 @@ export async function initialize(
         !cloudSyncStateStoreName ||
         !syncOutboxStoreName ||
         !cloudEntityStateStoreName ||
+        !operationalDiagnosticsStoreName ||
         !Number.isInteger(databaseVersion) ||
         databaseVersion < 1) {
         throw new Error("IndexedDB 初始化参数无效。");
@@ -55,7 +58,8 @@ export async function initialize(
             configuredDeviceIdentityStoreName !== deviceIdentityStoreName ||
             configuredCloudSyncStateStoreName !== cloudSyncStateStoreName ||
             configuredSyncOutboxStoreName !== syncOutboxStoreName ||
-            configuredCloudEntityStateStoreName !== cloudEntityStateStoreName
+            configuredCloudEntityStateStoreName !== cloudEntityStateStoreName ||
+            configuredOperationalDiagnosticsStoreName !== operationalDiagnosticsStoreName
         ) {
             throw new Error("IndexedDB 已使用不同配置初始化。");
         }
@@ -75,6 +79,7 @@ export async function initialize(
     configuredCloudSyncStateStoreName = cloudSyncStateStoreName;
     configuredSyncOutboxStoreName = syncOutboxStoreName;
     configuredCloudEntityStateStoreName = cloudEntityStateStoreName;
+    configuredOperationalDiagnosticsStoreName = operationalDiagnosticsStoreName;
     databasePromise = openDatabase(
         databaseName,
         databaseVersion,
@@ -86,7 +91,8 @@ export async function initialize(
         deviceIdentityStoreName,
         cloudSyncStateStoreName,
         syncOutboxStoreName,
-        cloudEntityStateStoreName);
+        cloudEntityStateStoreName,
+        operationalDiagnosticsStoreName);
 
     try {
         await databasePromise;
@@ -1124,7 +1130,8 @@ export async function resetAfterCloudAccountDeletion(accountId, removeLocalData)
             configuredEventStoreName,
             configuredOperationStoreName,
             configuredSyncLogStoreName,
-            configuredRestoreSnapshotStoreName);
+            configuredRestoreSnapshotStoreName,
+            configuredOperationalDiagnosticsStoreName);
     }
 
     const database = await getDatabase();
@@ -1147,6 +1154,7 @@ export async function resetAfterCloudAccountDeletion(accountId, removeLocalData)
             transaction.objectStore(configuredOperationStoreName).clear();
             transaction.objectStore(configuredSyncLogStoreName).clear();
             transaction.objectStore(configuredRestoreSnapshotStoreName).clear();
+            transaction.objectStore(configuredOperationalDiagnosticsStoreName).clear();
             settingsStore.delete("calendarView");
             settingsStore.delete("syncStatus");
             settingsStore.delete(restoreSyncBlockedSettingKey);
@@ -1286,6 +1294,58 @@ export async function clearSyncLogEntries() {
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
 }
 
+export async function addOperationalDiagnosticEvent(entry, retentionLimit) {
+    validateOperationalDiagnosticEvent(entry);
+    if (!Number.isInteger(retentionLimit) || retentionLimit < 1 || retentionLimit > 1000) {
+        throw new Error("运行诊断事件保留数量无效。");
+    }
+
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredOperationalDiagnosticsStoreName, "readwrite");
+    const completion = transactionAsPromise(transaction);
+    const store = transaction.objectStore(configuredOperationalDiagnosticsStoreName);
+    await requestAsPromise(store.put(entry));
+    const entries = await requestAsPromise(store.getAll());
+    entries.sort((left, right) =>
+        Date.parse(right.timestampUtc) - Date.parse(left.timestampUtc) ||
+        right.id.localeCompare(left.id));
+
+    for (const expired of entries.slice(retentionLimit)) {
+        store.delete(expired.id);
+    }
+    await completion;
+}
+
+export async function getOperationalDiagnosticEvents() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredOperationalDiagnosticsStoreName, "readonly");
+    const completion = transactionAsPromise(transaction);
+    const entries = await requestAsPromise(
+        transaction.objectStore(configuredOperationalDiagnosticsStoreName).getAll());
+    await completion;
+    for (const entry of entries) {
+        validateOperationalDiagnosticEvent(entry);
+    }
+    return entries.sort((left, right) =>
+        Date.parse(right.timestampUtc) - Date.parse(left.timestampUtc) ||
+        right.id.localeCompare(left.id));
+}
+
+export async function clearOperationalDiagnosticEvents() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredOperationalDiagnosticsStoreName, "readwrite");
+    const request = transaction.objectStore(configuredOperationalDiagnosticsStoreName).clear();
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
+export async function checkIndexedDbHealth() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const request = transaction.objectStore(configuredSettingsStoreName).count();
+    await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+    return true;
+}
+
 export async function getSyncStatusState() {
     const database = await getDatabase();
     const transaction = database.transaction(configuredSettingsStoreName, "readonly");
@@ -1396,7 +1456,8 @@ function openDatabase(
     deviceIdentityStoreName,
     cloudSyncStateStoreName,
     syncOutboxStoreName,
-    cloudEntityStateStoreName) {
+    cloudEntityStateStoreName,
+    operationalDiagnosticsStoreName) {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(databaseName, databaseVersion);
 
@@ -1460,6 +1521,14 @@ function openDatabase(
 
             if (!database.objectStoreNames.contains(cloudEntityStateStoreName)) {
                 database.createObjectStore(cloudEntityStateStoreName, { keyPath: "key" });
+            }
+
+            const operationalDiagnosticsStore =
+                database.objectStoreNames.contains(operationalDiagnosticsStoreName)
+                    ? request.transaction.objectStore(operationalDiagnosticsStoreName)
+                    : database.createObjectStore(operationalDiagnosticsStoreName, { keyPath: "id" });
+            if (!operationalDiagnosticsStore.indexNames.contains("timestampUtc")) {
+                operationalDiagnosticsStore.createIndex("timestampUtc", "timestampUtc", { unique: false });
             }
         };
 
@@ -1816,6 +1885,38 @@ function validateSyncLogEntry(entry) {
     }
     if (entry.errorCode != null && typeof entry.errorCode !== "string") {
         throw new Error("同步日志错误代码无效。");
+    }
+}
+
+function validateOperationalDiagnosticEvent(entry) {
+    if (!entry || typeof entry !== "object") {
+        throw new Error("运行诊断事件无效。");
+    }
+    validateId(entry.id);
+    validateDateValue(entry.timestampUtc, "timestampUtc");
+    if (!Number.isInteger(entry.kind) || entry.kind < 0 || entry.kind > 6 ||
+        !Number.isInteger(entry.outcome) || entry.outcome < 0 || entry.outcome > 8 ||
+        !Number.isInteger(entry.failureCategory) || entry.failureCategory < 0 || entry.failureCategory > 9) {
+        throw new Error("运行诊断事件类别无效。");
+    }
+    if (typeof entry.applicationVersion !== "string" || entry.applicationVersion.length > 40 ||
+        typeof entry.clientPlatform !== "string" || entry.clientPlatform.length > 20) {
+        throw new Error("运行诊断环境字段无效。");
+    }
+    if (entry.errorCode != null &&
+        (typeof entry.errorCode !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.errorCode))) {
+        throw new Error("运行诊断错误代码无效。");
+    }
+    for (const property of ["pushedCount", "pulledCount", "conflictCount", "retryCount"]) {
+        if (entry[property] != null &&
+            (!Number.isInteger(entry[property]) || entry[property] < 0 || entry[property] > 1000000)) {
+            throw new Error("运行诊断计数字段无效。");
+        }
+    }
+    if (entry.durationMilliseconds != null &&
+        (!Number.isInteger(entry.durationMilliseconds) ||
+         entry.durationMilliseconds < 0 || entry.durationMilliseconds > 86400000)) {
+        throw new Error("运行诊断耗时字段无效。");
     }
 }
 

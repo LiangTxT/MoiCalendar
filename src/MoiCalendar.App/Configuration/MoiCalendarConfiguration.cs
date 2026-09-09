@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using MoiCalendar.Core;
 using MoiCalendar.Sync.Cloud;
 
 namespace MoiCalendar.App.Configuration;
@@ -7,7 +8,8 @@ public sealed record MoiCalendarConfiguration(
     Uri PublicBaseUrl,
     MicrosoftAuthenticationConfiguration MicrosoftAuthentication,
     SynchronizationConfiguration Synchronization,
-    CloudBackendOptions CloudBackend)
+    CloudBackendOptions CloudBackend,
+    DiagnosticsOptions Diagnostics)
 {
     public const string CloudAccountRedirectPath = "settings";
     public const string DefaultMicrosoftLoginCallbackPath = "authentication/login-callback";
@@ -42,7 +44,8 @@ public sealed record MoiCalendarConfiguration(
                 Enabled = ReadBoolean(configuration, "MoiCalendar:CloudBackend:Enabled"),
                 BaseUrl = OptionalValue(configuration["MoiCalendar:CloudBackend:BaseUrl"]),
                 PublicKey = OptionalValue(configuration["MoiCalendar:CloudBackend:PublicKey"])
-            });
+            },
+            CreateDiagnosticsOptions(configuration));
     }
 
     private static Uri ParsePublicBaseUrl(string value)
@@ -102,12 +105,32 @@ public sealed record MoiCalendarConfiguration(
     private static string? OptionalValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool ReadBoolean(IConfiguration configuration, string key)
+    private static DiagnosticsOptions CreateDiagnosticsOptions(IConfiguration configuration)
+    {
+        var retentionValue = OptionalValue(configuration["MoiCalendar:Diagnostics:RetentionLimit"]);
+        var options = new DiagnosticsOptions
+        {
+            Enabled = ReadBoolean(configuration, "MoiCalendar:Diagnostics:Enabled", true),
+            RetentionLimit = retentionValue is null
+                ? 200
+                : int.TryParse(retentionValue, out var retentionLimit)
+                    ? retentionLimit
+                    : throw new InvalidOperationException(
+                        "MoiCalendar:Diagnostics:RetentionLimit 必须是整数。")
+        };
+        options.Validate();
+        return options;
+    }
+
+    private static bool ReadBoolean(
+        IConfiguration configuration,
+        string key,
+        bool defaultValue = false)
     {
         var value = OptionalValue(configuration[key]);
         if (value is null)
         {
-            return false;
+            return defaultValue;
         }
 
         return bool.TryParse(value, out var result)
