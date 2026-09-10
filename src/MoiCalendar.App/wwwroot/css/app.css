@@ -1427,3 +1427,23 @@ button:focus-visible {
         gap: 0.2rem;
     }
 }
+/* Beta release navigation and readable legal/support content. */
+.release-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    max-width: 72rem;
+    margin: 2rem auto;
+    padding: 1rem;
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+.app-navigation { flex-wrap: wrap; }
+.settings-shell dd { overflow-wrap: anywhere; }
+.settings-shell li { margin-block: 0.65rem; }
+summary { cursor: pointer; padding-block: 0.5rem; }
+a:focus-visible, button:focus-visible, summary:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 3px solid #315fcb;
+    outline-offset: 3px;
+}

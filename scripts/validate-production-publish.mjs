@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publishRoot = process.argv[2]
@@ -60,6 +61,42 @@ const staticWebApp = readJson("staticwebapp.config.json");
 if (staticWebApp.navigationFallback?.rewrite !== "/index.html") {
     fail("staticwebapp.config.json 必须把客户端路由回退到 /index.html。");
 }
+const globalHeaders = requireObject(staticWebApp.globalHeaders, "staticwebapp.config.json:globalHeaders");
+const contentSecurityPolicy = globalHeaders["Content-Security-Policy"];
+if (typeof contentSecurityPolicy !== "string") {
+    fail("生产静态产物缺少 Content-Security-Policy。");
+}
+for (const requiredDirective of [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "connect-src 'self' https: wss:"
+]) {
+    if (!contentSecurityPolicy.includes(requiredDirective)) {
+        fail(`生产 Content-Security-Policy 缺少 ${requiredDirective}。`);
+    }
+}
+const scriptDirective = contentSecurityPolicy
+    .split(";")
+    .map(value => value.trim())
+    .find(value => value.startsWith("script-src "));
+if (!scriptDirective?.includes("'sha256-") || scriptDirective.includes("'unsafe-inline'")) {
+    fail("生产 script-src 必须使用构建期哈希授权内联脚本，且不能使用 unsafe-inline。");
+}
+for (const [header, expected] of Object.entries({
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY"
+})) {
+    if (globalHeaders[header] !== expected) {
+        fail(`生产静态产物缺少安全头 ${header}: ${expected}。`);
+    }
+}
+const staticWebAppBytes = readFileSync(join(publishRoot, "staticwebapp.config.json"));
+assertCompressedCopyMatches("staticwebapp.config.json.br", brotliDecompressSync, staticWebAppBytes);
+assertCompressedCopyMatches("staticwebapp.config.json.gz", gunzipSync, staticWebAppBytes);
 
 const indexHtml = readText("index.html");
 if (!/<base\s+href=["']\/["']\s*\/?>/i.test(indexHtml)) {
@@ -69,6 +106,10 @@ if (!/<base\s+href=["']\/["']\s*\/?>/i.test(indexHtml)) {
 const assetManifest = readText("service-worker-assets.js");
 if (!assetManifest.includes("appsettings.Production.json")) {
     fail("Service Worker 资源清单缺少 appsettings.Production.json。");
+}
+const publishedServiceWorker = readText("service-worker.js");
+if (!publishedServiceWorker.includes("/^staticwebapp\\.config\\.json$/")) {
+    fail("Service Worker 必须排除发布后加固的 staticwebapp.config.json，避免资源哈希不一致。");
 }
 
 console.log("生产静态产物验证通过：路径、Production 配置、SPA fallback 与 PWA 资源完整。未输出任何 key。");
@@ -144,6 +185,13 @@ function validatePublicKey(value) {
             throw error;
         }
         // Publishable keys need not use JWT format. Runtime validation remains authoritative.
+    }
+}
+
+function assertCompressedCopyMatches(relativePath, decompress, expected) {
+    const path = join(publishRoot, relativePath);
+    if (existsSync(path) && !decompress(readFileSync(path)).equals(expected)) {
+        fail(`${relativePath} 与加固后的 staticwebapp.config.json 不一致。`);
     }
 }
 

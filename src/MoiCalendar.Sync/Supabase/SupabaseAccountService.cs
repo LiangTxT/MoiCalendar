@@ -628,9 +628,16 @@ internal sealed class SupabaseAccountService : IAccountService, ISupabaseAccessT
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Query) ||
             !string.IsNullOrEmpty(uri.Fragment))
         {
-            throw new AccountServiceException("账户回调地址必须是绝对 HTTP 或 HTTPS URL。");
+            throw new AccountServiceException(
+                "账户回调地址必须是没有内嵌凭据、查询参数或片段的绝对 HTTP 或 HTTPS URL。");
+        }
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+        {
+            throw new AccountServiceException("非本机账户回调地址必须使用 HTTPS。");
         }
 
         return uri;

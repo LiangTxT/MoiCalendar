@@ -103,6 +103,25 @@ public sealed class OneDriveSyncStorageProviderTests
     }
 
     [Fact]
+    public async Task ProviderFailure_DoesNotExposeRemoteResponseBody()
+    {
+        const string sensitiveBody = "Bearer private-token password=private-password";
+        var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(sensitiveBody, Encoding.UTF8, "application/json")
+        });
+        var provider = CreateProvider(handler);
+
+        var exception = await Assert.ThrowsAsync<SyncStorageException>(
+            () => provider.UploadTextAsync("hello.json", "{}"));
+
+        Assert.Contains("HTTP 400", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-token", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-password", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveBody, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DownloadTextAsync_RejectsOversizedContentBeforeReadingIt()
     {
         var oversized = new ByteArrayContent(new byte[RemoteSyncFormat.MaximumOperationFileBytes + 1]);

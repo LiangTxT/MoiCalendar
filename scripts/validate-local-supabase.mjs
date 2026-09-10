@@ -178,6 +178,21 @@ await registerDevice(secondSignup.access_token, secondDeviceId, "隔离账户设
 const isolatedPull = await pull(secondSignup.access_token, 0, secondDeviceId);
 assert(isolatedPull.changes.length === 0, "RLS 隔离失败：第二个用户读取到了其他用户事件。");
 
+const crossOwnerUpdate = await request("rest/v1/rpc/moicalendar_apply_calendar_mutation", {
+    method: "POST",
+    token: secondSignup.access_token,
+    body: mutation(
+        firstEventId,
+        "update",
+        deleted.server_revision,
+        { ...updatedPayload, title: "越权更新不应成功" },
+        secondDeviceId)
+});
+assert(
+    crossOwnerUpdate.status === "conflict" &&
+        crossOwnerUpdate.conflict?.code === "entity_not_found",
+    "用户 B 尝试更新用户 A 的事件时没有被所有权边界拒绝。" );
+
 const firstUserDevices = await request("rest/v1/rpc/moicalendar_list_devices", {
     method: "POST",
     token: accessToken,
@@ -192,16 +207,41 @@ assert(
     firstUserDevices.every(device => device.id !== secondDeviceId) &&
         secondUserDevices.every(device => device.id !== deviceId),
     "设备所有权隔离失败：用户读取到了其他账户的设备。" );
-const firstUserRlsDevices = await request("rest/v1/devices?select=id", {
+const firstUserRlsDevices = await requestAllowFailure("rest/v1/devices?select=id", {
     token: accessToken
 });
-const secondUserRlsDevices = await request("rest/v1/devices?select=id", {
+const secondUserRlsDevices = await requestAllowFailure("rest/v1/devices?select=id", {
     token: secondSignup.access_token
 });
 assert(
-    firstUserRlsDevices.every(device => device.id !== secondDeviceId) &&
-        secondUserRlsDevices.every(device => device.id !== deviceId),
-    "devices 表 RLS 隔离失败。" );
+    [401, 403].includes(firstUserRlsDevices.status) &&
+        [401, 403].includes(secondUserRlsDevices.status),
+    "devices 表不应向浏览器开放直接读取；设备列表必须经过 owner RPC。" );
+
+const crossOwnerRename = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_rename_device",
+    {
+        method: "POST",
+        token: accessToken,
+        body: { p_device_id: secondDeviceId, p_name: "不应成功" }
+    });
+const crossOwnerRevoke = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_revoke_device",
+    {
+        method: "POST",
+        token: accessToken,
+        body: { p_device_id: secondDeviceId }
+    });
+assert(
+    crossOwnerRename.status === 403 && crossOwnerRevoke.status === 403,
+    "用户 A 能够修改或撤销用户 B 的设备。" );
+
+const unauthenticatedRpc = await requestAllowFailure(
+    "rest/v1/rpc/moicalendar_list_devices",
+    { method: "POST", body: {} });
+assert(
+    [401, 403].includes(unauthenticatedRpc.status),
+    "未认证请求能够执行 MoiCalendar RPC。" );
 
 const oldDeviceId = randomUUID();
 await registerDevice(accessToken, oldDeviceId, "旧设备");

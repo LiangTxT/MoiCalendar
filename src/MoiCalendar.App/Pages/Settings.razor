@@ -25,6 +25,7 @@
 
 <main class="settings-shell">
     <h1>设置</h1>
+    <p class="settings-note">MoiCalendar 云用于主账户同步；OneDrive / WebDAV 是可选外部备份；本地 JSON 是手动备份与导出。<a href="help">了解各自用途</a></p>
 
     <section class="settings-card" aria-labelledby="cloud-account-heading">
         <h2 id="cloud-account-heading">MoiCalendar 云账户</h2>
@@ -317,7 +318,7 @@
     }
 
     <fieldset class="settings-group">
-        <legend>提供商</legend>
+        <legend>可选外部备份提供商</legend>
 
         <label>
             <input type="radio"
@@ -399,7 +400,7 @@
     </section>
 
     <p class="settings-note">
-        OneDrive 登录和连接成功后，可返回日历首页使用“立即同步”。WebDAV 需要先完成服务器连接配置。
+        OneDrive 登录和连接成功后，可返回日历首页使用“运行外部备份”。WebDAV 需要先完成服务器连接配置。外部备份可能合并远端记录，不替代 MoiCalendar 云同步。
     </p>
 
     @if (!string.IsNullOrWhiteSpace(providerStatusMessage))
@@ -408,7 +409,7 @@
     }
 
     <section class="settings-card" aria-labelledby="backup-heading">
-        <h2 id="backup-heading">备份</h2>
+        <h2 id="backup-heading">本地 JSON 手动备份</h2>
         <p>
             将本机日历数据导出为版本化 JSON 文件。备份只在浏览器本地生成，不会上传到同步提供商。
         </p>

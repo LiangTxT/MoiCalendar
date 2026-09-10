@@ -75,6 +75,7 @@ public sealed class CloudArchitectureTests
     [InlineData("ftp://cloud.example.com")]
     [InlineData("http://cloud.example.com")]
     [InlineData("https://cloud.example.com?tenant=a")]
+    [InlineData("https://embedded-user:embedded-password@cloud.example.com")]
     public void BaseUrl_RejectsInvalidEndpoint(string baseUrl)
     {
         var options = new CloudBackendOptions

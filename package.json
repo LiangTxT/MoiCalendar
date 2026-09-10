@@ -6,6 +6,7 @@
     "cloud:configure:local": "node scripts/configure-cloud-backend.mjs local",
     "cloud:configure:managed": "node scripts/configure-cloud-backend.mjs managed",
     "cloud:configure:production": "node scripts/configure-cloud-backend.mjs production",
+    "deploy:harden": "node scripts/harden-production-publish.mjs",
     "deploy:validate": "node scripts/validate-production-publish.mjs",
     "supabase:start": "supabase start",
     "supabase:status": "supabase status",

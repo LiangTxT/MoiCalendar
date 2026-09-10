@@ -31,6 +31,21 @@ public sealed class WebDavSyncStorageProviderTests
     }
 
     [Fact]
+    public void Constructor_RejectsCredentialsEmbeddedInBaseUrl()
+    {
+        var settings = new WebDavSettings(
+            "https://embedded-user:embedded-password@dav.example.test/",
+            "user",
+            "app-password",
+            "calendar");
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => new WebDavSyncStorageProvider(new HttpClient(), settings));
+
+        Assert.Contains("内嵌凭据", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TestConnectionAsync_UsesDepthZeroPropFindAndBasicAuthentication()
     {
         var handler = new RecordingHandler(MultiStatusResponse("<d:multistatus xmlns:d=\"DAV:\" />"));
@@ -183,6 +198,25 @@ public sealed class WebDavSyncStorageProviderTests
         Assert.Contains("CORS", exception.Message);
         Assert.Contains("PROPFIND", exception.Message);
         Assert.Contains("浏览器", exception.Message);
+    }
+
+    [Fact]
+    public async Task ProviderFailure_DoesNotExposeRemoteResponseBody()
+    {
+        const string sensitiveBody = "Authorization: Basic private-value password=private-password";
+        var response = new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(sensitiveBody, Encoding.UTF8, "text/plain")
+        };
+        var provider = CreateProvider(new RecordingHandler(response));
+
+        var exception = await Assert.ThrowsAsync<SyncStorageException>(
+            () => provider.TestConnectionAsync());
+
+        Assert.Contains("HTTP 400", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-value", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-password", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(sensitiveBody, exception.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

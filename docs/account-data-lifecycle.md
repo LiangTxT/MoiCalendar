@@ -19,11 +19,13 @@ MoiCalendar 的设置页通过提供程序无关的 `IAccountDataService` 提供
 2. 用户必须准确输入“永久删除我的云账户”；“同时删除此设备上的本地日历”是独立选项，默认不选。
 3. Blazor 客户端只把当前 bearer session 发送到 `functions/v1/delete-account`，请求体不包含目标 user ID。
 4. Supabase 网关按 `[functions.delete-account] verify_jwt = true` 校验 JWT。函数还调用 Auth `/user` 验证 token，并只从验证后的用户响应取得账户 ID。
-5. 函数要求 `last_sign_in_at` 在 10 分钟内。过期时客户端要求退出并重新登录，不会尝试用密码或管理凭据在浏览器中重新认证。
-6. 只有函数服务器环境中的 `SUPABASE_SERVICE_ROLE_KEY` 调用 Auth Admin 删除接口。客户端的 Publishable/anon key 不能执行该操作。
-7. 删除 `auth.users` 行后，外键 `ON DELETE CASCADE` 在数据库事务中依次清理 `profiles`，再清理 `sync_state`、`devices`、`calendars`、`calendar_events` 和 `calendar_event_mutations`。其他账户的 owner 行不匹配，不会被删除。
-8. 服务端成功后，客户端在一个 IndexedDB 事务中清除 cloud binding、sync cursor、entity revision 和全部 SyncOutbox，防止旧 mutation 在未来重新创建已删除的云数据，然后结束登录会话。
-9. 默认保留本地日历。如果用户明确勾选本地删除选项，同一事务还清除日历、旧备份同步操作、同步日志和恢复安全快照。
+5. 函数要求 Auth 返回的 `last_sign_in_at` 和经 Auth 验证的当前 JWT `iat` 都在 10 分钟内，同时校验 JWT `sub` 与验证后的账户 ID 一致、角色为 `authenticated` 且尚未过期。过期时客户端要求退出并重新登录，不会尝试用密码或管理凭据在浏览器中重新认证。
+6. 删除尝试通过 PostgreSQL 中仅授予 `service_role` 的固定窗口限流函数记录；同一验证账户 15 分钟内最多尝试 3 次，超过后返回 HTTP 429。浏览器不能调用该限流函数。
+7. Edge Function 的浏览器来源必须精确匹配服务器环境变量 `MOICALENDAR_ALLOWED_ORIGINS`，不接受 `*`、带路径的来源、URL 内嵌凭据或非本机 HTTP 来源。
+8. 只有函数服务器环境中的 `SUPABASE_SERVICE_ROLE_KEY` 调用限流 RPC 和 Auth Admin 删除接口。客户端的 Publishable/anon key 不能执行这些操作。
+9. 删除 `auth.users` 行后，外键 `ON DELETE CASCADE` 在数据库事务中依次清理 `profiles`，再清理 `sync_state`、`devices`、`calendars`、`calendar_events`、`calendar_event_mutations` 和删除限流记录。其他账户的 owner 行不匹配，不会被删除。
+10. 服务端成功后，客户端在一个 IndexedDB 事务中清除 cloud binding、sync cursor、entity revision 和全部 SyncOutbox，防止旧 mutation 在未来重新创建已删除的云数据，然后结束登录会话。
+11. 默认保留本地日历。如果用户明确勾选本地删除选项，同一事务还清除日历、旧备份同步操作、同步日志和恢复安全快照。
 
 服务端删除对验证后遇到的 Auth 404 按成功处理，以支持并发重试。服务端失败时，本地状态不改变，可以安全重试。云端删除成功后的本地清理是单个 IndexedDB 事务，不会留下“只清了一半”的 outbox/cursor 组合；若浏览器存储本身不可用，应用会退出已删除账户并显示明确错误，旧 token 无法再获得云端授权。
 
@@ -38,5 +40,13 @@ npx supabase functions deploy delete-account
 ```
 
 托管 Supabase 会在 Edge Function 服务器环境提供项目 URL、anon key 和 service-role key。自托管 Supabase 必须在受信任的函数运行环境提供对应的 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 和 `SUPABASE_SERVICE_ROLE_KEY`，并保持 Auth Admin HTTP API 路径可用。管理 key 只能存在于该服务器环境，绝不能写入 Azure/GitHub 的浏览器配置变量、`appsettings*.json`、Blazor 程序集或日志。
+
+还必须在 Edge Function 的服务器环境设置精确来源列表。例如当前生产与本地开发：
+
+```text
+MOICALENDAR_ALLOWED_ORIGINS=https://polite-rock-09eddaf00.7.azurestaticapps.net,http://localhost:5262,https://localhost:7104
+```
+
+该值不是秘密，但属于服务器端安全策略，不进入 Blazor 配置。若启用新的正式域名，应先把该域名的精确 origin 加入列表；不要使用通配符。
 
 切换托管或自托管 Supabase 仍只需修改 `CloudBackend.BaseUrl` 和公开 key，并在目标后端应用 migrations/部署同一函数；UI、CalendarService、IndexedDB 和同步协议不变。

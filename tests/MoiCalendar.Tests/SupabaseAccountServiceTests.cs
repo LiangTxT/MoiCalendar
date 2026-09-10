@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using MoiCalendar.Sync.Cloud;
 using MoiCalendar.Sync.Supabase;
 
 namespace MoiCalendar.Tests;
@@ -168,6 +169,24 @@ public sealed class SupabaseAccountServiceTests
             "redirect_to=https%3A%2F%2Fcalendar.example.com%2Fsettings",
             handler.Requests.Single().Uri,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://user:password@calendar.example.com/settings")]
+    [InlineData("https://calendar.example.com/settings?next=external")]
+    [InlineData("https://calendar.example.com/settings#fragment")]
+    [InlineData("http://calendar.example.com/settings")]
+    public async Task Register_RejectsUnsafeRedirectUrl(string redirectUrl)
+    {
+        var store = new FakeSessionStore();
+        var handler = new QueueHttpMessageHandler();
+        using var service = CreateService(handler, store);
+
+        var exception = await Assert.ThrowsAsync<AccountServiceException>(
+            () => service.RegisterAsync("user@example.com", "password-123", redirectUrl));
+
+        Assert.Contains("回调地址", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]

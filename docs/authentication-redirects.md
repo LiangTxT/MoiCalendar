@@ -26,6 +26,8 @@ http://localhost:5262/settings
 https://localhost:7104/settings
 ```
 
+只登记这些精确地址，不使用 `*` 或宽泛路径模式。删除不再使用的预览域名、自定义域名和旧回调，避免验证邮件或恢复邮件把会话送往非预期站点。
+
 注册验证和密码恢复请求都把配置后的 `PublicBaseUrl` 与 `settings` 路由组合为 `redirect_to`。Supabase 返回 `/settings` 后，Blazor 设置页通过账户服务恢复回调会话；URL fragment 中的认证参数在读取后立即从地址栏移除。`/settings` 是客户端路由，Azure Static Web Apps 的 SPA fallback 会在直接打开或刷新时返回 `index.html`。
 
 自托管 Supabase 应在其 Auth 服务的 Site URL 与额外 redirect allow-list 中使用同一组生产值；API 网关地址和 Realtime 路径仍分别由 `CloudBackend.BaseUrl` 与 `CloudBackend:Supabase:RealtimePath` 配置。无需修改 UI、领域模型或同步协议。
@@ -39,6 +41,8 @@ https://polite-rock-09eddaf00.7.azurestaticapps.net/authentication/login-callbac
 http://localhost:5262/authentication/login-callback
 https://localhost:7104/authentication/login-callback
 ```
+
+同样只保留实际使用的精确 SPA Redirect URI，不配置通配符，也不要同时为这些地址创建 Web 平台回调。
 
 生产运行时会根据 `PublicBaseUrl` 和公开配置项 `MicrosoftAuthentication.RedirectPath` 显式生成 OAuth `redirect_uri`。当前路径为 `authentication/login-callback`，并由 Blazor 的 `RemoteAuthenticatorView` 处理。不要把该 URI 登记为 Web 平台回调，也不要为独立 Blazor WebAssembly 创建或交付 Microsoft client secret。
 

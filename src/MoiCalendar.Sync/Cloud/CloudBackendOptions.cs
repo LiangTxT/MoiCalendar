@@ -30,10 +30,11 @@ public sealed record CloudBackendOptions
             if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ||
                 (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
                 !string.IsNullOrEmpty(uri.Query) ||
-                !string.IsNullOrEmpty(uri.Fragment))
+                !string.IsNullOrEmpty(uri.Fragment) ||
+                !string.IsNullOrEmpty(uri.UserInfo))
             {
                 throw new InvalidOperationException(
-                    "MoiCalendar:CloudBackend:BaseUrl 必须是没有查询参数或片段的绝对 HTTP 或 HTTPS URL。");
+                    "MoiCalendar:CloudBackend:BaseUrl 必须是没有内嵌凭据、查询参数或片段的绝对 HTTP 或 HTTPS URL。");
             }
 
             if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)

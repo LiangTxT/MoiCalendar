@@ -4,6 +4,20 @@
     <NavLink href="" Match="NavLinkMatch.All">日历</NavLink>
     <NavLink href="sync-status">同步状态</NavLink>
     <NavLink href="settings">设置</NavLink>
+    <NavLink href="help">帮助与公测说明</NavLink>
 </nav>
 
 @Body
+
+<footer class="release-footer">
+    <span>MoiCalendar @ReleaseVersion · 公测版</span>
+    <a href="privacy">隐私说明（待审核）</a>
+    <a href="terms">使用条款（待审核）</a>
+    <a href="help#support">支持与反馈</a>
+</footer>
+
+@code {
+    private static string ReleaseVersion =>
+        System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)
+            ?.InformationalVersion.Split('+')[0] ?? "版本未知";
+}

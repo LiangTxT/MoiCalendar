@@ -262,25 +262,18 @@ public sealed class OneDriveSyncStorageProvider(
         }
     }
 
-    private static async Task EnsureSuccessAsync(
+    private static Task EnsureSuccessAsync(
         HttpResponseMessage response,
         string operation,
-        CancellationToken cancellationToken)
+        CancellationToken _)
     {
         if (response.IsSuccessStatusCode)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        var details = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (details.Length > 300)
-        {
-            details = details[..300];
-        }
-
-        throw new SyncStorageException(
-            $"{operation}失败（HTTP {(int)response.StatusCode}）" +
-            (string.IsNullOrWhiteSpace(details) ? "。" : $"：{details}"));
+        return Task.FromException(
+            new SyncStorageException($"{operation}失败（HTTP {(int)response.StatusCode}）。"));
     }
 
     private static async Task<DriveItem> ReadDriveItemAsync(

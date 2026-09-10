@@ -20,7 +20,8 @@
 
 <body>
     <div id="app">
-        <svg class="loading-progress">
+        <p role="status">正在打开 MoiCalendar…首次加载需要网络，请稍候。</p>
+        <svg class="loading-progress" aria-hidden="true">
             <circle r="40%" cx="50%" cy="50%" />
             <circle r="40%" cx="50%" cy="50%" />
         </svg>
@@ -28,9 +29,9 @@
     </div>
 
     <div id="blazor-error-ui">
-        应用发生了意外错误。
+        应用暂时无法继续。请重新加载后检查最近的日程；未保存的输入可能需要重新填写。请勿通过清除浏览器数据排错。
         <a href="." class="reload">重新加载</a>
-        <span class="dismiss">🗙</span>
+        <button type="button" class="dismiss" aria-label="关闭错误提示">×</button>
     </div>
     <script src="_content/Microsoft.Authentication.WebAssembly.Msal/AuthenticationService.js"></script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>

@@ -243,20 +243,14 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
         }
     }
 
-    private static async Task EnsureSuccessAsync(
+    private static Task EnsureSuccessAsync(
         HttpResponseMessage response,
         string operation,
-        CancellationToken cancellationToken)
+        CancellationToken _)
     {
         if (response.IsSuccessStatusCode)
         {
-            return;
-        }
-
-        var details = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (details.Length > 300)
-        {
-            details = details[..300];
+            return Task.CompletedTask;
         }
 
         var guidance = response.StatusCode switch
@@ -268,10 +262,10 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
             _ => null
         };
 
-        throw new SyncStorageException(
-            $"{operation}失败（HTTP {(int)response.StatusCode}）" +
-            (guidance is null ? string.Empty : $"：{guidance}") +
-            (string.IsNullOrWhiteSpace(details) ? string.Empty : $" 服务器响应：{details}"));
+        return Task.FromException(
+            new SyncStorageException(
+                $"{operation}失败（HTTP {(int)response.StatusCode}）" +
+                (guidance is null ? "。" : $"：{guidance}")));
     }
 
     private static SyncStorageException CreateNetworkException(HttpRequestException exception)
@@ -403,11 +397,12 @@ public sealed class WebDavSyncStorageProvider : ISyncStorageProvider
     {
         if (!Uri.TryCreate(settings.BaseUrl?.Trim(), UriKind.Absolute, out var baseUri) ||
             baseUri.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(baseUri.UserInfo) ||
             !string.IsNullOrEmpty(baseUri.Query) ||
             !string.IsNullOrEmpty(baseUri.Fragment))
         {
             throw new ArgumentException(
-                "WebDAV BaseUrl 必须是没有查询参数或片段的绝对 HTTPS URL。",
+                "WebDAV BaseUrl 必须是没有内嵌凭据、查询参数或片段的绝对 HTTPS URL。",
                 nameof(settings));
         }
 

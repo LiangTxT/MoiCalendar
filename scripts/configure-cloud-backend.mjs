@@ -189,8 +189,8 @@ function validateBaseUrl(value) {
         fail("BaseUrl 必须是绝对 HTTP 或 HTTPS URL。");
     }
     if ((url.protocol !== "http:" && url.protocol !== "https:") ||
-        url.search || url.hash) {
-        fail("BaseUrl 必须是没有查询参数或片段的绝对 HTTP 或 HTTPS URL。");
+        url.search || url.hash || url.username || url.password) {
+        fail("BaseUrl 必须是没有内嵌凭据、查询参数或片段的绝对 HTTP 或 HTTPS URL。");
     }
     if (url.protocol === "http:" && !isLoopbackHostname(url.hostname)) {
         fail("非本机云后端必须使用 HTTPS；HTTP 仅允许本地回环开发地址。");

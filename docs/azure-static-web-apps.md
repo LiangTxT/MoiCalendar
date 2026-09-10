@@ -50,11 +50,14 @@ GitHub repository variables
   → cloud:configure:production
   → wwwroot/appsettings.Production.json
   → dotnet publish（Production 环境）
-  → deploy:validate（拒绝 localhost、错误环境文件或不完整 PWA 产物）
+  → deploy:harden（按实际内联脚本生成 CSP 哈希和安全响应头）
+  → deploy:validate（拒绝 localhost、错误环境文件、不安全 CSP 或不完整 PWA 产物）
   → bin/Release/net10.0/publish/wwwroot
   → 现有 Azure Static Web Apps 资源
   → 浏览器公开读取配置
 ```
+
+生产产物的 `staticwebapp.config.json` 会包含 CSP、`X-Content-Type-Options: nosniff`、`Referrer-Policy`、`X-Frame-Options: DENY` 和受限 `Permissions-Policy`。CSP 为 Blazor Mono 保留 `wasm-unsafe-eval`，为动态日历布局保留仅限样式的 `unsafe-inline`；脚本不使用 `unsafe-inline`，构建脚本会按发布后的实际 import map 内容生成 SHA-256。由于 Supabase、Microsoft Graph 和用户自选 WebDAV 都是可配置 HTTPS 端点，`connect-src` 允许 HTTPS/WSS，但脚本仍只能来自站点自身。
 
 生成脚本会：
 

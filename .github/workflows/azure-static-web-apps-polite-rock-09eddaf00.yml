@@ -39,6 +39,8 @@ jobs:
         run: npm run cloud:configure:production
       - name: Publish
         run: dotnet publish src/MoiCalendar.App/MoiCalendar.App.csproj --configuration Release --no-restore
+      - name: Apply production browser security headers
+        run: npm run deploy:harden
       - name: Validate production static output
         run: npm run deploy:validate
       - name: Build And Deploy

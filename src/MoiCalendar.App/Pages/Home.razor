@@ -10,6 +10,13 @@
 <main class="calendar-shell">
     <h1>MoiCalendar</h1>
 
+    <details class="settings-card">
+        <summary>第一次使用？从本地日历开始</summary>
+        <p>无需注册，点击日期即可新建日程。日历保存在此浏览器；首次加载需联网，离线前请先完整打开应用。</p>
+        <p>跨设备使用请到设置登录 MoiCalendar 云账户，再打开云同步。清除浏览器数据可能移除本地日历，请定期导出 JSON 备份。</p>
+        <a href="help">查看入门、备份和恢复说明</a>
+    </details>
+
     <nav class="calendar-view-navigation" aria-label="日历视图">
         <button type="button"
                 class="@(displayMode == CalendarViewMode.Month ? "active" : null)"
@@ -33,10 +40,12 @@
 
     <div class="calendar-actions">
         <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
+        <a href="sync-status">MoiCalendar 云同步</a>
         <button type="button" disabled="@isSyncing" @onclick="SynchronizeAsync">
-            @(isSyncing ? "正在同步…" : "立即同步")
+            @(isSyncing ? "正在处理外部备份…" : "运行外部备份")
         </button>
     </div>
+    <p class="settings-note">外部备份使用设置中选择的 OneDrive 或 WebDAV，并可能读回合并远端记录。主账户跨设备同步请使用“MoiCalendar 云同步”。</p>
 
     @if (!string.IsNullOrWhiteSpace(syncMessage))
     {
@@ -48,7 +57,11 @@
         <p class="storage-error" role="alert">@LocalError</p>
     }
 
-    @if (displayMode == CalendarViewMode.Month)
+    @if (isLoadingEvents)
+    {
+        <p role="status">正在读取本地日历…</p>
+    }
+    else if (displayMode == CalendarViewMode.Month)
     {
         <section class="calendar" aria-label="@($"{MonthTitle}日历")">
             <div class="weekday-grid" role="row">
@@ -352,6 +365,7 @@
     private string? storageError;
     private string? preferenceError;
     private string? syncMessage;
+    private bool isLoadingEvents = true;
     private bool isSyncing;
     private bool syncSucceeded;
 
@@ -460,6 +474,7 @@
 
     private async Task LoadEventsAsync()
     {
+        isLoadingEvents = true;
         try
         {
             if (displayMode == CalendarViewMode.Month)
@@ -485,6 +500,10 @@
             weekEvents = CalendarWeekEventView.Empty;
             storageError = exception.Message;
         }
+        finally
+        {
+            isLoadingEvents = false;
+        }
     }
 
     private async Task SynchronizeAsync()
@@ -497,12 +516,12 @@
             var result = await SyncService.SynchronizeAsync();
             await LoadEventsAsync();
             syncSucceeded = true;
-            syncMessage = $"同步完成：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
+            syncMessage = $"外部备份处理完成：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
         }
         catch (Exception exception) when (exception is SyncStorageException or SyncOperationException or EventRepositoryException)
         {
             syncSucceeded = false;
-            syncMessage = $"同步失败：{exception.Message}";
+            syncMessage = $"外部备份未完成：{exception.Message}";
         }
         finally
         {
