@@ -1,0 +1,54 @@
+<header class="calendar-toolbar">
+    <div class="toolbar-leading">
+        <button class="icon-button" type="button" aria-label="切换日历侧栏" aria-expanded="@SidebarOpen" @onclick="ToggleSidebar">
+            <span aria-hidden="true">☰</span>
+        </button>
+        <button class="toolbar-today" type="button" @onclick="ShowToday">今天</button>
+    </div>
+
+    <nav class="toolbar-period" aria-label="日期范围导航">
+        <button class="icon-button" type="button" aria-label="@PreviousAriaLabel" @onclick="ShowPrevious">
+            <span aria-hidden="true">‹</span>
+        </button>
+        <strong aria-live="polite">@PeriodTitle</strong>
+        <button class="icon-button" type="button" aria-label="@NextAriaLabel" @onclick="ShowNext">
+            <span aria-hidden="true">›</span>
+        </button>
+    </nav>
+
+    <div class="toolbar-actions">
+        <button class="add-event-button" type="button" aria-label="新建事件" @onclick="CreateEvent">
+            <span aria-hidden="true">＋</span><span class="add-event-label">新建事件</span>
+        </button>
+        <nav class="view-switcher" aria-label="日历视图">
+            @foreach (var option in ViewOptions)
+            {
+                <button type="button"
+                        class="@(DisplayMode == option.Mode ? "active" : null)"
+                        aria-pressed="@(DisplayMode == option.Mode ? "true" : "false")"
+                        @onclick="() => ViewChanged.InvokeAsync(option.Mode)">@option.Label</button>
+            }
+        </nav>
+    </div>
+</header>
+
+@code {
+    private static readonly (CalendarViewMode Mode, string Label)[] ViewOptions =
+    [
+        (CalendarViewMode.Month, "月"),
+        (CalendarViewMode.Week, "周"),
+        (CalendarViewMode.Agenda, "日程")
+    ];
+
+    [Parameter] public bool SidebarOpen { get; set; }
+    [Parameter, EditorRequired] public string PeriodTitle { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string PreviousAriaLabel { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string NextAriaLabel { get; set; } = string.Empty;
+    [Parameter] public CalendarViewMode DisplayMode { get; set; }
+    [Parameter] public EventCallback ToggleSidebar { get; set; }
+    [Parameter] public EventCallback ShowToday { get; set; }
+    [Parameter] public EventCallback ShowPrevious { get; set; }
+    [Parameter] public EventCallback ShowNext { get; set; }
+    [Parameter] public EventCallback CreateEvent { get; set; }
+    [Parameter] public EventCallback<CalendarViewMode> ViewChanged { get; set; }
+}

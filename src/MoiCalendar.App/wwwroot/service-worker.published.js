@@ -9,6 +9,7 @@ self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
 const cacheNamePrefix = 'offline-cache-';
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
 const offlineAssetsInclude = [ /\.dll$/, /\.pdb$/, /\.wasm/, /\.html/, /\.js$/, /\.json$/, /\.css$/, /\.woff$/, /\.png$/, /\.jpe?g$/, /\.gif$/, /\.ico$/, /\.blat$/, /\.dat$/, /\.webmanifest$/ ];
+const runtimeFontPattern = /\.woff2$/i;
 // Hosting metadata is consumed by Azure Static Web Apps during deployment rather
 // than by the application. It is hardened after publish, so it must not be part
 // of the integrity-checked offline cache.
@@ -40,6 +41,7 @@ async function onActivate(event) {
 
 async function onFetch(event) {
     let cachedResponse = null;
+    let cache = null;
     if (event.request.method === 'GET') {
         // For all navigation requests, try to serve index.html from cache,
         // unless that request is for an offline resource.
@@ -48,8 +50,17 @@ async function onFetch(event) {
             && !manifestUrlList.some(url => url === event.request.url);
 
         const request = shouldServeIndexHtml ? new URL('index.html', baseUrl).href : event.request;
-        const cache = await caches.open(cacheName);
+        cache = await caches.open(cacheName);
         cachedResponse = await cache.match(request);
+
+        if (!cachedResponse && runtimeFontPattern.test(new URL(event.request.url).pathname)) {
+            const networkResponse = await fetch(event.request);
+            if (networkResponse.ok) {
+                await cache.put(event.request, networkResponse.clone());
+            }
+
+            return networkResponse;
+        }
     }
 
     return cachedResponse || fetch(event.request);

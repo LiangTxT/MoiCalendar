@@ -4,70 +4,80 @@
 @inject ISyncService SyncService
 @inject ICalendarViewPreferenceStore ViewPreferences
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>MoiCalendar</PageTitle>
 
-<main class="calendar-shell">
-    <h1>MoiCalendar</h1>
-
-    <details class="settings-card">
-        <summary>第一次使用？从本地日历开始</summary>
-        <p>无需注册，点击日期即可新建日程。日历保存在此浏览器；首次加载需联网，离线前请先完整打开应用。</p>
-        <p>跨设备使用请到设置登录 MoiCalendar 云账户，再打开云同步。清除浏览器数据可能移除本地日历，请定期导出 JSON 备份。</p>
-        <a href="help">查看入门、备份和恢复说明</a>
-    </details>
-
-    <nav class="calendar-view-navigation" aria-label="日历视图">
-        <button type="button"
-                class="@(displayMode == CalendarViewMode.Month ? "active" : null)"
-                aria-pressed="@(displayMode == CalendarViewMode.Month ? "true" : "false")"
-                @onclick="() => ShowDisplayMode(CalendarViewMode.Month)">月</button>
-        <button type="button"
-                class="@(displayMode == CalendarViewMode.Week ? "active" : null)"
-                aria-pressed="@(displayMode == CalendarViewMode.Week ? "true" : "false")"
-                @onclick="() => ShowDisplayMode(CalendarViewMode.Week)">周</button>
-        <button type="button"
-                class="@(displayMode == CalendarViewMode.Agenda ? "active" : null)"
-                aria-pressed="@(displayMode == CalendarViewMode.Agenda ? "true" : "false")"
-                @onclick="() => ShowDisplayMode(CalendarViewMode.Agenda)">日程</button>
-    </nav>
-
-    <nav class="period-navigation" aria-label="日期范围导航">
-        <button type="button" @onclick="ShowPreviousPeriodAsync" aria-label="@PreviousPeriodAriaLabel">@PreviousPeriodLabel</button>
-        <strong aria-live="polite">@PeriodTitle</strong>
-        <button type="button" @onclick="ShowNextPeriodAsync" aria-label="@NextPeriodAriaLabel">@NextPeriodLabel</button>
-    </nav>
-
-    <div class="calendar-actions">
-        <button class="today-button" type="button" @onclick="ShowTodayAsync">今天</button>
-        <a href="sync-status">MoiCalendar 云同步</a>
-        <button type="button" disabled="@isSyncing" @onclick="SynchronizeAsync">
-            @(isSyncing ? "正在处理外部备份…" : "运行外部备份")
-        </button>
-    </div>
-    <p class="settings-note">外部备份使用设置中选择的 OneDrive 或 WebDAV，并可能读回合并远端记录。主账户跨设备同步请使用“MoiCalendar 云同步”。</p>
-
-    @if (!string.IsNullOrWhiteSpace(syncMessage))
+<main class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed")">
+    @if (isSidebarOpen)
     {
-        <p class="settings-status @(syncSucceeded ? "success" : "failure")" role="status">@syncMessage</p>
+        <MoiCalendar.App.Components.CalendarSidebar MainMonth="monthView.Month"
+                                                     Today="today"
+                                                     SelectedDate="selectedDate"
+                                                     CalendarVisible="calendarVisible"
+                                                     Close="ToggleSidebar"
+                                                     ShowToday="ShowTodayAsync"
+                                                     SelectDate="SelectDateAsync"
+                                                     CalendarVisibilityChanged="SetCalendarVisibility" />
+        <button class="sidebar-scrim" type="button" aria-label="关闭日历侧栏" @onclick="ToggleSidebar"></button>
     }
 
-    @if (!string.IsNullOrWhiteSpace(LocalError))
-    {
-        <p class="storage-error" role="alert">@LocalError</p>
-    }
+    <div class="calendar-main">
+        <MoiCalendar.App.Components.CalendarToolbar SidebarOpen="isSidebarOpen"
+                                                     PeriodTitle="@PeriodTitle"
+                                                     PreviousAriaLabel="@PreviousPeriodAriaLabel"
+                                                     NextAriaLabel="@NextPeriodAriaLabel"
+                                                     DisplayMode="displayMode"
+                                                     ToggleSidebar="ToggleSidebar"
+                                                     ShowToday="ShowTodayAsync"
+                                                     ShowPrevious="ShowPreviousPeriodAsync"
+                                                     ShowNext="ShowNextPeriodAsync"
+                                                     CreateEvent="() => OpenCreateEditor(SelectedCreateDate)"
+                                                     ViewChanged="ShowDisplayMode" />
 
-    @if (isLoadingEvents)
-    {
-        <p role="status">正在读取本地日历…</p>
-    }
-    else if (displayMode == CalendarViewMode.Month)
-    {
+        <div class="calendar-content">
+            <details class="calendar-onboarding">
+                <summary>本地优先 · 离线可用</summary>
+                <p>事件保存在此浏览器。跨设备同步、外部备份和数据导出可在设置中管理。</p>
+                <a href="help">查看入门与备份说明</a>
+            </details>
+
+            <div class="calendar-utility-row">
+                <a href="sync-status">查看云同步状态</a>
+                <button type="button" disabled="@isSyncing" @onclick="SynchronizeAsync">
+                    @(isSyncing ? "正在处理外部备份…" : "运行外部备份")
+                </button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(syncMessage))
+            {
+                <p class="settings-status @(syncSucceeded ? "success" : "failure")" role="status">@syncMessage</p>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(LocalError))
+            {
+                <p class="storage-error" role="alert">@LocalError</p>
+            }
+
+            @if (isLoadingEvents)
+            {
+                <div class="calendar-loading" role="status">正在读取本地日历…</div>
+            }
+            else if (!calendarVisible)
+            {
+                <section class="calendar-empty-state" role="status">
+                    <h2>本地日历已隐藏</h2>
+                    <p>在侧栏重新勾选“本地日历”即可显示事件。</p>
+                    <button type="button" @onclick="() => SetCalendarVisibility(true)">显示本地日历</button>
+                </section>
+            }
+            else if (displayMode == CalendarViewMode.Month)
+            {
         <section class="calendar" aria-label="@($"{MonthTitle}日历")">
             <div class="weekday-grid" role="row">
                 @foreach (var weekday in monthView.WeekdayLabels)
                 {
-                    <div class="weekday" role="columnheader">@weekday</div>
+                    <div class="weekday" role="columnheader">@FormatCompactWeekday(weekday)</div>
                 }
             </div>
 
@@ -84,12 +94,12 @@
                         <span class="date-number">@date.DayNumber</span>
 
                         <div class="day-events">
-                            @foreach (var calendarEvent in monthEvents.GetEvents(date.Date))
+                            @foreach (var calendarEvent in GetVisibleMonthEvents(date.Date))
                             {
                                 <button class="event-chip"
                                         type="button"
                                         title="@calendarEvent.Title"
-                                        @onclick="() => OpenEventEditorAsync(calendarEvent.Id)"
+                                        @onclick="() => OpenEventDetailsAsync(calendarEvent.Id)"
                                         @onclick:stopPropagation="true">
                                     <span class="event-time">@calendarEvent.TimeLabel</span>
                                     @if (calendarEvent.IsRecurring)
@@ -99,14 +109,22 @@
                                     <span class="event-title">@calendarEvent.Title</span>
                                 </button>
                             }
+                            @if (GetRemainingMonthEventCount(date.Date) > 0)
+                            {
+                                <button class="month-show-more"
+                                        type="button"
+                                        aria-label="@($"{date.Date:yyyy-MM-dd} 还有 {GetRemainingMonthEventCount(date.Date)} 个事件")"
+                                        @onclick="() => OpenDayOverflow(date.Date)"
+                                        @onclick:stopPropagation="true">＋@GetRemainingMonthEventCount(date.Date) 更多</button>
+                            }
                         </div>
                     </div>
                 }
             </div>
         </section>
-    }
-    else if (displayMode == CalendarViewMode.Agenda)
-    {
+            }
+            else if (displayMode == CalendarViewMode.Agenda)
+            {
         <section class="agenda" aria-label="@($"{MonthTitle}日程")">
             @if (agendaEvents.Days.Count == 0)
             {
@@ -130,7 +148,7 @@
                                 <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
                                         type="button"
                                         title="@calendarEvent.Title"
-                                        @onclick="() => OpenEventEditorAsync(calendarEvent.Id)">
+                                        @onclick="() => OpenEventDetailsAsync(calendarEvent.Id)">
                                     <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
                                     @if (calendarEvent.IsRecurring)
                                     {
@@ -153,15 +171,88 @@
                 }
             }
         </section>
-    }
-    else
-    {
+            }
+            else
+            {
         <MoiCalendar.App.Components.CalendarWeekView WeekEvents="weekEvents"
                                                        AriaLabel="@($"{WeekTitle}周视图")"
-                                                       EventSelected="OpenEventEditorAsync"
+                                                       EventSelected="OpenEventDetailsAsync"
                                                        DateSelected="OpenCreateEditor" />
-    }
+            }
+        </div>
+    </div>
 </main>
+
+@if (selectedEvent is not null)
+{
+    <div class="editor-backdrop" @onclick="CloseEventDetails">
+        <article class="event-popover"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="event-details-title"
+                 @onclick:stopPropagation="true">
+            <header>
+                <span class="event-color-bar" aria-hidden="true"></span>
+                <div>
+                    <h2 id="event-details-title">@selectedEvent.Title</h2>
+                    <p>@FormatEventTime(selectedEvent)</p>
+                </div>
+                <button class="icon-button" type="button" aria-label="关闭事件详情" @onclick="CloseEventDetails">×</button>
+            </header>
+            <dl class="event-detail-list">
+                <dt>日历</dt><dd><span class="calendar-color" aria-hidden="true"></span>本地日历</dd>
+                @if (!string.IsNullOrWhiteSpace(selectedEvent.Location))
+                {
+                    <dt>地点</dt><dd>@selectedEvent.Location</dd>
+                }
+                @if (!string.IsNullOrWhiteSpace(selectedEvent.Description))
+                {
+                    <dt>备注</dt><dd>@selectedEvent.Description</dd>
+                }
+                @if (!string.IsNullOrWhiteSpace(selectedEvent.RecurrenceRule))
+                {
+                    <dt>重复</dt><dd>重复事件系列</dd>
+                }
+            </dl>
+            <footer>
+                <button class="primary-button" type="button" @onclick="EditSelectedEvent">编辑</button>
+            </footer>
+        </article>
+    </div>
+}
+
+@if (overflowDate is DateOnly overflowDay)
+{
+    <div class="editor-backdrop" @onclick="CloseDayOverflow">
+        <section class="day-overflow-popover"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="day-overflow-title"
+                 @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <span>@FormatWeekday(overflowDay.DayOfWeek)</span>
+                    <h2 id="day-overflow-title">@overflowDay.Month 月 @overflowDay.Day 日</h2>
+                </div>
+                <button class="icon-button" type="button" aria-label="关闭当天事件列表" @onclick="CloseDayOverflow">×</button>
+            </header>
+            <div class="overflow-event-list">
+                @foreach (var calendarEvent in monthEvents.GetEvents(overflowDay))
+                {
+                    <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
+                            type="button"
+                            @onclick="() => OpenEventDetailsFromOverflowAsync(calendarEvent.Id)">
+                        <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
+                        <span class="agenda-event-title">@calendarEvent.Title</span>
+                    </button>
+                }
+            </div>
+            <footer>
+                <button class="primary-button" type="button" @onclick="() => OpenCreateFromOverflow(overflowDay)">新建事件</button>
+            </footer>
+        </section>
+    </div>
+}
 
 @if (editor is not null)
 {
@@ -171,7 +262,10 @@
                  aria-modal="true"
                  aria-labelledby="event-editor-title"
                  @onclick:stopPropagation="true">
-            <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
+            <header class="editor-heading">
+                <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
+                <button class="icon-button" type="button" aria-label="关闭事件编辑器" @onclick="CloseEditor">×</button>
+            </header>
 
             @if (editingEventId is not null && IsEditingRecurringEvent)
             {
@@ -181,8 +275,10 @@
             }
 
             <form @onsubmit="SaveEventAsync" @onsubmit:preventDefault="true">
-                <label for="event-title">标题</label>
+                <section class="editor-group primary-fields" aria-label="基本信息">
+                <label class="visually-hidden" for="event-title">标题</label>
                 <input id="event-title"
+                       class="event-title-input"
                        type="text"
                        maxlength="200"
                        required
@@ -190,13 +286,17 @@
                        @bind="editor.Title"
                        @bind:event="oninput" />
 
-                <label class="checkbox-field" for="event-all-day">
-                    <input id="event-all-day"
-                           type="checkbox"
-                           checked="@editor.IsAllDay"
-                           @onchange="ChangeAllDay" />
-                    全天
-                </label>
+                <div class="editor-row">
+                    <span>全天</span>
+                    <label class="toggle-control" for="event-all-day">
+                        <input id="event-all-day"
+                               type="checkbox"
+                               checked="@editor.IsAllDay"
+                               @onchange="ChangeAllDay" />
+                        <span aria-hidden="true"></span>
+                        <span class="visually-hidden">全天事件</span>
+                    </label>
+                </div>
 
                 <div class="date-time-fields">
                     <div>
@@ -216,18 +316,22 @@
                                @bind:event="oninput" />
                     </div>
                 </div>
+                </section>
 
-                <label for="event-repeat">重复</label>
-                <select id="event-repeat"
-                        value="@editor.Recurrence.RepeatOption"
-                        @onchange="ChangeRepeatOption">
-                    <option value="@CalendarEventRepeatOption.Never">永不</option>
-                    <option value="@CalendarEventRepeatOption.Daily">每天</option>
-                    <option value="@CalendarEventRepeatOption.Weekly">每周</option>
-                    <option value="@CalendarEventRepeatOption.Monthly">每月</option>
-                    <option value="@CalendarEventRepeatOption.Yearly">每年</option>
-                    <option value="@CalendarEventRepeatOption.Custom">自定义</option>
-                </select>
+                <section class="editor-group" aria-label="更多信息">
+                <div class="editor-row">
+                    <label for="event-repeat">重复</label>
+                    <select id="event-repeat"
+                            value="@editor.Recurrence.RepeatOption"
+                            @onchange="ChangeRepeatOption">
+                        <option value="@CalendarEventRepeatOption.Never">永不</option>
+                        <option value="@CalendarEventRepeatOption.Daily">每天</option>
+                        <option value="@CalendarEventRepeatOption.Weekly">每周</option>
+                        <option value="@CalendarEventRepeatOption.Monthly">每月</option>
+                        <option value="@CalendarEventRepeatOption.Yearly">每年</option>
+                        <option value="@CalendarEventRepeatOption.Custom">自定义</option>
+                    </select>
+                </div>
 
                 @if (editor.Recurrence.RepeatOption == CalendarEventRepeatOption.Custom)
                 {
@@ -299,19 +403,26 @@
                     </fieldset>
                 }
 
-                <label for="event-location">地点</label>
-                <input id="event-location"
-                       type="text"
-                       maxlength="300"
-                       @bind="editor.Location"
-                       @bind:event="oninput" />
+                <div class="editor-row text-row">
+                    <label for="event-location">地点</label>
+                    <input id="event-location"
+                           type="text"
+                           maxlength="300"
+                           placeholder="添加地点"
+                           @bind="editor.Location"
+                           @bind:event="oninput" />
+                </div>
 
-                <label for="event-description">描述</label>
-                <textarea id="event-description"
-                          rows="4"
-                          maxlength="4000"
-                          @bind="editor.Description"
-                          @bind:event="oninput"></textarea>
+                <div class="editor-row text-row notes-row">
+                    <label for="event-description">备注</label>
+                    <textarea id="event-description"
+                              rows="3"
+                              maxlength="4000"
+                              placeholder="添加备注"
+                              @bind="editor.Description"
+                              @bind:event="oninput"></textarea>
+                </div>
+                </section>
 
                 @if (!string.IsNullOrWhiteSpace(editorError))
                 {
@@ -338,6 +449,7 @@
 
 @code {
     private const int AgendaEventPageSize = 25;
+    private const int MonthEventLimit = 3;
     private static readonly (DayOfWeek Day, string Label)[] RecurrenceWeekdays =
     [
         (DayOfWeek.Monday, "一"),
@@ -350,6 +462,7 @@
     ];
 
     private DateOnly today;
+    private DateOnly selectedDate;
     private string displayTimeZoneId = TimeZoneInfo.Utc.Id;
     private CalendarMonthView monthView = null!;
     private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
@@ -360,6 +473,8 @@
     private readonly Dictionary<DateOnly, int> visibleAgendaEventCounts = new();
     private bool isInitialized;
     private CalendarEventDraft? editor;
+    private CalendarEvent? selectedEvent;
+    private DateOnly? overflowDate;
     private Guid? editingEventId;
     private string? editorError;
     private string? storageError;
@@ -368,6 +483,9 @@
     private bool isLoadingEvents = true;
     private bool isSyncing;
     private bool syncSucceeded;
+    private bool calendarVisible = true;
+    private bool isSidebarOpen = true;
+    private bool viewportInitialized;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
@@ -390,6 +508,8 @@
             ? today
             : new DateOnly(monthView.Month.Year, monthView.Month.Month, 1);
 
+    private DateOnly SelectedCreateDate => selectedDate == default ? AgendaCreateDate : selectedDate;
+
     private string EditorInputType => editor?.IsAllDay == true ? "date" : "datetime-local";
 
     private const string RecurrenceDateInputType = "date";
@@ -407,6 +527,7 @@
         if (!isInitialized)
         {
             today = DateOnly.FromDateTime(DateTime.Today);
+            selectedDate = today;
             displayTimeZoneId = TimeZoneInfo.Local.Id;
             monthView = CalendarMonth.FromDate(today).CreateView(today);
             weekView = CalendarWeek.FromDate(today).CreateView(today);
@@ -427,6 +548,25 @@
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || viewportInitialized)
+        {
+            return;
+        }
+
+        viewportInitialized = true;
+        try
+        {
+            isSidebarOpen = await JS.InvokeAsync<bool>("moicalendarUi.isWideViewport");
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+            // 保留服务端默认值；界面功能不依赖视口探测。
+        }
+    }
+
     private Task ShowPreviousPeriodAsync() => displayMode == CalendarViewMode.Week
         ? ShowWeekAsync(weekView.Week.Previous())
         : ShowMonthAsync(monthView.Month.Previous());
@@ -438,6 +578,7 @@
     private Task ShowTodayAsync()
     {
         today = DateOnly.FromDateTime(DateTime.Today);
+        selectedDate = today;
         return displayMode == CalendarViewMode.Week
             ? ShowWeekAsync(CalendarWeek.FromDate(today))
             : ShowMonthAsync(CalendarMonth.FromDate(today));
@@ -470,6 +611,23 @@
             _ => "month"
         };
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("view", view));
+    }
+
+    private void ToggleSidebar() => isSidebarOpen = !isSidebarOpen;
+
+    private void SetCalendarVisibility(bool visible) => calendarVisible = visible;
+
+    private async Task SelectDateAsync(DateOnly date)
+    {
+        selectedDate = date;
+        if (displayMode == CalendarViewMode.Week)
+        {
+            await ShowWeekAsync(CalendarWeek.FromDate(date));
+        }
+        else
+        {
+            await ShowMonthAsync(CalendarMonth.FromDate(date));
+        }
     }
 
     private async Task LoadEventsAsync()
@@ -531,12 +689,15 @@
 
     private void OpenCreateEditor(DateOnly date)
     {
+        selectedDate = date;
+        selectedEvent = null;
+        overflowDate = null;
         editingEventId = null;
         editorError = null;
         editor = EventService.CreateDraft(date, displayTimeZoneId);
     }
 
-    private async Task OpenEventEditorAsync(Guid id)
+    private async Task OpenEventDetailsAsync(Guid id)
     {
         try
         {
@@ -546,14 +707,48 @@
                 return;
             }
 
-            editingEventId = id;
-            editorError = null;
-            editor = EventService.CreateDraft(calendarEvent);
+            selectedEvent = calendarEvent;
+            overflowDate = null;
         }
         catch (EventRepositoryException exception)
         {
             storageError = exception.Message;
         }
+    }
+
+    private void EditSelectedEvent()
+    {
+        if (selectedEvent is null)
+        {
+            return;
+        }
+
+        editingEventId = selectedEvent.Id;
+        editorError = null;
+        editor = EventService.CreateDraft(selectedEvent);
+        selectedEvent = null;
+    }
+
+    private void CloseEventDetails() => selectedEvent = null;
+
+    private void OpenDayOverflow(DateOnly date)
+    {
+        selectedDate = date;
+        overflowDate = date;
+    }
+
+    private void CloseDayOverflow() => overflowDate = null;
+
+    private async Task OpenEventDetailsFromOverflowAsync(Guid id)
+    {
+        overflowDate = null;
+        await OpenEventDetailsAsync(id);
+    }
+
+    private void OpenCreateFromOverflow(DateOnly date)
+    {
+        overflowDate = null;
+        OpenCreateEditor(date);
     }
 
     private void ChangeAllDay(ChangeEventArgs args)
@@ -676,7 +871,7 @@
         editorError = null;
     }
 
-    private static string GetDateClass(CalendarDateCell date)
+    private string GetDateClass(CalendarDateCell date)
     {
         var classes = "calendar-date";
 
@@ -690,8 +885,78 @@
             classes += " today";
         }
 
+        if (date.Date == selectedDate)
+        {
+            classes += " selected";
+        }
+
         return classes;
     }
+
+    private IEnumerable<CalendarEventListItem> GetVisibleMonthEvents(DateOnly date) =>
+        monthEvents.GetEvents(date).Take(MonthEventLimit);
+
+    private int GetRemainingMonthEventCount(DateOnly date) =>
+        Math.Max(0, monthEvents.GetEvents(date).Count - MonthEventLimit);
+
+    private string FormatEventTime(CalendarEvent calendarEvent)
+    {
+        var start = ConvertToDisplayTime(calendarEvent.StartUtc);
+        var end = ConvertToDisplayTime(calendarEvent.EndUtc);
+
+        if (calendarEvent.IsAllDay)
+        {
+            var startDate = DateOnly.FromDateTime(start.DateTime);
+            var finalDate = DateOnly.FromDateTime(end.DateTime).AddDays(-1);
+            return startDate == finalDate
+                ? $"{startDate:yyyy年M月d日} · 全天"
+                : $"{startDate:yyyy年M月d日}–{finalDate:yyyy年M月d日} · 全天";
+        }
+
+        return start.Date == end.Date
+            ? $"{start:yyyy年M月d日 dddd HH:mm}–{end:HH:mm}"
+            : $"{start:yyyy年M月d日 HH:mm}–{end:yyyy年M月d日 HH:mm}";
+    }
+
+    private DateTimeOffset ConvertToDisplayTime(DateTimeOffset value)
+    {
+        try
+        {
+            return TimeZoneInfo.ConvertTime(value, TimeZoneInfo.FindSystemTimeZoneById(displayTimeZoneId));
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return value.ToLocalTime();
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return value.ToLocalTime();
+        }
+    }
+
+    private static string FormatWeekday(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Monday => "星期一",
+        DayOfWeek.Tuesday => "星期二",
+        DayOfWeek.Wednesday => "星期三",
+        DayOfWeek.Thursday => "星期四",
+        DayOfWeek.Friday => "星期五",
+        DayOfWeek.Saturday => "星期六",
+        DayOfWeek.Sunday => "星期日",
+        _ => string.Empty
+    };
+
+    private static string FormatCompactWeekday(string weekday) => weekday switch
+    {
+        "Mon" => "周一",
+        "Tue" => "周二",
+        "Wed" => "周三",
+        "Thu" => "周四",
+        "Fri" => "周五",
+        "Sat" => "周六",
+        "Sun" => "周日",
+        _ => weekday
+    };
 
     private static string FormatAgendaDate(DateOnly date)
     {

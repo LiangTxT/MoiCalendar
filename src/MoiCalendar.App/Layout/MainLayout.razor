@@ -1,5 +1,7 @@
 ﻿@inherits LayoutComponentBase
 
+@inject AppearanceService Appearance
+
 <nav class="app-navigation" aria-label="主要导航">
     <NavLink href="" Match="NavLinkMatch.All">日历</NavLink>
     <NavLink href="sync-status">同步状态</NavLink>
@@ -17,6 +19,8 @@
 </footer>
 
 @code {
+    protected override Task OnInitializedAsync() => Appearance.InitializeAsync();
+
     private static string ReleaseVersion =>
         System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)
             ?.InformationalVersion.Split('+')[0] ?? "版本未知";

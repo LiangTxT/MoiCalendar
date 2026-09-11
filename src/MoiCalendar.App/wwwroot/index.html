@@ -1,14 +1,15 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-color-theme="sage" data-appearance="system" data-typography="system">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#425a48" />
+    <meta name="theme-color" content="#f5f5f7" />
     <meta name="description" content="MoiCalendar 本地优先个人日历" />
     <title>MoiCalendar</title>
     <base href="/" />
     <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="css/typography.css" />
     <link rel="stylesheet" href="css/app.css" />
     <!-- If you add any scoped CSS files, uncomment the following to load them
     <link href="MoiCalendar.App.styles.css" rel="stylesheet" /> -->
@@ -34,6 +35,7 @@
         <button type="button" class="dismiss" aria-label="关闭错误提示">×</button>
     </div>
     <script src="_content/Microsoft.Authentication.WebAssembly.Msal/AuthenticationService.js"></script>
+    <script src="calendarUi.js"></script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
     <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
 </body>

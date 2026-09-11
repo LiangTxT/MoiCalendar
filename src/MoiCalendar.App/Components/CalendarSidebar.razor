@@ -1,0 +1,42 @@
+<aside class="calendar-sidebar" aria-label="日历侧栏">
+    <div class="sidebar-brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div><strong>MoiCalendar</strong><span>本地优先日历</span></div>
+        <button class="icon-button sidebar-close" type="button" aria-label="关闭日历侧栏" @onclick="Close">×</button>
+    </div>
+
+    <MiniCalendar MainMonth="MainMonth" Today="Today" SelectedDate="SelectedDate" SelectDate="SelectDate" />
+
+    <nav class="sidebar-shortcuts" aria-label="日历快捷操作">
+        <button type="button" @onclick="ShowToday"><span class="sidebar-icon" aria-hidden="true">今</span>今天</button>
+    </nav>
+
+    <section class="sidebar-section" aria-labelledby="my-calendars-heading">
+        <h2 id="my-calendars-heading">我的日历</h2>
+        <label class="calendar-visibility">
+            <input type="checkbox" checked="@CalendarVisible" @onchange="ChangeVisibility" />
+            <span class="calendar-color" aria-hidden="true"></span>
+            <span>本地日历</span>
+        </label>
+    </section>
+
+    <nav class="sidebar-links" aria-label="账户和设置">
+        <a href="sync-status"><span class="status-dot" aria-hidden="true"></span><span>同步状态</span></a>
+        <a href="settings"><span class="sidebar-icon" aria-hidden="true">⚙</span><span>设置与备份</span></a>
+        <a href="help"><span class="sidebar-icon" aria-hidden="true">?</span><span>帮助</span></a>
+    </nav>
+</aside>
+
+@code {
+    [Parameter] public CalendarMonth MainMonth { get; set; }
+    [Parameter] public DateOnly Today { get; set; }
+    [Parameter] public DateOnly SelectedDate { get; set; }
+    [Parameter] public bool CalendarVisible { get; set; } = true;
+    [Parameter] public EventCallback Close { get; set; }
+    [Parameter] public EventCallback ShowToday { get; set; }
+    [Parameter] public EventCallback<DateOnly> SelectDate { get; set; }
+    [Parameter] public EventCallback<bool> CalendarVisibilityChanged { get; set; }
+
+    private Task ChangeVisibility(ChangeEventArgs args) =>
+        CalendarVisibilityChanged.InvokeAsync(args.Value is bool value && value);
+}

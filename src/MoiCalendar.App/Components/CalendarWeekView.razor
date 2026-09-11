@@ -1,3 +1,5 @@
+@inject IJSRuntime JS
+
 <section class="week-calendar" aria-label="@AriaLabel">
     @if (!WeekEvents.Days.Any(day => day.AllDayEvents.Count > 0 || day.TimedEvents.Count > 0))
     {
@@ -56,21 +58,31 @@
             <div class="week-timed-days">
                 @foreach (var day in WeekEvents.Days)
                 {
-                    <div class="week-timed-day">
+                    var eventLayouts = GetEventLayouts(day.TimedEvents);
+                    <div class="week-timed-day" @onclick="() => DateSelected.InvokeAsync(day.Date.Date)">
                         <button class="week-mobile-day-heading @(day.Date.IsToday ? "today" : null)"
                                 type="button"
                                 aria-current="@(day.Date.IsToday ? "date" : null)"
-                                @onclick="() => DateSelected.InvokeAsync(day.Date.Date)">
+                                @onclick="() => DateSelected.InvokeAsync(day.Date.Date)"
+                                @onclick:stopPropagation="true">
                             @FormatMobileDay(day.Date)
                         </button>
+
+                        @if (day.Date.IsToday)
+                        {
+                            <span class="current-time-line" style="@GetCurrentTimeStyle()" aria-hidden="true">
+                                <span></span>
+                            </span>
+                        }
 
                         @foreach (var calendarEvent in day.TimedEvents)
                         {
                             <button class="week-timed-event"
                                     type="button"
-                                    style="@GetTimedEventStyle(calendarEvent)"
+                                    style="@GetTimedEventStyle(calendarEvent, eventLayouts[calendarEvent.Id])"
                                     title="@($"{calendarEvent.TimeLabel} {calendarEvent.Title}")"
-                                    @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
+                                    @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)"
+                                    @onclick:stopPropagation="true">
                                 <span>@calendarEvent.TimeLabel</span>
                                 <strong>
                                     @if (calendarEvent.IsRecurring)
@@ -105,13 +117,82 @@
     [Parameter]
     public EventCallback<DateOnly> DateSelected { get; set; }
 
-    private static string GetTimedEventStyle(CalendarWeekTimedEvent calendarEvent) =>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("moicalendarUi.scrollWeekToActiveHours");
+        }
+        catch (JSException)
+        {
+            // 滚动定位是渐进增强，不影响周视图读写。
+        }
+    }
+
+    private static string GetTimedEventStyle(CalendarWeekTimedEvent calendarEvent, EventLayout layout) =>
         FormattableString.Invariant(
-            $"--event-top:{calendarEvent.TopPercentage:0.####}%;--event-height:{calendarEvent.HeightPercentage:0.####}%;");
+            $"--event-top:{calendarEvent.TopPercentage:0.####}%;--event-height:{calendarEvent.HeightPercentage:0.####}%;--event-column:{layout.Column};--event-columns:{layout.ColumnCount};");
 
     private static string GetTimeLabelStyle(int hour) =>
         FormattableString.Invariant($"--time-label-top:{hour * 100d / 24:0.####}%;");
 
+    private static string GetCurrentTimeStyle() =>
+        FormattableString.Invariant($"--current-time-top:{DateTime.Now.TimeOfDay.TotalMinutes * 100d / 1440:0.####}%;");
+
+    private static IReadOnlyDictionary<Guid, EventLayout> GetEventLayouts(
+        IReadOnlyList<CalendarWeekTimedEvent> events)
+    {
+        var result = new Dictionary<Guid, EventLayout>();
+        var group = new List<(Guid Id, int Column)>();
+        var columnEnds = new List<int>();
+        var groupEnd = -1;
+
+        void CompleteGroup()
+        {
+            var columnCount = Math.Max(1, columnEnds.Count);
+            foreach (var item in group)
+            {
+                result[item.Id] = new EventLayout(item.Column, columnCount);
+            }
+
+            group.Clear();
+            columnEnds.Clear();
+        }
+
+        foreach (var calendarEvent in events.OrderBy(item => item.StartMinute).ThenByDescending(item => item.DurationMinutes))
+        {
+            if (group.Count > 0 && calendarEvent.StartMinute >= groupEnd)
+            {
+                CompleteGroup();
+                groupEnd = -1;
+            }
+
+            var column = columnEnds.FindIndex(endMinute => endMinute <= calendarEvent.StartMinute);
+            if (column < 0)
+            {
+                column = columnEnds.Count;
+                columnEnds.Add(calendarEvent.StartMinute + calendarEvent.DurationMinutes);
+            }
+            else
+            {
+                columnEnds[column] = calendarEvent.StartMinute + calendarEvent.DurationMinutes;
+            }
+
+            group.Add((calendarEvent.Id, column));
+            groupEnd = Math.Max(groupEnd, calendarEvent.StartMinute + calendarEvent.DurationMinutes);
+        }
+
+        CompleteGroup();
+        return result;
+    }
+
     private static string FormatMobileDay(CalendarWeekDate date) =>
         $"{date.WeekdayLabel} {date.Date:M月d日}";
+
+    private readonly record struct EventLayout(int Column, int ColumnCount);
 }

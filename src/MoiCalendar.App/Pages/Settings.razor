@@ -20,12 +20,106 @@
 @inject ICalendarImportService ICalendarImportService
 @inject IBrowserFileDownloadService BrowserFileDownloadService
 @inject ISyncDiagnosticsService SyncDiagnosticsService
+@inject AppearanceService Appearance
 
 <PageTitle>设置 | MoiCalendar</PageTitle>
 
 <main class="settings-shell">
     <h1>设置</h1>
     <p class="settings-note">MoiCalendar 云用于主账户同步；OneDrive / WebDAV 是可选外部备份；本地 JSON 是手动备份与导出。<a href="help">了解各自用途</a></p>
+
+    <section class="settings-card appearance-settings" aria-labelledby="appearance-heading">
+        <div class="settings-heading-row">
+            <div>
+                <h2 id="appearance-heading">外观</h2>
+                <p>显示模式、主题颜色和字体彼此独立，只改变界面呈现，不会修改日历数据或触发同步。</p>
+            </div>
+        </div>
+
+        <fieldset class="appearance-mode-group">
+            <legend>显示模式</legend>
+            <div class="appearance-segmented" role="radiogroup" aria-label="显示模式">
+                @foreach (var option in AppearanceModes)
+                {
+                    <button type="button"
+                            role="radio"
+                            aria-checked="@(appearancePreference.Mode == option.Mode ? "true" : "false")"
+                            class="@(appearancePreference.Mode == option.Mode ? "selected" : null)"
+                            disabled="@isAppearanceBusy"
+                            @onclick="() => SelectAppearanceModeAsync(option.Mode)">@option.Label</button>
+                }
+            </div>
+        </fieldset>
+
+        <fieldset class="theme-color-group">
+            <legend>主题颜色</legend>
+            <div class="theme-card-grid" role="radiogroup" aria-label="主题颜色">
+                @foreach (var theme in AppearanceThemes)
+                {
+                    var selected = appearancePreference.ThemeColor == theme.Id;
+                    <button type="button"
+                            class="theme-card @(selected ? "selected" : null)"
+                            role="radio"
+                            aria-checked="@(selected ? "true" : "false")"
+                            aria-label="@($"{theme.DisplayName}：{theme.Description}")"
+                            disabled="@isAppearanceBusy"
+                            @onclick="() => SelectThemeColorAsync(theme.Id)"
+                            @key="theme.Id">
+                        <span class="theme-swatches" aria-hidden="true">
+                            @foreach (var color in theme.CalendarColors.Take(6))
+                            {
+                                <span style="@($"--theme-swatch:{color}")"></span>
+                            }
+                        </span>
+                        <span class="theme-card-copy">
+                            <strong>@theme.DisplayName</strong>
+                            <small>@theme.Description</small>
+                        </span>
+                        <span class="theme-check" aria-hidden="true">✓</span>
+                    </button>
+                }
+            </div>
+        </fieldset>
+
+        <fieldset class="typography-group">
+            <legend>字体</legend>
+            <div class="typography-card-grid" role="radiogroup" aria-label="字体">
+                @foreach (var typography in TypographyCatalog.All)
+                {
+                    var selected = appearancePreference.Typography == typography.Id;
+                    <button type="button"
+                            class="typography-card @(selected ? "selected" : null)"
+                            data-typography-preview="@typography.CssId"
+                            role="radio"
+                            aria-checked="@(selected ? "true" : "false")"
+                            aria-label="@($"{typography.DisplayName}：{typography.Description}")"
+                            disabled="@isAppearanceBusy"
+                            @onclick="() => SelectTypographyAsync(typography.Id)"
+                            @key="typography.Id">
+                        <span class="typography-sample-mark" aria-hidden="true">Aa</span>
+                        <span class="typography-card-copy">
+                            <span>
+                                <strong>@typography.DisplayName</strong>
+                                <small>@typography.Description</small>
+                            </span>
+                            <span class="typography-preview" aria-hidden="true">
+                                <b>Calendar 日历</b>
+                                <small>September 九月 · 10:30</small>
+                            </span>
+                        </span>
+                        <span class="typography-check" aria-hidden="true">✓</span>
+                    </button>
+                }
+            </div>
+        </fieldset>
+
+        @if (!string.IsNullOrWhiteSpace(appearanceMessage))
+        {
+            <p class="settings-status @(appearanceSucceeded ? "success" : "failure")" role="status">
+                @appearanceMessage
+            </p>
+        }
+    </section>
 
     <section class="settings-card" aria-labelledby="cloud-account-heading">
         <h2 id="cloud-account-heading">MoiCalendar 云账户</h2>
@@ -644,6 +738,28 @@
 </main>
 
 @code {
+    private static readonly (AppearanceMode Mode, string Label)[] AppearanceModes =
+    [
+        (AppearanceMode.System, "跟随系统"),
+        (AppearanceMode.Light, "浅色"),
+        (AppearanceMode.Dark, "深色")
+    ];
+
+    private static readonly ThemeColorDefinition[] AppearanceThemes =
+    [
+        ThemeColorCatalog.Get(ThemeColorId.Sage),
+        ThemeColorCatalog.Get(ThemeColorId.Cupertino),
+        ThemeColorCatalog.Get(ThemeColorId.Ocean),
+        ThemeColorCatalog.Get(ThemeColorId.Lavender),
+        ThemeColorCatalog.Get(ThemeColorId.Sunset),
+        ThemeColorCatalog.Get(ThemeColorId.Rose),
+        ThemeColorCatalog.Get(ThemeColorId.Graphite)
+    ];
+
+    private AppearancePreference appearancePreference = AppearancePreference.Default;
+    private bool isAppearanceBusy;
+    private bool appearanceSucceeded;
+    private string? appearanceMessage;
     private CloudAccount? cloudAccount;
     private CloudAccountMode cloudAccountMode = CloudAccountMode.Login;
     private string cloudEmailAddress = string.Empty;
@@ -709,6 +825,14 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await Appearance.InitializeAsync();
+        appearancePreference = Appearance.Current;
+        if (!string.IsNullOrWhiteSpace(Appearance.PersistenceError))
+        {
+            appearanceSucceeded = false;
+            appearanceMessage = $"{Appearance.PersistenceError} 已使用默认外观。";
+        }
+
         if (CloudAccountService.IsAvailable)
         {
             try
@@ -759,6 +883,59 @@
             accountIdentifier = FirstClaimValue(user, "preferred_username")
                 ?? FirstClaimValue(user, ClaimTypes.Email)
                 ?? FirstClaimValue(user, "emails");
+        }
+    }
+
+    private async Task SelectThemeColorAsync(ThemeColorId themeColor)
+    {
+        if (isAppearanceBusy || appearancePreference.ThemeColor == themeColor)
+        {
+            return;
+        }
+
+        await UpdateAppearanceAsync(() => Appearance.SetThemeColorAsync(themeColor));
+    }
+
+    private async Task SelectAppearanceModeAsync(AppearanceMode mode)
+    {
+        if (isAppearanceBusy || appearancePreference.Mode == mode)
+        {
+            return;
+        }
+
+        await UpdateAppearanceAsync(() => Appearance.SetModeAsync(mode));
+    }
+
+    private async Task SelectTypographyAsync(TypographyTheme typography)
+    {
+        if (isAppearanceBusy || appearancePreference.Typography == typography)
+        {
+            return;
+        }
+
+        await UpdateAppearanceAsync(() => Appearance.SetTypographyAsync(typography));
+    }
+
+    private async Task UpdateAppearanceAsync(Func<Task> update)
+    {
+        isAppearanceBusy = true;
+        appearanceMessage = null;
+        try
+        {
+            await update();
+            appearancePreference = Appearance.Current;
+            appearanceSucceeded = true;
+            appearanceMessage = "外观偏好已保存在此设备。";
+        }
+        catch (EventRepositoryException exception)
+        {
+            appearancePreference = Appearance.Current;
+            appearanceSucceeded = false;
+            appearanceMessage = $"{exception.Message} 当前外观仅在本次打开期间生效。";
+        }
+        finally
+        {
+            isAppearanceBusy = false;
         }
     }
 

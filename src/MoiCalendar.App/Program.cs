@@ -57,6 +57,8 @@ builder.Services.AddScoped<IRestoreSyncGuard>(sp =>
     sp.GetRequiredService<IndexedDbLocalDataSafety>());
 builder.Services.AddScoped<IEventRepository, IndexedDbEventRepository>();
 builder.Services.AddScoped<ICalendarViewPreferenceStore, IndexedDbCalendarViewPreferenceStore>();
+builder.Services.AddScoped<IAppearancePreferenceStore, IndexedDbAppearancePreferenceStore>();
+builder.Services.AddScoped<AppearanceService>();
 builder.Services.AddScoped<IBackupRestoreRepository, IndexedDbBackupRestoreRepository>();
 builder.Services.AddScoped<IOperationRepository, IndexedDbOperationRepository>();
 builder.Services.AddScoped<ISyncLogRepository, IndexedDbSyncLogRepository>();
