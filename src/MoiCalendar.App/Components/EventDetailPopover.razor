@@ -1,0 +1,87 @@
+<div class="calendar-overlay event-detail-overlay" @onclick="Close">
+    <article class="event-popover"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="event-details-title"
+             style="@AnchorStyle"
+             @onclick:stopPropagation="true"
+             @onkeydown="HandleKeyDown">
+        <header>
+            <span class="event-color-bar" aria-hidden="true"></span>
+            <div>
+                <h2 id="event-details-title">@CalendarEvent.Title</h2>
+                <p>@TimeText</p>
+            </div>
+            <button class="icon-button" @ref="closeButton" type="button" aria-label="关闭事件详情" @onclick="Close">×</button>
+        </header>
+
+        <dl class="event-detail-list">
+            <dt>日历</dt><dd><span class="calendar-color" aria-hidden="true"></span>本地日历</dd>
+            <dt>提醒</dt><dd>未设置</dd>
+            @if (!string.IsNullOrWhiteSpace(CalendarEvent.Location))
+            {
+                <dt>地点</dt><dd>@CalendarEvent.Location</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(CalendarEvent.RecurrenceRule))
+            {
+                <dt>重复</dt><dd>重复事件系列</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(CalendarEvent.Description))
+            {
+                <dt>备注</dt><dd class="event-notes-preview">@CalendarEvent.Description</dd>
+            }
+        </dl>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <p class="editor-error" role="alert">@Error</p>
+        }
+
+        <footer>
+            <button class="danger-button" type="button" disabled="@IsDeleting" @onclick="Delete">
+                @(IsDeleting ? "正在删除…" : "删除")
+            </button>
+            <span class="action-spacer"></span>
+            <button class="primary-button" type="button" @onclick="Edit">编辑</button>
+        </footer>
+    </article>
+</div>
+
+@code {
+    private ElementReference closeButton;
+
+    [Parameter, EditorRequired]
+    public CalendarEvent CalendarEvent { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public string TimeText { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Error { get; set; }
+
+    [Parameter]
+    public bool IsDeleting { get; set; }
+
+    [Parameter]
+    public string? AnchorStyle { get; set; }
+
+    [Parameter]
+    public EventCallback Edit { get; set; }
+
+    [Parameter]
+    public EventCallback Delete { get; set; }
+
+    [Parameter]
+    public EventCallback Close { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await closeButton.FocusAsync();
+        }
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
+}

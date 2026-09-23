@@ -21,6 +21,8 @@ public sealed class CalendarWeekEventViewTests
         var second = Assert.Single(view.Days.Single(day => day.Date.Date == new DateOnly(2026, 8, 27)).TimedEvents);
         Assert.Equal("23:30–24:00", first.TimeLabel);
         Assert.Equal("00:00–00:30", second.TimeLabel);
+        Assert.Equal(CalendarEventSegmentPosition.Start, first.SegmentPosition);
+        Assert.Equal(CalendarEventSegmentPosition.End, second.SegmentPosition);
         Assert.Equal(calendarEvent.Id, first.Id);
         Assert.Equal(calendarEvent.Id, second.Id);
     }
@@ -39,7 +41,11 @@ public sealed class CalendarWeekEventViewTests
         var view = await GetWeekAsync(service, new DateOnly(2026, 8, 26));
 
         Assert.Equal(3, view.Days.Sum(day => day.AllDayEvents.Count));
-        Assert.All(view.Days.SelectMany(day => day.AllDayEvents), item => Assert.Equal(calendarEvent.Id, item.Id));
+        var segments = view.Days.SelectMany(day => day.AllDayEvents).ToArray();
+        Assert.All(segments, item => Assert.Equal(calendarEvent.Id, item.Id));
+        Assert.Equal(
+            [CalendarEventSegmentPosition.Start, CalendarEventSegmentPosition.Middle, CalendarEventSegmentPosition.End],
+            segments.Select(item => item.SegmentPosition));
         Assert.Empty(view.Days.SelectMany(day => day.TimedEvents));
     }
 
@@ -60,7 +66,9 @@ public sealed class CalendarWeekEventViewTests
         Assert.Equal("00:00–24:00", monday.TimeLabel);
         Assert.Equal(0, monday.StartMinute);
         Assert.Equal(24 * 60, monday.DurationMinutes);
+        Assert.Equal(CalendarEventSegmentPosition.Middle, monday.SegmentPosition);
         Assert.Equal("00:00–10:00", tuesday.TimeLabel);
+        Assert.Equal(CalendarEventSegmentPosition.End, tuesday.SegmentPosition);
         Assert.Empty(view.Days.Skip(2).SelectMany(day => day.TimedEvents));
     }
 

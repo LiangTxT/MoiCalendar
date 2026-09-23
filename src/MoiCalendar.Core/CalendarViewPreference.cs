@@ -4,7 +4,8 @@ public enum CalendarViewMode
 {
     Month,
     Week,
-    Agenda
+    Agenda,
+    Day
 }
 
 public interface ICalendarViewPreferenceStore

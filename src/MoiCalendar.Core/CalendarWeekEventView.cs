@@ -20,7 +20,11 @@ public sealed record CalendarWeekDayEvents(
 public sealed record CalendarWeekAllDayEvent(
     Guid Id,
     string Title,
-    bool IsRecurring = false);
+    bool IsRecurring = false,
+    CalendarEventSegmentPosition SegmentPosition = CalendarEventSegmentPosition.Single,
+    DateTimeOffset OriginalStartUtc = default,
+    DateTimeOffset OriginalEndUtc = default,
+    string InteractionTimeZoneId = "UTC");
 
 public sealed record CalendarWeekTimedEvent(
     Guid Id,
@@ -30,4 +34,9 @@ public sealed record CalendarWeekTimedEvent(
     double HeightPercentage,
     int StartMinute,
     int DurationMinutes,
-    bool IsRecurring = false);
+    bool IsRecurring = false,
+    CalendarEventSegmentPosition SegmentPosition = CalendarEventSegmentPosition.Single,
+    string Location = "",
+    DateTimeOffset OriginalStartUtc = default,
+    DateTimeOffset OriginalEndUtc = default,
+    string InteractionTimeZoneId = "UTC");

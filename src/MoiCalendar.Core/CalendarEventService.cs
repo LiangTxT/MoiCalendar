@@ -279,7 +279,11 @@ public sealed class CalendarEventService(
                 allDayGroups[date].Add(new CalendarWeekAllDayEvent(
                     calendarEvent.Id,
                     calendarEvent.Title,
-                    !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
+                    !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule),
+                    CalendarPresentationLayout.GetSegmentPosition(date, eventFirstDate, eventLastDate),
+                    calendarEvent.StartUtc,
+                    calendarEvent.EndUtc,
+                    eventTimeZone.Id));
                 continue;
             }
 
@@ -291,19 +295,25 @@ public sealed class CalendarEventService(
                 : MinutesPerDay;
             endMinute = Math.Clamp(endMinute, startMinute + 1, MinutesPerDay);
             var durationMinutes = endMinute - startMinute;
-            var displayDurationMinutes = Math.Min(
-                Math.Max(durationMinutes, MinimumTimedEventDisplayMinutes),
-                MinutesPerDay - startMinute);
+            var position = CalendarPresentationLayout.CalculateTimedPosition(
+                startMinute,
+                durationMinutes,
+                MinimumTimedEventDisplayMinutes);
 
             timedGroups[date].Add(new CalendarWeekTimedEvent(
                 calendarEvent.Id,
                 calendarEvent.Title,
                 $"{FormatMinute(startMinute)}–{FormatMinute(endMinute)}",
-                startMinute * 100d / MinutesPerDay,
-                displayDurationMinutes * 100d / MinutesPerDay,
+                position.TopPercentage,
+                position.HeightPercentage,
                 startMinute,
                 durationMinutes,
-                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
+                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule),
+                CalendarPresentationLayout.GetSegmentPosition(date, eventFirstDate, eventLastDate),
+                calendarEvent.Location,
+                calendarEvent.StartUtc,
+                calendarEvent.EndUtc,
+                displayTimeZone.Id));
         }
     }
 
@@ -357,7 +367,11 @@ public sealed class CalendarEventService(
                 timeLabel,
                 calendarEvent.IsAllDay,
                 sortTime,
-                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule)));
+                !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule),
+                CalendarPresentationLayout.GetSegmentPosition(date, eventFirstDate, eventLastDate),
+                calendarEvent.StartUtc,
+                calendarEvent.EndUtc,
+                eventTimeZone.Id));
         }
     }
 

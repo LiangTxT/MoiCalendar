@@ -15,10 +15,10 @@ public sealed class CalendarViewPreferenceStoreTests
         var store = new IndexedDbCalendarViewPreferenceStore(connection);
 
         var viewMode = await store.GetAsync();
-        await store.SaveAsync(CalendarViewMode.Agenda);
+        await store.SaveAsync(CalendarViewMode.Day);
 
         Assert.Equal(CalendarViewMode.Week, viewMode);
-        Assert.Equal("Agenda", module.SavedView);
+        Assert.Equal("Day", module.SavedView);
     }
 
     [Fact]

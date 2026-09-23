@@ -88,6 +88,7 @@ builder.Services.AddScoped<IAccountDeletionLocalRepository, IndexedDbAccountDele
 builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
 builder.Services.AddScoped<IRemoteSyncApplyRepository, IndexedDbRemoteSyncApplyRepository>();
 builder.Services.AddScoped<CalendarEventService>();
+builder.Services.AddScoped<CalendarInteractionService>();
 builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),
     sp.GetRequiredService<TimeProvider>(),

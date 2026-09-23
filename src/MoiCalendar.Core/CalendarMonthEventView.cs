@@ -26,4 +26,8 @@ public sealed record CalendarEventListItem(
     string TimeLabel,
     bool IsAllDay,
     TimeSpan SortTime,
-    bool IsRecurring = false);
+    bool IsRecurring = false,
+    CalendarEventSegmentPosition SegmentPosition = CalendarEventSegmentPosition.Single,
+    DateTimeOffset OriginalStartUtc = default,
+    DateTimeOffset OriginalEndUtc = default,
+    string InteractionTimeZoneId = "UTC");

@@ -191,6 +191,34 @@ public sealed class CalendarEventTests
             eventView.GetEvents(date).Select(calendarEvent => calendarEvent.Title));
     }
 
+    [Fact]
+    public async Task MonthView_LabelsEveryVisualPartOfAMultiDayEventWithoutDuplicatingItsId()
+    {
+        var repository = new InMemoryEventRepository();
+        var service = new CalendarEventService(
+            repository,
+            new InMemoryDeviceService("month-segment-device"),
+            new InMemoryEventChangeRepository(repository, new InMemoryOperationRepository()),
+            TimeProvider.System);
+        var calendarEvent = CreateEvent(
+            "跨三天",
+            new DateTimeOffset(2026, 8, 23, 20, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 25, 10, 0, 0, TimeSpan.Zero));
+        await repository.CreateAsync(calendarEvent);
+
+        var view = await service.GetMonthViewAsync(
+            new CalendarMonth(2026, 8).CreateView(new DateOnly(2026, 8, 23)),
+            TimeZoneInfo.Utc.Id);
+
+        var segments = Enumerable.Range(23, 3)
+            .Select(day => Assert.Single(view.GetEvents(new DateOnly(2026, 8, day))))
+            .ToArray();
+        Assert.All(segments, segment => Assert.Equal(calendarEvent.Id, segment.Id));
+        Assert.Equal(
+            [CalendarEventSegmentPosition.Start, CalendarEventSegmentPosition.Middle, CalendarEventSegmentPosition.End],
+            segments.Select(segment => segment.SegmentPosition));
+    }
+
     private static CalendarEvent CreateEvent(
         string title,
         DateTimeOffset startUtc,

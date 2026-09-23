@@ -1,0 +1,195 @@
+@using System.Globalization
+
+<div class="calendar-overlay quick-create-overlay" @onclick="Close">
+    <section class="quick-create-popover"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="quick-create-title"
+             @onclick:stopPropagation="true"
+             @onkeydown="HandleKeyDown">
+        <header>
+            <h2 id="quick-create-title">新建事件</h2>
+            <button class="icon-button" type="button" aria-label="关闭快速创建" @onclick="Close">×</button>
+        </header>
+
+        <form @onsubmit="Create" @onsubmit:preventDefault="true">
+            <label class="visually-hidden" for="quick-event-title">标题</label>
+            <input id="quick-event-title"
+                   @ref="titleInput"
+                   class="quick-create-title"
+                   type="text"
+                   maxlength="200"
+                   required
+                   placeholder="添加标题"
+                   @bind="Draft.Title"
+                   @bind:event="oninput" />
+
+            <div class="quick-create-field">
+                <label for="quick-event-calendar">日历</label>
+                <select id="quick-event-calendar" disabled>
+                    <option>本地日历</option>
+                </select>
+            </div>
+
+            <div class="quick-create-field">
+                <label for="quick-event-date">日期</label>
+                <input id="quick-event-date"
+                       type="date"
+                       value="@DateInput"
+                       @onchange="args => DateInput = args.Value?.ToString() ?? DateInput" />
+            </div>
+
+            <div class="quick-create-field quick-create-all-day">
+                <span>全天</span>
+                <label class="toggle-control" for="quick-event-all-day">
+                    <input id="quick-event-all-day"
+                           type="checkbox"
+                           checked="@Draft.IsAllDay"
+                           @onchange="ChangeAllDay" />
+                    <span aria-hidden="true"></span>
+                    <span class="visually-hidden">全天事件</span>
+                </label>
+            </div>
+
+            @if (Draft.IsAllDay)
+            {
+                <div class="quick-create-time-row">
+                    <label for="quick-event-end-date">结束日期</label>
+                    <input id="quick-event-end-date"
+                           type="date"
+                           value="@EndDateInput"
+                           @onchange="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
+                </div>
+            }
+            else
+            {
+                <div class="quick-create-time-row">
+                    <label for="quick-event-start">开始</label>
+                    <input id="quick-event-start"
+                           type="time"
+                           step="900"
+                           value="@StartTimeInput"
+                           @onchange="args => StartTimeInput = args.Value?.ToString() ?? StartTimeInput" />
+                    <label for="quick-event-end">结束</label>
+                    <input id="quick-event-end"
+                           type="time"
+                           step="900"
+                           value="@EndTimeInput"
+                           @onchange="args => EndTimeInput = args.Value?.ToString() ?? EndTimeInput" />
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(Error))
+            {
+                <p class="editor-error" role="alert">@Error</p>
+            }
+
+            <footer>
+                <button type="button" @onclick="MoreDetails">更多详情</button>
+                <button class="primary-button" type="submit" disabled="@IsSaving">
+                    @(IsSaving ? "正在创建…" : "创建")
+                </button>
+            </footer>
+        </form>
+    </section>
+</div>
+
+@code {
+    private ElementReference titleInput;
+
+    [Parameter, EditorRequired]
+    public CalendarEventDraft Draft { get; set; } = null!;
+
+    [Parameter]
+    public string? Error { get; set; }
+
+    [Parameter]
+    public bool IsSaving { get; set; }
+
+    [Parameter]
+    public EventCallback Create { get; set; }
+
+    [Parameter]
+    public EventCallback MoreDetails { get; set; }
+
+    [Parameter]
+    public EventCallback Close { get; set; }
+
+    private string DateInput
+    {
+        get => Draft.StartLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        set
+        {
+            if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            {
+                return;
+            }
+
+            var duration = Draft.EndLocal - Draft.StartLocal;
+            Draft.StartLocal = date.ToDateTime(TimeOnly.FromDateTime(Draft.StartLocal));
+            Draft.EndLocal = Draft.StartLocal + duration;
+        }
+    }
+
+    private string EndDateInput
+    {
+        get => Draft.EndLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        set
+        {
+            if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            {
+                Draft.EndLocal = date.ToDateTime(TimeOnly.MinValue);
+            }
+        }
+    }
+
+    private string StartTimeInput
+    {
+        get => Draft.StartLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+        set
+        {
+            if (!TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+            {
+                return;
+            }
+
+            var duration = Draft.EndLocal - Draft.StartLocal;
+            Draft.StartLocal = DateOnly.FromDateTime(Draft.StartLocal).ToDateTime(time);
+            Draft.EndLocal = Draft.StartLocal + duration;
+        }
+    }
+
+    private string EndTimeInput
+    {
+        get => Draft.EndLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
+        set
+        {
+            if (!TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+            {
+                return;
+            }
+
+            var end = DateOnly.FromDateTime(Draft.StartLocal).ToDateTime(time);
+            Draft.EndLocal = end <= Draft.StartLocal ? end.AddDays(1) : end;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await titleInput.FocusAsync();
+        }
+    }
+
+    private void ChangeAllDay(ChangeEventArgs args)
+    {
+        if (args.Value is bool isAllDay)
+        {
+            Draft.SetAllDay(isAllDay);
+        }
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
+}
