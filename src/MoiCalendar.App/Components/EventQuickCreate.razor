@@ -1,12 +1,10 @@
 @using System.Globalization
 
-<div class="calendar-overlay quick-create-overlay" @onclick="Close">
-    <section class="quick-create-popover"
+<section class="quick-create-popover"
              role="dialog"
              aria-modal="true"
              aria-labelledby="quick-create-title"
-             @onclick:stopPropagation="true"
-             @onkeydown="HandleKeyDown">
+             @onclick:stopPropagation="true">
         <header>
             <h2 id="quick-create-title">新建事件</h2>
             <button class="icon-button" type="button" aria-label="关闭快速创建" @onclick="Close">×</button>
@@ -92,7 +90,6 @@
             </footer>
         </form>
     </section>
-</div>
 
 @code {
     private ElementReference titleInput;
@@ -190,6 +187,4 @@
         }
     }
 
-    private Task HandleKeyDown(KeyboardEventArgs args) =>
-        args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
 }

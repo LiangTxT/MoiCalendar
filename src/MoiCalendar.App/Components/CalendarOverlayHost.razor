@@ -1,0 +1,62 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="calendar-overlay calendar-overlay-host @OverlayClass"
+     @ref="hostElement"
+     @onclick="Close"
+     @onkeydown="HandleKeyDown">
+    @ChildContent
+</div>
+
+@code {
+    private ElementReference hostElement;
+    private bool activated;
+
+    [Parameter, EditorRequired]
+    public CalendarOverlayState State { get; set; } = CalendarOverlayState.None;
+
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = null!;
+
+    [Parameter]
+    public EventCallback Close { get; set; }
+
+    private string OverlayClass => State.Kind switch
+    {
+        CalendarOverlayKind.QuickCreate => "quick-create-overlay",
+        CalendarOverlayKind.EventDetails => "event-detail-overlay",
+        CalendarOverlayKind.MoreEvents => "more-events-overlay",
+        CalendarOverlayKind.RecurrenceScope => "recurrence-scope-overlay",
+        CalendarOverlayKind.FullEditor => "full-editor-overlay",
+        _ => string.Empty
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            activated = true;
+            await JS.InvokeVoidAsync("moicalendarOverlay.activate", hostElement);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!activated)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("moicalendarOverlay.deactivate", hostElement);
+        }
+        catch (JSDisconnectedException)
+        {
+            // 页面卸载时无需恢复已销毁的 DOM。
+        }
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
+}

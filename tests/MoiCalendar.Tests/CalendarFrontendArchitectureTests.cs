@@ -97,7 +97,7 @@ public sealed class CalendarFrontendArchitectureTests
             "src",
             "MoiCalendar.App",
             "wwwroot");
-        var sources = new[] { "calendarUi.js", "calendarInteraction.js" }
+        var sources = new[] { "calendarUi.js", "calendarInteraction.js", "calendarOverlay.js" }
             .Select(name => File.ReadAllText(Path.Combine(wwwroot, name)));
 
         foreach (var forbiddenTerm in new[]
@@ -148,6 +148,28 @@ public sealed class CalendarFrontendArchitectureTests
             Assert.DoesNotContain("CalendarInteractionService", source, StringComparison.Ordinal);
             Assert.DoesNotContain("ExecuteAsync", source, StringComparison.Ordinal);
         });
+    }
+
+    [Fact]
+    public void CalendarOverlays_UseOneHostForEscapeOutsideClickAndFocusTrap()
+    {
+        var root = FindRepositoryRoot();
+        var componentDirectory = Path.Combine(root, "src", "MoiCalendar.App", "Components");
+        var host = File.ReadAllText(Path.Combine(componentDirectory, "CalendarOverlayHost.razor"));
+        var overlayScript = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "calendarOverlay.js"));
+        var home = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "Pages", "Home.razor"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "css", "app.css"));
+
+        Assert.Contains("@onclick=\"Close\"", host, StringComparison.Ordinal);
+        Assert.Contains("args.Key == \"Escape\"", host, StringComparison.Ordinal);
+        Assert.Contains("moicalendarOverlay.activate", host, StringComparison.Ordinal);
+        Assert.Contains("event.key !== \"Tab\"", overlayScript, StringComparison.Ordinal);
+        Assert.Contains("private CalendarOverlayState overlayState", home, StringComparison.Ordinal);
+        Assert.DoesNotContain("private CalendarEventDraft? quickCreateDraft;", home, StringComparison.Ordinal);
+        Assert.DoesNotContain("private CalendarEvent? selectedEvent;", home, StringComparison.Ordinal);
+        Assert.DoesNotContain("private DateOnly? overflowDate;", home, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 48rem)", css, StringComparison.Ordinal);
+        Assert.Contains(".recurrence-scope-popover", css, StringComparison.Ordinal);
     }
 
     [Fact]

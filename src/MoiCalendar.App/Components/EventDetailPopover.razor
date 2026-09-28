@@ -1,11 +1,9 @@
-<div class="calendar-overlay event-detail-overlay" @onclick="Close">
-    <article class="event-popover"
+<article class="event-popover"
              role="dialog"
              aria-modal="true"
              aria-labelledby="event-details-title"
              style="@AnchorStyle"
-             @onclick:stopPropagation="true"
-             @onkeydown="HandleKeyDown">
+             @onclick:stopPropagation="true">
         <header>
             <span class="event-color-bar" aria-hidden="true"></span>
             <div>
@@ -45,7 +43,6 @@
             <button class="primary-button" type="button" @onclick="Edit">编辑</button>
         </footer>
     </article>
-</div>
 
 @code {
     private ElementReference closeButton;
@@ -82,6 +79,4 @@
         }
     }
 
-    private Task HandleKeyDown(KeyboardEventArgs args) =>
-        args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
 }

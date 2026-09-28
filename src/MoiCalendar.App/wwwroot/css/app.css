@@ -3287,6 +3287,49 @@ textarea:focus-visible,
     }
 }
 
+/* Module 38: one overlay host for create, details, overflow, recurrence and editor. */
+.calendar-overlay-host {
+    isolation: isolate;
+}
+
+.recurrence-scope-popover {
+    width: min(27rem, 100%);
+    padding: var(--space-5);
+    overflow-y: auto;
+    border: 1px solid var(--separator);
+    border-radius: var(--radius-large);
+    background: var(--surface);
+    box-shadow: var(--shadow-floating);
+}
+
+.recurrence-scope-popover > header,
+.recurrence-scope-popover > footer {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+}
+
+.recurrence-scope-popover h2,
+.recurrence-scope-popover p {
+    margin-block: var(--space-2);
+}
+
+.recurrence-scope-popover header span,
+.recurrence-scope-popover > p {
+    color: var(--text-secondary);
+}
+
+@media (max-width: 48rem) {
+    .recurrence-scope-popover {
+        align-self: end;
+        width: 100%;
+        max-height: min(90dvh, 36rem);
+        border-radius: var(--radius-large) var(--radius-large) 0 0;
+        animation: calendar-sheet-in 180ms ease-out;
+    }
+}
+
 /* Module 35: deterministic month grid. Layout rows come from Core; CSS only presents them. */
 .month-view {
     display: grid;

@@ -1,6 +1,7 @@
 @page "/"
 @implements IAsyncDisposable
 @using MoiCalendar.Sync
+@using MoiCalendar.App.Components
 @inject CalendarEventService EventService
 @inject CalendarInteractionService InteractionService
 @inject ISyncService SyncService
@@ -176,6 +177,11 @@
     </div>
 </main>
 
+@if (HasOpenOverlay)
+{
+<CalendarOverlayHost @key="overlayState.Kind"
+                     State="overlayState"
+                     Close="CloseCurrentOverlayAsync">
 @if (quickCreateDraft is not null)
 {
     <MoiCalendar.App.Components.EventQuickCreate Draft="quickCreateDraft"
@@ -200,7 +206,6 @@
 
 @if (overflowDate is DateOnly overflowDay)
 {
-    <div class="editor-backdrop" @onclick="CloseDayOverflow">
         <section class="day-overflow-popover"
                  role="dialog"
                  aria-modal="true"
@@ -243,17 +248,23 @@
                 <button class="primary-button" type="button" @onclick="() => OpenQuickCreateFromOverflow(overflowDay)">新建事件</button>
             </footer>
         </section>
-    </div>
+}
+
+@if (overlayState is RecurrenceScopeOverlayState recurrenceScope)
+{
+    <RecurrenceScopeChooser CalendarEvent="recurrenceScope.CalendarEvent"
+                            Action="recurrenceScope.Action"
+                            Error="detailError"
+                            Confirm="ConfirmRecurrenceScopeAsync"
+                            Cancel="CloseCurrentOverlayAsync" />
 }
 
 @if (editor is not null)
 {
-    <div class="editor-backdrop" @onclick="CloseEditor">
         <section class="event-editor"
                  role="dialog"
                  aria-modal="true"
                  aria-labelledby="event-editor-title"
-                 @onkeydown="HandleEditorKeyDown"
                  @onclick:stopPropagation="true">
             <header class="editor-heading">
                 <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
@@ -437,7 +448,8 @@
                 </footer>
             </form>
         </section>
-    </div>
+}
+</CalendarOverlayHost>
 }
 
 @code {
@@ -465,10 +477,7 @@
     private CalendarViewMode displayMode;
     private readonly Dictionary<DateOnly, int> visibleAgendaEventCounts = new();
     private bool isInitialized;
-    private CalendarEventDraft? editor;
-    private CalendarEventDraft? quickCreateDraft;
-    private CalendarEvent? selectedEvent;
-    private DateOnly? overflowDate;
+    private CalendarOverlayState overlayState = CalendarOverlayState.None;
     private Guid? editingEventId;
     private string? editorError;
     private string? quickCreateError;
@@ -494,6 +503,70 @@
     private DotNetObjectReference<Home>? shortcutReference;
     private CancellationTokenSource? eventClickCancellation;
     private Guid? focusedEventId;
+
+    private CalendarEventDraft? quickCreateDraft
+    {
+        get => (overlayState as QuickCreateOverlayState)?.Draft;
+        set
+        {
+            if (value is not null)
+            {
+                overlayState = CalendarOverlayTransitions.OpenQuickCreate(value);
+            }
+            else if (overlayState is QuickCreateOverlayState)
+            {
+                overlayState = CalendarOverlayState.None;
+            }
+        }
+    }
+
+    private CalendarEvent? selectedEvent
+    {
+        get => (overlayState as EventDetailsOverlayState)?.CalendarEvent;
+        set
+        {
+            if (value is not null)
+            {
+                overlayState = CalendarOverlayTransitions.OpenEventDetails(value);
+            }
+            else if (overlayState is EventDetailsOverlayState)
+            {
+                overlayState = CalendarOverlayState.None;
+            }
+        }
+    }
+
+    private DateOnly? overflowDate
+    {
+        get => (overlayState as MoreEventsOverlayState)?.Date;
+        set
+        {
+            if (value is DateOnly date)
+            {
+                overlayState = CalendarOverlayTransitions.OpenMoreEvents(date);
+            }
+            else if (overlayState is MoreEventsOverlayState)
+            {
+                overlayState = CalendarOverlayState.None;
+            }
+        }
+    }
+
+    private CalendarEventDraft? editor
+    {
+        get => (overlayState as FullEditorOverlayState)?.Draft;
+        set
+        {
+            if (value is not null)
+            {
+                overlayState = new FullEditorOverlayState(value);
+            }
+            else if (overlayState is FullEditorOverlayState)
+            {
+                overlayState = CalendarOverlayState.None;
+            }
+        }
+    }
 
     private ElementReference MonthGridElement => monthViewComponent?.GridElement ?? default;
 
@@ -680,11 +753,7 @@
         }
     }
 
-    private bool HasOpenOverlay =>
-        editor is not null ||
-        quickCreateDraft is not null ||
-        selectedEvent is not null ||
-        overflowDate is not null;
+    private bool HasOpenOverlay => overlayState.Kind != CalendarOverlayKind.None;
 
     private async Task CloseCurrentOverlayAsync()
     {
@@ -703,6 +772,11 @@
         else if (overflowDate is not null)
         {
             await CloseDayOverflow();
+        }
+        else if (overlayState is RecurrenceScopeOverlayState)
+        {
+            overlayState = CalendarOverlayState.None;
+            await RestoreFocusAsync();
         }
     }
 
@@ -917,7 +991,15 @@
 
     private async Task OpenQuickCreate(DateOnly date)
     {
-        await RememberFocusAsync();
+        await OpenQuickCreateCore(date, rememberFocus: true);
+    }
+
+    private async Task OpenQuickCreateCore(DateOnly date, bool rememberFocus)
+    {
+        if (rememberFocus)
+        {
+            await RememberFocusAsync();
+        }
         selectedDate = date;
         selectedEvent = null;
         overflowDate = null;
@@ -974,8 +1056,7 @@
             return;
         }
 
-        editor = quickCreateDraft;
-        quickCreateDraft = null;
+        overlayState = CalendarOverlayTransitions.PromoteQuickCreate(overlayState);
         quickCreateError = null;
         editingEventId = null;
         editorError = null;
@@ -1011,7 +1092,16 @@
         if (result.Status == CalendarInteractionStatus.RecurrenceScopeRequired &&
             result.Intent is ICalendarEventInteractionIntent recurringIntent)
         {
-            await OpenEventDetailsAsync(recurringIntent.EventId);
+            var recurringEvent = await EventService.GetByIdAsync(recurringIntent.EventId);
+            if (recurringEvent is not null)
+            {
+                await RememberFocusAsync();
+                overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
+                    recurringEvent,
+                    CalendarRecurrenceAction.ApplyInteractionToSeries,
+                    result.Intent);
+                detailError = null;
+            }
             return;
         }
 
@@ -1180,7 +1270,10 @@
         string.Equals(current.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
         DateTimeOffset.UtcNow - current.StartedAt < TimeSpan.FromMilliseconds(350);
 
-    private async Task OpenEventDetailsAsync(Guid id)
+    private Task OpenEventDetailsAsync(Guid id) =>
+        OpenEventDetailsCoreAsync(id, rememberFocus: true);
+
+    private async Task OpenEventDetailsCoreAsync(Guid id, bool rememberFocus)
     {
         try
         {
@@ -1190,7 +1283,10 @@
                 return;
             }
 
-            await RememberFocusAsync(captureAnchor: true);
+            if (rememberFocus)
+            {
+                await RememberFocusAsync(captureAnchor: true);
+            }
             selectedEvent = calendarEvent;
             quickCreateDraft = null;
             detailError = null;
@@ -1213,6 +1309,15 @@
             }
 
             await RememberFocusAsync();
+            if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
+            {
+                overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
+                    calendarEvent,
+                    CalendarRecurrenceAction.EditSeries);
+                detailError = null;
+                return;
+            }
+
             editingEventId = calendarEvent.Id;
             editorError = null;
             editor = EventService.CreateDraft(calendarEvent);
@@ -1230,6 +1335,15 @@
     {
         if (selectedEvent is null)
         {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedEvent.RecurrenceRule))
+        {
+            overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
+                selectedEvent,
+                CalendarRecurrenceAction.EditSeries);
+            detailError = null;
             return;
         }
 
@@ -1257,9 +1371,10 @@
 
         if (!string.IsNullOrWhiteSpace(selectedEvent.RecurrenceRule))
         {
-            var recurring = selectedEvent;
-            EditSelectedEvent();
-            editorError = $"“{recurring.Title}”是重复事件。请在完整编辑器中确认删除整个系列。";
+            overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
+                selectedEvent,
+                CalendarRecurrenceAction.DeleteSeries);
+            detailError = null;
             return;
         }
 
@@ -1299,15 +1414,65 @@
 
     private async Task OpenEventDetailsFromOverflowAsync(Guid id)
     {
-        overflowDate = null;
-        await OpenEventDetailsAsync(id);
+        try
+        {
+            var calendarEvent = await EventService.GetByIdAsync(id);
+            if (calendarEvent is not null)
+            {
+                overlayState = CalendarOverlayTransitions.OpenEventFromMore(
+                    overlayState,
+                    calendarEvent);
+                detailError = null;
+            }
+        }
+        catch (EventRepositoryException exception)
+        {
+            storageError = exception.Message;
+        }
     }
 
     private async Task OpenQuickCreateFromOverflow(DateOnly date)
     {
         overflowDate = null;
-        await RestoreFocusAsync();
-        await OpenQuickCreate(date);
+        await OpenQuickCreateCore(date, rememberFocus: false);
+    }
+
+    private async Task ConfirmRecurrenceScopeAsync()
+    {
+        if (overlayState is not RecurrenceScopeOverlayState scope)
+        {
+            return;
+        }
+
+        if (scope.Action == CalendarRecurrenceAction.DeleteSeries)
+        {
+            isDeletingFromDetails = true;
+            detailError = null;
+            try
+            {
+                await EventService.DeleteAsync(scope.CalendarEvent.Id);
+                overlayState = CalendarOverlayState.None;
+                interactionMessage = "重复事件系列已删除。";
+                interactionSucceeded = true;
+                await LoadEventsAsync();
+                await RestoreFocusAsync();
+            }
+            catch (EventRepositoryException exception)
+            {
+                detailError = exception.Message;
+            }
+            finally
+            {
+                isDeletingFromDetails = false;
+            }
+            return;
+        }
+
+        editingEventId = scope.CalendarEvent.Id;
+        editorError = scope.Action == CalendarRecurrenceAction.ApplyInteractionToSeries
+            ? "请确认整个系列的新日期和时间后保存。"
+            : null;
+        editor = EventService.CreateDraft(scope.CalendarEvent);
     }
 
     private void ChangeAllDay(ChangeEventArgs args)
@@ -1368,9 +1533,6 @@
             await OpenQuickCreate(date);
         }
     }
-
-    private Task HandleEditorKeyDown(KeyboardEventArgs args) =>
-        args.Key == "Escape" ? CloseEditor() : Task.CompletedTask;
 
     private async Task SaveEventAsync()
     {

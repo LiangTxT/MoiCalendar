@@ -85,7 +85,7 @@ CalendarInteractionService 或 CalendarEventService
 | TUI Calendar 概念 | MoiCalendar 对应设计 | 采用方式 |
 | --- | --- | --- |
 | Calendar instance / view name | 页面级 `CalendarViewState` 与 Blazor 视图组件 | 只借鉴单一实例状态，不引入 JavaScript Calendar 实例 |
-| `selectDateTime` | `CalendarInteractionIntent.CreateFromSelection` | 组件发出语义时间范围，不传 DOM 元素到业务层 |
+| `selectDateTime` | `SelectTimeRangeIntent` / `SelectDateRangeIntent` | 组件发出语义范围，不传 DOM 元素到业务层，也不自动创建事件 |
 | `beforeCreateEvent` | 创建意图 -> `CalendarEventService.CreateAsync` | 先验证再提交本地事务 |
 | `beforeUpdateEvent` | 移动/缩放意图 -> `CalendarInteractionService` | 保留原始时间用于并发检查；不让组件直接更新实体 |
 | `beforeDeleteEvent` | 删除意图 -> 应用服务 | 使用现有删除标记和本地变更记录语义 |
@@ -96,7 +96,7 @@ CalendarInteractionService 或 CalendarEventService
 | Grid selection | 临时选择状态 + 创建意图 | DOM 坐标只在交互边界转换为日期/分钟 |
 | Theme | MoiCalendar 语义 CSS token | 不复制 TUI theme key；保留 Sage 和现有主题系统 |
 | Template | Razor 小组件与 RenderFragment | 编译期组件组合，不返回 HTML 字符串 |
-| More events popup | `CalendarOverlayState.DayOverflow` | 数据来自同一月视图投影 |
+| More events popup | `MoreEventsOverlayState` | 数据来自同一月视图投影，并通过统一 overlay host 转入事件详情 |
 | Drag/update lifecycle | Begin -> Preview -> Commit/Cancel -> Intent -> Service | 预览无持久化；只有 Commit 可以触发应用服务 |
 
 TUI 的实例事件明确区分“用户发生了什么”和“调用方如何提交数据”。MoiCalendar 采用这个边界，但由强类型 C# intent、应用服务和本地事务实现。
@@ -218,19 +218,20 @@ Razor gesture / command
 
 ## 8. Overlay 状态
 
-目标模型为单一 `CalendarOverlayState`：
+Module 38 已实现单一 `CalendarOverlayState`：
 
 ```text
 None
-QuickCreate(draft, anchor)
-EventDetail(eventId, anchor)
-DayOverflow(date, anchor)
-EventEditor(eventId?, draft)
+QuickCreate(draft)
+EventDetails(event)
+MoreEvents(date)
+RecurrenceScope(event, action, pendingIntent?)
+FullEditor(draft)
 ```
 
-禁止使用多个可同时非空的字段表达 overlay。打开新 overlay 必须通过一个转换函数完成，关闭时统一恢复焦点。桌面锚点和移动端 sheet 是同一状态的不同呈现，不是两套业务组件。
+活动状态实际由 `None`、`QuickCreateOverlayState`、`EventDetailsOverlayState`、`MoreEventsOverlayState`、`RecurrenceScopeOverlayState`、`FullEditorOverlayState` 六种互斥记录表达。`CalendarOverlayHost` 是唯一 backdrop/shell，统一处理外部点击、Escape、Tab 焦点循环和关闭后的焦点恢复。
 
-当前 `quickCreateDraft`、`selectedEvent`、`overflowDate`、`editor` 和多个错误字段仍是过渡实现，列入迁移计划。
+桌面端由同一 host 呈现 popover；窄屏由 CSS 把同一内容切换为 bottom sheet，不复制业务组件。More Events 选择事件会直接转换为 Event Details，快速创建的 More Details 会把同一个 draft 实例转换到完整编辑器，因此不会丢失输入。
 
 ## 9. JS interop 边界
 
@@ -304,16 +305,16 @@ Module 34 已在此基础上补齐统一渲染输入、可见范围、跨日片�
 - 从 `CalendarWeekTimedEvent` 移除百分比，将其放入 `TimeGridLayoutItem`。
 - 把原始时间/版本信息放入独立 action reference，而不是视觉模型。
 
-### 阶段 E：统一交互和 overlay
+### 阶段 E：统一交互和 overlay（Modules 37-38 已完成基础实现）
 
-- 将月格和时间网格 drag state 合并为单一 `CalendarInteractionSession`。
-- 让创建、编辑、删除也通过 intent dispatcher。
-- 提取 `CalendarOverlayHost`，统一锚点、移动端 sheet、Escape 和焦点恢复。
+- 月格和时间网格均发出显式 intent；其高频预览仍由各视图临时持有，后续可再提取共享 session。
+- 创建、编辑和删除统一经过现有 `CalendarEventService`；移动、缩放和范围选择经过 `CalendarInteractionService`。
+- `CalendarOverlayHost` 已统一 backdrop、移动端 sheet、Escape、外部点击、Tab 焦点循环和焦点恢复。
 
-### 阶段 F：滚动与 JS 模块
+### 阶段 F：滚动与 JS 模块（指针边界已完成，滚动状态仍待收敛）
 
 - 由页面状态保存每个视图的 scroll snapshot。
-- 拆分高频 `calendarInteraction.js`；其 API 只返回测量值。
+- 高频 `calendarInteraction.js` 已拆分；其 API 只返回测量值并管理 pointer capture。
 - 使用契约测试确保 JS 模块不包含持久化或网络职责。
 
 每个阶段都必须维持：相关测试通过、完整测试通过、最终解决方案构建成功，并且不改变同步数据格式或提交语义。
@@ -321,17 +322,16 @@ Module 34 已在此基础上补齐统一渲染输入、可见范围、跨日片�
 ## 12. 已发现的技术债
 
 1. `Home.razor` 是超大协调器，同时包含月视图标记、表单、overlay、状态和 mutation 流程。
-2. 活动 overlay 由多个 nullable 字段和布尔值组合表达，理论上可以产生不一致组合。
-3. 月格拖拽状态在页面中，时间网格拖拽状态在组件中，尚未使用统一 interaction session。
-4. `CalendarWeekTimedEvent` 同时包含语义时间和布局百分比；后续应拆分。
-5. `CalendarEventListItem`/周视图模型携带原始 UTC 时间和交互时区，展示与 mutation reference 尚未分离。
-6. 快速创建、完整编辑和详情删除仍直接调用 `CalendarEventService`；移动/缩放才经过 `CalendarInteractionService`。
-7. 重复事件 mutation 只返回“需要范围”，尚无统一的单次/本次及以后/整个系列 intent。
-8. `calendarUi.js` 混合外观、快捷键、焦点和指针测量，边界偏宽。
-9. 当前滚动位置主要由 DOM 自己持有，页面状态不能可靠恢复不同视图的滚动上下文。
-10. 月视图和日程视图仍在 `Home.razor` 中，组件树不对称。
-11. 当前仓库含云同步和多提供商实现，而仓库 `AGENTS.md` 声明当前里程碑仅实现本地日历；本模块不修改这些既有语义，后续范围规划需要显式处理这一偏差。
-12. `CalendarPresentationLayout` 是历史聚合门面；待调用方迁移到专用引擎后再评估删除，不能为清理而一次性改写所有视图。
+2. 月格拖拽状态在页面中，时间网格拖拽状态在组件中，尚未使用统一 interaction session。
+3. `CalendarWeekTimedEvent` 同时包含语义时间和布局百分比；后续应拆分。
+4. `CalendarEventListItem`/周视图模型携带原始 UTC 时间和交互时区，展示与 mutation reference 尚未分离。
+5. 快速创建、完整编辑和详情删除按现有服务边界直接调用 `CalendarEventService`；移动、缩放和范围选择经过 `CalendarInteractionService`。若未来要求所有命令都进入统一 dispatcher，需要在 Core 层补齐创建/更新/删除 intent，而不是在 UI 模拟。
+6. 重复事件目前提供“整个系列”的显式确认；“仅本次”和“本次及以后”仍需要领域模型与持久化语义支持，不能只在 UI 添加选项。
+7. `calendarUi.js` 仍同时负责外观、快捷键、焦点和滚动；指针测量已迁入独立 `calendarInteraction.js`，overlay 焦点循环已迁入 `calendarOverlay.js`。
+8. 当前滚动位置主要由 DOM 自己持有，页面状态不能可靠恢复不同视图的滚动上下文。
+9. 月视图和日程视图仍在 `Home.razor` 中，组件树不对称。
+10. 当前仓库含云同步和多提供商实现，而仓库 `AGENTS.md` 声明当前里程碑仅实现本地日历；本模块不修改这些既有语义，后续范围规划需要显式处理这一偏差。
+11. `CalendarPresentationLayout` 是历史聚合门面；待调用方迁移到专用引擎后再评估删除，不能为清理而一次性改写所有视图。
 
 ## 13. 验收护栏
 

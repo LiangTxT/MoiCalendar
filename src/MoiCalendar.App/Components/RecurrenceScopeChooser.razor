@@ -1,0 +1,37 @@
+<section class="recurrence-scope-popover"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="recurrence-scope-title"
+         @onclick:stopPropagation="true">
+    <header>
+        <div>
+            <span>重复事件</span>
+            <h2 id="recurrence-scope-title">@CalendarEvent.Title</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭重复事件范围选择" @onclick="Cancel">×</button>
+    </header>
+
+    <p>这项操作涉及重复事件。请选择是否处理整个系列；系统不会静默修改整个系列。</p>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <p class="editor-error" role="alert">@Error</p>
+    }
+
+    <footer>
+        <button type="button" @onclick="Cancel">取消</button>
+        <button class="@(Action == CalendarRecurrenceAction.DeleteSeries ? "danger-button" : "primary-button")"
+                type="button"
+                @onclick="Confirm">
+            @(Action == CalendarRecurrenceAction.DeleteSeries ? "删除整个系列" : "编辑整个系列")
+        </button>
+    </footer>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public CalendarEvent CalendarEvent { get; set; } = null!;
+    [Parameter] public CalendarRecurrenceAction Action { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback Confirm { get; set; }
+    [Parameter] public EventCallback Cancel { get; set; }
+}
