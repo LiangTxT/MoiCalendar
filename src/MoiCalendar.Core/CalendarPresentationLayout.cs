@@ -2,9 +2,40 @@ namespace MoiCalendar.Core;
 
 public static class CalendarPresentationLayout
 {
-    private const int MinutesPerDay = 24 * 60;
-
     public static MonthDayLayout GetMonthDayLayout(
+        IReadOnlyList<CalendarEventListItem> events,
+        int visibleLimit) =>
+        MonthLayoutEngine.LayoutDay(events, visibleLimit);
+
+    public static TimedEventPosition CalculateTimedPosition(
+        int startMinute,
+        int durationMinutes,
+        int minimumDisplayMinutes = CalendarMetrics.DefaultMinimumTimedDisplayMinutes) =>
+        TimeGridLayoutEngine.CalculatePosition(startMinute, durationMinutes, minimumDisplayMinutes);
+
+    public static IReadOnlyDictionary<Guid, TimedEventLayout> LayoutOverlappingEvents(
+        IReadOnlyList<CalendarWeekTimedEvent> events) =>
+        OverlapLayoutEngine.Layout(events);
+
+    public static CalendarEventSegmentPosition GetSegmentPosition(
+        DateOnly date,
+        DateOnly eventFirstDate,
+        DateOnly eventLastDate) =>
+        MultiDayLayoutEngine.GetSegmentPosition(date, eventFirstDate, eventLastDate);
+
+    public static bool IsCurrentDate(DateOnly date, DateOnly today) => date == today;
+}
+
+public static class CalendarMetrics
+{
+    public const int MinutesPerDay = 24 * 60;
+    public const int DefaultMinimumTimedDisplayMinutes = 30;
+    public const int DefaultMonthVisibleEventLimit = 3;
+}
+
+public static partial class MonthLayoutEngine
+{
+    public static MonthDayLayout LayoutDay(
         IReadOnlyList<CalendarEventListItem> events,
         int visibleLimit)
     {
@@ -16,86 +47,41 @@ public static class CalendarPresentationLayout
             events.Take(visibleCount).ToArray(),
             events.Count - visibleCount);
     }
+}
 
-    public static TimedEventPosition CalculateTimedPosition(
+public static partial class TimeGridLayoutEngine
+{
+    public static TimedEventPosition CalculatePosition(
         int startMinute,
         int durationMinutes,
-        int minimumDisplayMinutes = 30)
+        int minimumDisplayMinutes = CalendarMetrics.DefaultMinimumTimedDisplayMinutes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startMinute);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationMinutes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumDisplayMinutes);
 
-        if (startMinute >= MinutesPerDay)
-        {
-            throw new ArgumentOutOfRangeException(nameof(startMinute));
-        }
-
-        var clippedDuration = Math.Min(durationMinutes, MinutesPerDay - startMinute);
-        var displayDuration = Math.Min(
-            Math.Max(clippedDuration, minimumDisplayMinutes),
-            MinutesPerDay - startMinute);
-        return new TimedEventPosition(
-            startMinute * 100d / MinutesPerDay,
-            displayDuration * 100d / MinutesPerDay);
+        var metrics = new TimeGridMetrics(minimumDisplayMinutes: minimumDisplayMinutes);
+        return CalculateClippedPosition(startMinute, startMinute + durationMinutes, metrics);
     }
+}
 
-    public static IReadOnlyDictionary<Guid, TimedEventLayout> LayoutOverlappingEvents(
+public static partial class OverlapLayoutEngine
+{
+    public static IReadOnlyDictionary<Guid, TimedEventLayout> Layout(
         IReadOnlyList<CalendarWeekTimedEvent> events)
     {
         ArgumentNullException.ThrowIfNull(events);
-
-        var result = new Dictionary<Guid, TimedEventLayout>();
-        var group = new List<(Guid Id, int Column)>();
-        var columnEnds = new List<int>();
-        var groupEnd = -1;
-
-        void CompleteGroup()
-        {
-            var columnCount = Math.Max(1, columnEnds.Count);
-            foreach (var item in group)
-            {
-                result[item.Id] = new TimedEventLayout(item.Column, columnCount);
-            }
-
-            group.Clear();
-            columnEnds.Clear();
-        }
-
-        foreach (var calendarEvent in events
-                     .OrderBy(item => item.StartMinute)
-                     .ThenByDescending(item => item.DurationMinutes)
-                     .ThenBy(item => item.Id))
-        {
-            if (group.Count > 0 && calendarEvent.StartMinute >= groupEnd)
-            {
-                CompleteGroup();
-                groupEnd = -1;
-            }
-
-            var visualDuration = Math.Max(
-                calendarEvent.DurationMinutes,
-                (int)Math.Ceiling(calendarEvent.HeightPercentage * MinutesPerDay / 100d));
-            var eventEnd = Math.Min(MinutesPerDay, calendarEvent.StartMinute + visualDuration);
-            var column = columnEnds.FindIndex(endMinute => endMinute <= calendarEvent.StartMinute);
-            if (column < 0)
-            {
-                column = columnEnds.Count;
-                columnEnds.Add(eventEnd);
-            }
-            else
-            {
-                columnEnds[column] = eventEnd;
-            }
-
-            group.Add((calendarEvent.Id, column));
-            groupEnd = Math.Max(groupEnd, eventEnd);
-        }
-
-        CompleteGroup();
-        return result;
+        return Layout(events
+            .Select(item => new TimedLayoutInput(
+                item.Id,
+                item.StartMinute,
+                item.StartMinute + item.DurationMinutes))
+            .ToArray());
     }
+}
 
+public static partial class MultiDayLayoutEngine
+{
     public static CalendarEventSegmentPosition GetSegmentPosition(
         DateOnly date,
         DateOnly eventFirstDate,
@@ -125,8 +111,6 @@ public static class CalendarPresentationLayout
             ? CalendarEventSegmentPosition.End
             : CalendarEventSegmentPosition.Middle;
     }
-
-    public static bool IsCurrentDate(DateOnly date, DateOnly today) => date == today;
 }
 
 public sealed record MonthDayLayout(
@@ -139,7 +123,12 @@ public readonly record struct TimedEventPosition(
 
 public readonly record struct TimedEventLayout(
     int Column,
-    int ColumnCount);
+    int ColumnCount)
+{
+    public double LeftPercentage => Column * WidthPercentage;
+
+    public double WidthPercentage => 100d / ColumnCount;
+}
 
 public enum CalendarEventSegmentPosition
 {

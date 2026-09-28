@@ -1,0 +1,38 @@
+<div class="month-week-row" role="row">
+    @foreach (var day in Week.Days)
+    {
+        <MonthDayCell Day="day"
+                      Selected="@(day.Date.Date == SelectedDate)"
+                      ActiveEventId="ActiveEventId"
+                      IsDragTarget="@(day.Date.Date == DragTargetDate)"
+                      DragPreview="@(day.Date.Date == DragTargetDate ? DragPreview : null)"
+                      SelectDateRange="SelectDateRange"
+                      CreateEvent="CreateEvent"
+                      DatePointerUp="DatePointerUp"
+                      DateKeyDown="DateKeyDown"
+                      EventFocused="EventFocused"
+                      EventPointerDown="EventPointerDown"
+                      EventSelected="EventSelected"
+                      EventEdit="EventEdit"
+                      MoreRequested="MoreRequested" />
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public CalendarMonthWeekLayout Week { get; set; } = null!;
+
+    [Parameter] public DateOnly SelectedDate { get; set; }
+    [Parameter] public Guid? ActiveEventId { get; set; }
+    [Parameter] public DateOnly? DragTargetDate { get; set; }
+    [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
+    [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
+    [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> MoreRequested { get; set; }
+}

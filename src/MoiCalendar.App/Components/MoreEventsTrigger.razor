@@ -1,0 +1,11 @@
+<button class="month-show-more"
+        type="button"
+        aria-label="@($"{Date:yyyy-MM-dd} 还有 {HiddenEventCount} 个事件")"
+        @onclick="() => Requested.InvokeAsync(Date)"
+        @onclick:stopPropagation="true">+@HiddenEventCount 更多</button>
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    [Parameter] public int HiddenEventCount { get; set; }
+    [Parameter] public EventCallback<DateOnly> Requested { get; set; }
+}

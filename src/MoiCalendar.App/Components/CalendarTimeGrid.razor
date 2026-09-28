@@ -1,7 +1,7 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<section class="week-calendar @(IsDayView ? "day-mode" : null) @(gesture?.IsActive == true ? "is-direct-manipulation" : null)"
+<section class="week-calendar @(IsDayView ? "day-mode" : null) @(ShowHalfHourLines ? "show-half-hour-lines" : "hide-half-hour-lines") @(gesture?.IsActive == true ? "is-direct-manipulation" : null)"
          aria-label="@AriaLabel"
          style="@GridStyle"
          @ref="interactionSurface"
@@ -15,54 +15,18 @@
 
     <div class="week-horizontal-scroll">
         <div class="week-grid-frame">
-            <div class="week-day-headings" role="row">
-                <span class="week-corner" aria-hidden="true"></span>
-                @foreach (var day in VisibleDays)
-                {
-                    <button class="@GetDayHeadingClass(day)"
-                            type="button"
-                            aria-current="@(IsCurrentDay(day.Date.Date) ? "date" : null)"
-                            aria-label="@($"在 {day.Date.Date:yyyy-MM-dd} 新建事件")"
-                            @onclick="() => DateSelected.InvokeAsync(day.Date.Date)">
-                        <span>@day.Date.WeekdayLabel</span>
-                        <strong>@day.Date.Date.ToString("M月d日")</strong>
-                    </button>
-                }
-            </div>
+            <TimeGridHeader Days="VisibleDays"
+                            SelectedDate="SelectedDate"
+                            Today="Today"
+                            DateSelected="DateSelected" />
 
-            <div class="week-all-day-row">
-                <strong class="week-section-label">全天</strong>
-                <div class="week-all-day-days">
-                    @foreach (var day in VisibleDays)
-                    {
-                        <div class="week-all-day-cell @(IsCurrentDay(day.Date.Date) ? "today" : null)">
-                            @foreach (var calendarEvent in day.AllDayEvents)
-                            {
-                                <button class="week-all-day-event @GetSegmentClass(calendarEvent.SegmentPosition)"
-                                        type="button"
-                                        title="@calendarEvent.Title"
-                                        @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
-                                    @if (ContinuesBefore(calendarEvent.SegmentPosition))
-                                    {
-                                        <span class="event-continuation" aria-hidden="true">‹</span>
-                                    }
-                                    @if (calendarEvent.IsRecurring)
-                                    {
-                                        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
-                                    }
-                                    <span class="week-all-day-title">@calendarEvent.Title</span>
-                                    @if (ContinuesAfter(calendarEvent.SegmentPosition))
-                                    {
-                                        <span class="event-continuation trailing" aria-hidden="true">›</span>
-                                    }
-                                </button>
-                            }
-                        </div>
-                    }
-                </div>
-            </div>
+            <AllDayPanel Days="VisibleDays"
+                         Today="Today"
+                         MaxVisibleRows="MaxVisibleAllDayRows"
+                         EventSelected="EventSelected"
+                         EventFocused="EventFocused" />
 
-            <div class="week-timed-scroll">
+            <div class="week-timed-scroll" @ref="timedScrollElement">
                 <div class="week-timed-layout">
                     <div class="week-time-labels" aria-hidden="true">
                         @foreach (var hour in TimeLabelHours)
@@ -74,18 +38,12 @@
                     <div class="week-timed-days" @ref="timedDaysElement">
                         @foreach (var day in VisibleDays)
                         {
-                            var eventLayouts = CalendarPresentationLayout.LayoutOverlappingEvents(day.TimedEvents);
-                            <div class="week-timed-day @(IsCurrentDay(day.Date.Date) ? "today" : null) @(day.Date.Date == SelectedDate ? "selected" : null)"
+                            var eventLayouts = GetTimedEventLayouts(day);
+                            <div class="week-timed-day @(day.Date.Date == Today ? "today" : null) @(day.Date.Date == SelectedDate ? "selected" : null)"
                                  @onpointerdown="args => BeginSelection(day.Date.Date, args)"
                                  @onclick="args => HandleDateClickAsync(day.Date.Date, args)"
                                  @ondblclick="args => RequestQuickCreateAtPointerAsync(day.Date.Date, args)">
-                                @if (IsCurrentDay(day.Date.Date))
-                                {
-                                    <span class="current-time-line" style="@GetCurrentTimeStyle()" aria-label="@($"当前时间 {currentTime:HH:mm}")">
-                                        <span></span>
-                                        <time datetime="@currentTime.ToString("HH:mm")">@currentTime.ToString("HH:mm")</time>
-                                    </span>
-                                }
+                                <CurrentTimeIndicator Date="day.Date.Date" Metrics="GridMetrics" />
 
                                 @if (preview is { } activePreview && activePreview.TargetDate == day.Date.Date)
                                 {
@@ -98,45 +56,19 @@
                                     </div>
                                 }
 
-                                @foreach (var calendarEvent in day.TimedEvents)
+                                @foreach (var calendarEvent in day.TimedEvents.Where(item => eventLayouts.ContainsKey(item.Id)))
                                 {
-                                    <button class="week-timed-event @GetSegmentClass(calendarEvent.SegmentPosition) @(IsInteracting(calendarEvent.Id) ? "interaction-source" : null)"
-                                            type="button"
-                                            style="@GetTimedEventStyle(calendarEvent, eventLayouts[calendarEvent.Id])"
-                                            title="@($"{calendarEvent.TimeLabel} {calendarEvent.Title}")"
-                                            @onfocus="() => EventFocused.InvokeAsync(calendarEvent.Id)"
-                                            @onpointerdown="args => BeginTimedMove(calendarEvent, day.Date.Date, args)"
-                                            @onpointerdown:stopPropagation="true"
-                                            @onclick="() => HandleEventClickAsync(calendarEvent.Id)"
-                                            @onclick:stopPropagation="true"
-                                            @ondblclick="() => HandleEventDoubleClickAsync(calendarEvent.Id)"
-                                            @ondblclick:stopPropagation="true">
-                                        <span class="timed-event-time">@calendarEvent.TimeLabel</span>
-                                        <strong>
-                                            @if (calendarEvent.IsRecurring)
-                                            {
-                                                <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
-                                            }
-                                            @calendarEvent.Title
-                                        </strong>
-                                        @if (IsDayView)
-                                        {
-                                            <span class="timed-event-metadata">
-                                                <span class="calendar-color" aria-hidden="true"></span>本地日历
-                                                @if (!string.IsNullOrWhiteSpace(calendarEvent.Location))
-                                                {
-                                                    <span> · @calendarEvent.Location</span>
-                                                }
-                                            </span>
-                                        }
-                                        @if (calendarEvent.SegmentPosition == CalendarEventSegmentPosition.Single)
-                                        {
-                                            <span class="event-resize-handle"
-                                                  aria-hidden="true"
-                                                  @onpointerdown="args => BeginResize(calendarEvent, day.Date.Date, args)"
-                                                  @onpointerdown:stopPropagation="true"></span>
-                                        }
-                                    </button>
+                                    <TimedEventBlock CalendarEvent="calendarEvent"
+                                                     Layout="eventLayouts[calendarEvent.Id]"
+                                                     Date="day.Date.Date"
+                                                     ShowExtendedMetadata="IsDayView"
+                                                     IsSelected="@(SelectedEventId == calendarEvent.Id)"
+                                                     IsInteractionSource="@IsInteracting(calendarEvent.Id)"
+                                                     Focused="EventFocused"
+                                                     Selected="HandleEventClickAsync"
+                                                     Edit="HandleEventDoubleClickAsync"
+                                                     PointerDown="HandleTimedEventPointerDown"
+                                                     ResizePointerDown="HandleResizePointerDown" />
                                 }
                             </div>
                         }
@@ -148,12 +80,13 @@
 </section>
 
 @code {
-    private static readonly int[] TimeLabelHours = Enumerable.Range(0, 24).ToArray();
     private const int TouchHoldMilliseconds = 350;
-    private CancellationTokenSource? clockCancellation;
-    private DateTime currentTime = DateTime.Now;
     private ElementReference interactionSurface;
+    private ElementReference timedScrollElement;
     private ElementReference timedDaysElement;
+    private TimeGridMetrics gridMetrics = TimeGridMetrics.FullDay;
+    private string? initializedScrollContext;
+    private bool scrollInitializationPending = true;
     private PointerGesture? gesture;
     private InteractionPreview? preview;
     private bool suppressNextClick;
@@ -172,6 +105,9 @@
     [Parameter]
     public DateOnly SelectedDate { get; set; }
 
+    [Parameter]
+    public Guid? SelectedEventId { get; set; }
+
     [Parameter, EditorRequired]
     public string InteractionTimeZoneId { get; set; } = TimeZoneInfo.Utc.Id;
 
@@ -188,36 +124,73 @@
     public EventCallback<DateOnly> DateSelected { get; set; }
 
     [Parameter]
-    public EventCallback<CalendarInteractionRequest> InteractionRequested { get; set; }
+    public EventCallback<CalendarInteractionIntent> IntentRequested { get; set; }
 
     [Parameter]
-    public EventCallback<CalendarInteractionRequest> QuickCreateRequested { get; set; }
+    public int VisibleStartHour { get; set; }
+
+    [Parameter]
+    public int VisibleEndHour { get; set; } = 24;
+
+    [Parameter]
+    public bool ShowHalfHourLines { get; set; } = true;
+
+    [Parameter]
+    public int DefaultScrollHour { get; set; } = 8;
+
+    [Parameter]
+    public int MaxVisibleAllDayRows { get; set; } = 3;
 
     private bool IsDayView => VisibleDate is not null;
 
-    private IReadOnlyList<CalendarWeekDayEvents> VisibleDays => VisibleDate is DateOnly date
-        ? WeekEvents.Days.Where(day => day.Date.Date == date).ToArray()
-        : WeekEvents.Days;
+    private IReadOnlyList<CalendarWeekDayEvents> VisibleDays =>
+        CalendarTimeGridProjection.SelectDays(WeekEvents.Days, VisibleDate);
 
-    private string GridStyle => $"--visible-days:{Math.Max(1, VisibleDays.Count)}";
+    private TimeGridMetrics GridMetrics => gridMetrics;
+
+    private DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private IReadOnlyList<int> TimeLabelHours => Enumerable
+        .Range(VisibleStartHour, VisibleEndHour - VisibleStartHour)
+        .ToArray();
+
+    private string ScrollContextKey => IsDayView ? "day" : "week";
+
+    private string GridStyle => FormattableString.Invariant(
+        $"--visible-days:{Math.Max(1, VisibleDays.Count)};--time-grid-hours:{GridMetrics.VisibleDurationMinutes / 60d:0.####}");
 
     private string EmptyMessage => IsDayView
         ? "当天暂无事件，选择时间区域可新建事件。"
         : "本周暂无事件，选择日期可新建事件。";
 
+    protected override void OnParametersSet()
+    {
+        gridMetrics = new TimeGridMetrics(VisibleStartHour * 60, VisibleEndHour * 60);
+        var context = $"{ScrollContextKey}:{VisibleStartHour}-{VisibleEndHour}";
+        if (!string.Equals(initializedScrollContext, context, StringComparison.Ordinal))
+        {
+            initializedScrollContext = context;
+            scrollInitializationPending = true;
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (!scrollInitializationPending)
         {
             return;
         }
 
-        clockCancellation = new CancellationTokenSource();
-        _ = UpdateClockAsync(clockCancellation.Token);
-
+        scrollInitializationPending = false;
         try
         {
-            await JS.InvokeVoidAsync("moicalendarUi.scrollCalendarToActiveHours");
+            await JS.InvokeVoidAsync(
+                "moicalendarUi.initializeCalendarScroll",
+                timedScrollElement,
+                ScrollContextKey,
+                GetInitialScrollMinute(),
+                GridMetrics.VisibleStartMinute,
+                GridMetrics.VisibleEndMinute);
         }
         catch (JSException)
         {
@@ -227,58 +200,25 @@
 
     public ValueTask DisposeAsync()
     {
-        clockCancellation?.Cancel();
-        clockCancellation?.Dispose();
         eventClickCancellation?.Cancel();
         eventClickCancellation?.Dispose();
         return ValueTask.CompletedTask;
     }
 
-    private async Task UpdateClockAsync(CancellationToken cancellationToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                currentTime = DateTime.Now;
-                await InvokeAsync(StateHasChanged);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // 组件离开页面时停止纯展示时钟。
-        }
-    }
-
-    private static string GetTimedEventStyle(CalendarWeekTimedEvent calendarEvent, TimedEventLayout layout) =>
+    private string GetTimeLabelStyle(int hour) =>
         FormattableString.Invariant(
-            $"--event-top:{calendarEvent.TopPercentage:0.####}%;--event-height:{calendarEvent.HeightPercentage:0.####}%;--event-column:{layout.Column};--event-columns:{layout.ColumnCount};");
+            $"--time-label-top:{TimeGridCoordinateConverter.MinuteToPercentage(hour * 60, GridMetrics):0.####}%;");
 
-    private static string GetTimeLabelStyle(int hour) =>
-        FormattableString.Invariant($"--time-label-top:{hour * 100d / 24:0.####}%;");
+    private IReadOnlyDictionary<Guid, TimeGridLayoutItem> GetTimedEventLayouts(CalendarWeekDayEvents day) =>
+        CalendarTimeGridProjection.LayoutTimedEvents(day, GridMetrics);
 
-    private string GetCurrentTimeStyle() =>
-        FormattableString.Invariant($"--current-time-top:{currentTime.TimeOfDay.TotalMinutes * 100d / 1440:0.####}%;");
-
-    private string GetDayHeadingClass(CalendarWeekDayEvents day)
+    private int GetInitialScrollMinute()
     {
-        var classes = "week-day-heading";
-        if (IsCurrentDay(day.Date.Date))
-        {
-            classes += " today";
-        }
-
-        if (day.Date.Date == SelectedDate)
-        {
-            classes += " selected";
-        }
-
-        return classes;
+        var target = VisibleDays.Any(day => day.Date.Date == Today)
+            ? (int)DateTime.Now.TimeOfDay.TotalMinutes - 120
+            : DefaultScrollHour * 60;
+        return Math.Clamp(target, GridMetrics.VisibleStartMinute, GridMetrics.VisibleEndMinute);
     }
-
-    private bool IsCurrentDay(DateOnly date) =>
-        CalendarPresentationLayout.IsCurrentDate(date, DateOnly.FromDateTime(currentTime));
 
     private void BeginTimedMove(
         CalendarWeekTimedEvent calendarEvent,
@@ -298,6 +238,17 @@
             DateTimeOffset.UtcNow);
     }
 
+    private void HandleTimedEventPointerDown(TimedEventPointerArgs interaction)
+    {
+        if (!interaction.CalendarEvent.IsReadOnly)
+        {
+            BeginTimedMove(
+                interaction.CalendarEvent,
+                interaction.Date,
+                interaction.PointerEvent);
+        }
+    }
+
     private void BeginResize(
         CalendarWeekTimedEvent calendarEvent,
         DateOnly date,
@@ -314,6 +265,17 @@
             date,
             args,
             DateTimeOffset.UtcNow);
+    }
+
+    private void HandleResizePointerDown(TimedEventPointerArgs interaction)
+    {
+        if (!interaction.CalendarEvent.IsReadOnly)
+        {
+            BeginResize(
+                interaction.CalendarEvent,
+                interaction.Date,
+                interaction.PointerEvent);
+        }
     }
 
     private void BeginSelection(DateOnly date, PointerEventArgs args)
@@ -350,7 +312,7 @@
             gesture = current;
             try
             {
-                await JS.InvokeVoidAsync("moicalendarUi.capturePointer", interactionSurface, args.PointerId);
+                await JS.InvokeVoidAsync("moicalendarInteraction.capturePointer", interactionSurface, args.PointerId);
             }
             catch (JSException)
             {
@@ -361,7 +323,7 @@
         ElementBounds bounds;
         try
         {
-            bounds = await JS.InvokeAsync<ElementBounds>("moicalendarUi.getElementBounds", timedDaysElement);
+            bounds = await JS.InvokeAsync<ElementBounds>("moicalendarInteraction.getElementBounds", timedDaysElement);
         }
         catch (JSException)
         {
@@ -378,7 +340,8 @@
         var pointerMinute = CalendarInteractionGeometry.MinuteFromPointer(
             args.ClientY,
             bounds.Top,
-            bounds.Height);
+            bounds.Height,
+            metrics: GridMetrics);
         preview = CreatePreview(current, targetDate, pointerMinute, bounds, args.ClientY);
     }
 
@@ -398,21 +361,17 @@
         preview = null;
         try
         {
-            await JS.InvokeVoidAsync("moicalendarUi.releasePointer", interactionSurface, args.PointerId);
+            await JS.InvokeVoidAsync("moicalendarInteraction.releasePointer", interactionSurface, args.PointerId);
         }
         catch (JSException)
         {
             // 浏览器也会在 pointerup 后自动释放捕获。
         }
 
-        var request = BuildRequest(current, committedPreview);
-        if (current.Kind == CalendarPointerGestureKind.Selection && QuickCreateRequested.HasDelegate)
+        var intent = BuildIntent(current, committedPreview);
+        if (IntentRequested.HasDelegate)
         {
-            await QuickCreateRequested.InvokeAsync(request);
-        }
-        else if (InteractionRequested.HasDelegate)
-        {
-            await InteractionRequested.InvokeAsync(request);
+            await IntentRequested.InvokeAsync(intent);
         }
     }
 
@@ -434,12 +393,15 @@
             var startMinute = CalendarInteractionGeometry.MinuteFromPointer(
                 current.StartY,
                 bounds.Top,
-                bounds.Height);
+                bounds.Height,
+                metrics: GridMetrics);
             var first = Math.Min(startMinute, pointerMinute);
             var last = Math.Max(startMinute, pointerMinute);
             if (last - first < CalendarInteractionGeometry.MinimumTimedDurationMinutes)
             {
-                last = Math.Min(24 * 60, first + CalendarInteractionGeometry.MinimumTimedDurationMinutes);
+                last = Math.Min(
+                    GridMetrics.VisibleEndMinute,
+                    first + CalendarInteractionGeometry.MinimumTimedDurationMinutes);
             }
 
             return new InteractionPreview(current.Kind, targetDate, first, last, "新事件");
@@ -455,38 +417,42 @@
                 current.Kind,
                 current.OriginalDate,
                 calendarEvent.StartMinute,
-                Math.Min(24 * 60, endMinute),
+                Math.Min(GridMetrics.VisibleEndMinute, endMinute),
                 calendarEvent.Title);
         }
 
         var duration = calendarEvent.DurationMinutes;
-        var start = Math.Min(pointerMinute, 24 * 60 - Math.Min(duration, 24 * 60));
+        var start = Math.Min(
+            pointerMinute,
+            GridMetrics.VisibleEndMinute - Math.Min(duration, GridMetrics.VisibleDurationMinutes));
+        start = Math.Max(GridMetrics.VisibleStartMinute, start);
         return new InteractionPreview(
             current.Kind,
             targetDate,
             start,
-            Math.Min(24 * 60, start + duration),
+            Math.Min(GridMetrics.VisibleEndMinute, start + duration),
             calendarEvent.Title);
     }
 
-    private CalendarInteractionRequest BuildRequest(PointerGesture current, InteractionPreview committedPreview)
+    private CalendarInteractionIntent BuildIntent(PointerGesture current, InteractionPreview committedPreview)
     {
         var start = ToLocalDateTime(committedPreview.TargetDate, committedPreview.StartMinute);
         var end = ToLocalDateTime(committedPreview.TargetDate, committedPreview.EndMinute);
         if (current.Kind == CalendarPointerGestureKind.Selection)
         {
-            return CalendarInteractionRequest.CreateSelection(start, end, InteractionTimeZoneId);
+            return new SelectTimeRangeIntent(start, end, InteractionTimeZoneId);
         }
 
         var calendarEvent = current.CalendarEvent!;
         return current.Kind == CalendarPointerGestureKind.Resize
-            ? CalendarInteractionRequest.Resize(
+            ? new ResizeEventIntent(
                 calendarEvent.Id,
                 calendarEvent.OriginalStartUtc,
                 calendarEvent.OriginalEndUtc,
                 end,
-                calendarEvent.InteractionTimeZoneId)
-            : CalendarInteractionRequest.MoveTimed(
+                calendarEvent.InteractionTimeZoneId,
+                calendarEvent.IsReadOnly)
+            : MoveEventIntent.ToTime(
                 calendarEvent.Id,
                 calendarEvent.OriginalStartUtc,
                 calendarEvent.OriginalEndUtc,
@@ -547,26 +513,37 @@
         ElementBounds bounds;
         try
         {
-            bounds = await JS.InvokeAsync<ElementBounds>("moicalendarUi.getElementBounds", timedDaysElement);
+            bounds = await JS.InvokeAsync<ElementBounds>("moicalendarInteraction.getElementBounds", timedDaysElement);
         }
         catch (JSException)
         {
-            await QuickCreateRequested.InvokeAsync(
-                CalendarInteractionRequest.CreateSelection(
-                    date.ToDateTime(new TimeOnly(9, 0)),
-                    date.ToDateTime(new TimeOnly(10, 0)),
+            var fallbackStart = Math.Clamp(
+                DefaultScrollHour * 60,
+                GridMetrics.VisibleStartMinute,
+                GridMetrics.VisibleEndMinute - CalendarInteractionGeometry.MinimumTimedDurationMinutes);
+            await IntentRequested.InvokeAsync(
+                new SelectTimeRangeIntent(
+                    ToLocalDateTime(date, fallbackStart),
+                    ToLocalDateTime(
+                        date,
+                        Math.Min(GridMetrics.VisibleEndMinute, fallbackStart + 60)),
                     InteractionTimeZoneId));
             return;
         }
 
-        var startMinute = CalendarInteractionGeometry.MinuteFromPointer(
-            args.ClientY,
-            bounds.Top,
-            bounds.Height);
+        var startMinute = Math.Min(
+            CalendarInteractionGeometry.MinuteFromPointer(
+                args.ClientY,
+                bounds.Top,
+                bounds.Height,
+                metrics: GridMetrics),
+            GridMetrics.VisibleEndMinute - CalendarInteractionGeometry.MinimumTimedDurationMinutes);
         var start = ToLocalDateTime(date, startMinute);
-        var end = start.AddHours(1);
-        await QuickCreateRequested.InvokeAsync(
-            CalendarInteractionRequest.CreateSelection(start, end, InteractionTimeZoneId));
+        var end = ToLocalDateTime(
+            date,
+            Math.Min(GridMetrics.VisibleEndMinute, startMinute + 60));
+        await IntentRequested.InvokeAsync(
+            new SelectTimeRangeIntent(start, end, InteractionTimeZoneId));
     }
 
     private bool ConsumeSuppressedClick()
@@ -588,16 +565,19 @@
         gesture is { IsActive: true, CalendarEvent.Id: var activeId } && activeId == eventId;
 
     private static DateTime ToLocalDateTime(DateOnly date, int minute) =>
-        minute >= 24 * 60
+        minute >= CalendarMetrics.MinutesPerDay
             ? date.AddDays(1).ToDateTime(TimeOnly.MinValue)
             : date.ToDateTime(TimeOnly.MinValue).AddMinutes(minute);
 
-    private static string GetPreviewStyle(InteractionPreview item)
+    private string GetPreviewStyle(InteractionPreview item)
     {
-        var position = CalendarPresentationLayout.CalculateTimedPosition(
+        var position = TimeGridLayoutEngine.CalculateClippedPosition(
             item.StartMinute,
-            Math.Max(1, item.EndMinute - item.StartMinute),
-            CalendarInteractionGeometry.MinimumTimedDurationMinutes);
+            Math.Max(item.StartMinute + 1, item.EndMinute),
+            new TimeGridMetrics(
+                GridMetrics.VisibleStartMinute,
+                GridMetrics.VisibleEndMinute,
+                CalendarInteractionGeometry.MinimumTimedDurationMinutes));
         return FormattableString.Invariant(
             $"--event-top:{position.TopPercentage:0.####}%;--event-height:{position.HeightPercentage:0.####}%;");
     }
@@ -605,23 +585,9 @@
     private static string FormatPreview(InteractionPreview item) =>
         $"{item.TargetDate:M月d日} {FormatMinute(item.StartMinute)}–{FormatMinute(item.EndMinute)}";
 
-    private static string FormatMinute(int minute) => minute >= 24 * 60
+    private static string FormatMinute(int minute) => minute >= CalendarMetrics.MinutesPerDay
         ? "24:00"
         : $"{minute / 60:D2}:{minute % 60:D2}";
-
-    private static string GetSegmentClass(CalendarEventSegmentPosition position) => position switch
-    {
-        CalendarEventSegmentPosition.Start => "segment-start continues-after",
-        CalendarEventSegmentPosition.Middle => "segment-middle continues-before continues-after",
-        CalendarEventSegmentPosition.End => "segment-end continues-before",
-        _ => "segment-single"
-    };
-
-    private static bool ContinuesBefore(CalendarEventSegmentPosition position) =>
-        position is CalendarEventSegmentPosition.Middle or CalendarEventSegmentPosition.End;
-
-    private static bool ContinuesAfter(CalendarEventSegmentPosition position) =>
-        position is CalendarEventSegmentPosition.Start or CalendarEventSegmentPosition.Middle;
 
     private enum CalendarPointerGestureKind
     {

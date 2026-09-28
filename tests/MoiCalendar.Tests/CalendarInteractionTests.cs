@@ -15,10 +15,11 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveToDate(
+            MoveEventIntent.ToDate(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
+                new DateOnly(2026, 9, 11),
                 new DateOnly(2026, 9, 13),
                 TimeZoneInfo.Utc.Id));
 
@@ -36,7 +37,7 @@ public sealed class CalendarInteractionTests
             new DateTimeOffset(2026, 9, 11, 11, 0, 0, TimeSpan.Zero));
         await context.Repository.CreateAsync(calendarEvent);
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveTimed(
+            MoveEventIntent.ToTime(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
@@ -59,7 +60,7 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.Resize(
+            new ResizeEventIntent(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
@@ -109,7 +110,7 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.Resize(
+            new ResizeEventIntent(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
@@ -137,7 +138,7 @@ public sealed class CalendarInteractionTests
         var interactions = new CalendarInteractionService(service);
 
         var result = await interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveTimed(
+            MoveEventIntent.ToTime(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
@@ -160,10 +161,11 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveToDate(
+            MoveEventIntent.ToDate(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
+                new DateOnly(2026, 9, 11),
                 new DateOnly(2026, 9, 15),
                 TimeZoneInfo.Utc.Id));
 
@@ -185,10 +187,11 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveToDate(
+            MoveEventIntent.ToDate(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
+                new DateOnly(2026, 9, 11),
                 new DateOnly(2026, 9, 12),
                 TimeZoneInfo.Utc.Id));
 
@@ -206,7 +209,7 @@ public sealed class CalendarInteractionTests
         await context.Repository.CreateAsync(calendarEvent);
 
         var result = await context.Interactions.ExecuteAsync(
-            CalendarInteractionRequest.MoveTimed(
+            MoveEventIntent.ToTime(
                 calendarEvent.Id,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
@@ -222,17 +225,113 @@ public sealed class CalendarInteractionTests
     public async Task TimeSelection_ReturnsEditorRangeWithoutPersisting()
     {
         var context = CreateContext();
-        var request = CalendarInteractionRequest.CreateSelection(
+        var intent = new SelectTimeRangeIntent(
             new DateTime(2026, 9, 11, 13, 0, 0),
             new DateTime(2026, 9, 11, 14, 30, 0),
             TimeZoneInfo.Utc.Id);
 
-        var result = await context.Interactions.ExecuteAsync(request);
+        var result = await context.Interactions.ExecuteAsync(intent);
 
         Assert.Equal(CalendarInteractionStatus.SelectionReady, result.Status);
-        Assert.Equal(new DateTime(2026, 9, 11, 13, 0, 0), result.Request.NewStartLocal);
-        Assert.Equal(new DateTime(2026, 9, 11, 14, 30, 0), result.Request.NewEndLocal);
-        Assert.Equal(new DateOnly(2026, 9, 11), result.Request.TargetDate);
+        var selection = Assert.IsType<SelectTimeRangeIntent>(result.Intent);
+        Assert.Equal(new DateTime(2026, 9, 11, 13, 0, 0), selection.StartLocal);
+        Assert.Equal(new DateTime(2026, 9, 11, 14, 30, 0), selection.EndLocal);
+        Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+    }
+
+    [Fact]
+    public async Task WeekHorizontalMove_ChangesDayAndPreservesDuration()
+    {
+        var context = CreateContext();
+        var calendarEvent = CreateEvent(Utc(2026, 9, 11, 10), Utc(2026, 9, 11, 11));
+        await context.Repository.CreateAsync(calendarEvent);
+
+        var result = await context.Interactions.ExecuteAsync(MoveEventIntent.ToTime(
+            calendarEvent.Id,
+            calendarEvent.StartUtc,
+            calendarEvent.EndUtc,
+            new DateTime(2026, 9, 12, 9, 7, 0),
+            new DateTime(2026, 9, 12, 10, 7, 0),
+            TimeZoneInfo.Utc.Id));
+
+        Assert.Equal(CalendarInteractionStatus.Committed, result.Status);
+        Assert.Equal(Utc(2026, 9, 12, 9), result.UpdatedEvent!.StartUtc);
+        Assert.Equal(TimeSpan.FromHours(1), result.UpdatedEvent.EndUtc - result.UpdatedEvent.StartUtc);
+    }
+
+    [Fact]
+    public async Task MonthMove_FromMiddleSegmentAppliesDateDeltaToWholeEvent()
+    {
+        var context = CreateContext();
+        var calendarEvent = CreateEvent(Utc(2026, 9, 10), Utc(2026, 9, 13), isAllDay: true);
+        await context.Repository.CreateAsync(calendarEvent);
+
+        var result = await context.Interactions.ExecuteAsync(MoveEventIntent.ToDate(
+            calendarEvent.Id,
+            calendarEvent.StartUtc,
+            calendarEvent.EndUtc,
+            sourceDate: new DateOnly(2026, 9, 11),
+            targetDate: new DateOnly(2026, 9, 15),
+            TimeZoneInfo.Utc.Id));
+
+        Assert.Equal(Utc(2026, 9, 14), result.UpdatedEvent!.StartUtc);
+        Assert.Equal(Utc(2026, 9, 17), result.UpdatedEvent.EndUtc);
+        Assert.True(result.UpdatedEvent.IsAllDay);
+    }
+
+    [Fact]
+    public async Task ReadOnlyIntent_IsRejectedWithoutWriting()
+    {
+        var context = CreateContext();
+        var calendarEvent = CreateEvent(Utc(2026, 9, 11, 10), Utc(2026, 9, 11, 11));
+        await context.Repository.CreateAsync(calendarEvent);
+
+        var intent = MoveEventIntent.ToTime(
+            calendarEvent.Id,
+            calendarEvent.StartUtc,
+            calendarEvent.EndUtc,
+            new DateTime(2026, 9, 11, 12, 0, 0),
+            new DateTime(2026, 9, 11, 13, 0, 0),
+            TimeZoneInfo.Utc.Id) with { IsReadOnly = true };
+        var result = await context.Interactions.ExecuteAsync(intent);
+
+        Assert.Equal(CalendarInteractionStatus.Rejected, result.Status);
+        Assert.Equal(calendarEvent, await context.Repository.GetByIdAsync(calendarEvent.Id));
+        Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+    }
+
+    [Fact]
+    public async Task DuplicateCommit_CreatesOnlyOneUpdate()
+    {
+        var context = CreateContext();
+        var calendarEvent = CreateEvent(Utc(2026, 9, 11, 10), Utc(2026, 9, 11, 11));
+        await context.Repository.CreateAsync(calendarEvent);
+        var intent = MoveEventIntent.ToTime(
+            calendarEvent.Id,
+            calendarEvent.StartUtc,
+            calendarEvent.EndUtc,
+            new DateTime(2026, 9, 11, 12, 0, 0),
+            new DateTime(2026, 9, 11, 13, 0, 0),
+            TimeZoneInfo.Utc.Id);
+
+        var first = await context.Interactions.ExecuteAsync(intent);
+        var duplicate = await context.Interactions.ExecuteAsync(intent);
+
+        Assert.Equal(CalendarInteractionStatus.Committed, first.Status);
+        Assert.Equal(CalendarInteractionStatus.Rejected, duplicate.Status);
+        Assert.Single(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+    }
+
+    [Fact]
+    public async Task DateRangeSelection_DoesNotCreateOrUpdateEvent()
+    {
+        var context = CreateContext();
+
+        var result = await context.Interactions.ExecuteAsync(
+            new SelectDateRangeIntent(new DateOnly(2026, 9, 11), new DateOnly(2026, 9, 14)));
+
+        Assert.Equal(CalendarInteractionStatus.SelectionReady, result.Status);
+        Assert.Empty(await context.Repository.GetAllIncludingDeletedAsync());
         Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
     }
 
@@ -264,6 +363,9 @@ public sealed class CalendarInteractionTests
         CreatedAtUtc = start.AddDays(-1),
         UpdatedAtUtc = start.AddDays(-1)
     };
+
+    private static DateTimeOffset Utc(int year, int month, int day, int hour = 0) =>
+        new(year, month, day, hour, 0, 0, TimeSpan.Zero);
 
     private sealed record TestContext(
         InMemoryEventRepository Repository,

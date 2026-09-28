@@ -1,0 +1,73 @@
+<button class="@EventClass"
+        style="@CalendarColorStyle"
+        type="button"
+        title="@CalendarEvent.Title"
+        aria-disabled="@CalendarEvent.IsReadOnly"
+        @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
+        @onpointerdown="HandlePointerDown"
+        @onpointerdown:stopPropagation="true"
+        @onpointerup:stopPropagation="true"
+        @onclick="() => Selected.InvokeAsync(CalendarEvent.Id)"
+        @ondblclick="() => Edit.InvokeAsync(CalendarEvent.Id)"
+        @ondblclick:stopPropagation="true"
+        @onclick:stopPropagation="true">
+    @if (ContinuesBefore)
+    {
+        <span class="event-continuation" aria-hidden="true">‹</span>
+    }
+    @if (ShowTime)
+    {
+        <span class="event-time">@CalendarEvent.TimeLabel</span>
+    }
+    @if (CalendarEvent.IsRecurring)
+    {
+        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+    }
+    <span class="event-title">@CalendarEvent.Title</span>
+    @if (ContinuesAfter)
+    {
+        <span class="event-continuation trailing" aria-hidden="true">›</span>
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public CalendarEventListItem CalendarEvent { get; set; } = null!;
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    [Parameter] public bool IsInteractionSource { get; set; }
+    [Parameter] public EventCallback<Guid> Focused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> PointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> Selected { get; set; }
+    [Parameter] public EventCallback<Guid> Edit { get; set; }
+
+    private bool ContinuesBefore =>
+        CalendarEvent.SegmentPosition is CalendarEventSegmentPosition.Middle or CalendarEventSegmentPosition.End;
+
+    private bool ContinuesAfter =>
+        CalendarEvent.SegmentPosition is CalendarEventSegmentPosition.Start or CalendarEventSegmentPosition.Middle;
+
+    private bool ShowTime => !CalendarEvent.IsAllDay &&
+        !string.Equals(CalendarEvent.TimeLabel, "续", StringComparison.Ordinal);
+
+    private string CalendarColorStyle =>
+        $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(CalendarEvent.CalendarColorIndex, 1, 8)});";
+
+    private string EventClass => string.Join(' ', new[]
+    {
+        "event-chip",
+        CalendarEvent.IsAllDay ? "all-day" : "timed",
+        CalendarEvent.SegmentPosition switch
+        {
+            CalendarEventSegmentPosition.Start => "segment-start continues-after",
+            CalendarEventSegmentPosition.Middle => "segment-middle continues-before continues-after",
+            CalendarEventSegmentPosition.End => "segment-end continues-before",
+            _ => "segment-single"
+        },
+        IsInteractionSource ? "interaction-source" : null,
+        CalendarEvent.IsReadOnly ? "read-only" : null
+    }.Where(value => value is not null));
+
+    private Task HandlePointerDown(PointerEventArgs args) =>
+        CalendarEvent.IsReadOnly
+            ? Task.CompletedTask
+            : PointerDown.InvokeAsync(new MonthEventPointerArgs(CalendarEvent, Date, args));
+}

@@ -1,0 +1,37 @@
+@if (DragPreview is not null)
+{
+    <div class="month-drag-preview" role="status" aria-live="polite">
+        <strong>@DragPreview.Title</strong>
+        <span>@DragPreview.TimeLabel · @Date.ToString("M月d日")</span>
+    </div>
+}
+
+@foreach (var calendarEvent in Layout.VisibleEvents)
+{
+    <MonthEventSegment CalendarEvent="calendarEvent"
+                       Date="Date"
+                       IsInteractionSource="@(ActiveEventId == calendarEvent.Id)"
+                       Focused="EventFocused"
+                       PointerDown="EventPointerDown"
+                       Selected="EventSelected"
+                       Edit="EventEdit" />
+}
+
+@if (Layout.OverflowCount > 0)
+{
+    <MoreEventsTrigger Date="Date"
+                       HiddenEventCount="Layout.OverflowCount"
+                       Requested="MoreRequested" />
+}
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    [Parameter, EditorRequired] public MonthDayLayout Layout { get; set; } = null!;
+    [Parameter] public Guid? ActiveEventId { get; set; }
+    [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
+    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> MoreRequested { get; set; }
+}

@@ -1,0 +1,54 @@
+@implements IDisposable
+
+@if (topPercentage is double top)
+{
+    <span class="current-time-line"
+          style="@FormattableString.Invariant($"--current-time-top:{top:0.####}%;")"
+          aria-label="@($"当前时间 {currentTime:HH:mm}")">
+        <span></span>
+        <time datetime="@currentTime.ToString("HH:mm")">@currentTime.ToString("HH:mm")</time>
+    </span>
+}
+
+@code {
+    private readonly CancellationTokenSource cancellation = new();
+    private DateTime currentTime = DateTime.Now;
+    private double? topPercentage;
+
+    [Parameter, EditorRequired]
+    public DateOnly Date { get; set; }
+
+    [Parameter, EditorRequired]
+    public TimeGridMetrics Metrics { get; set; } = TimeGridMetrics.FullDay;
+
+    protected override void OnParametersSet() => UpdatePosition();
+
+    protected override void OnInitialized() => _ = RunClockAsync(cancellation.Token);
+
+    public void Dispose()
+    {
+        cancellation.Cancel();
+        cancellation.Dispose();
+    }
+
+    private async Task RunClockAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                currentTime = DateTime.Now;
+                UpdatePosition();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 仅停止展示时钟，不触发数据读取或持久化。
+        }
+    }
+
+    private void UpdatePosition() =>
+        topPercentage = CurrentTimeIndicatorLayout.CalculateTopPercentage(Date, currentTime, Metrics);
+}

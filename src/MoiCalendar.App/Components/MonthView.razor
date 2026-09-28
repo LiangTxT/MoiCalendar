@@ -1,0 +1,108 @@
+<div class="month-view">
+    <div class="weekday-grid" role="row">
+        @for (var index = 0; index < Layout.Month.WeekdayLabels.Count; index++)
+        {
+            var weekday = Layout.Month.WeekdayLabels[index];
+            <div class="weekday @(index >= 5 ? "weekend" : null)" role="columnheader">
+                @FormatCompactWeekday(weekday)
+            </div>
+        }
+    </div>
+
+    <div class="month-grid @(IsDirectManipulation ? "is-direct-manipulation" : null)"
+         role="grid"
+         aria-rowcount="6"
+         aria-colcount="7"
+         @ref="GridElement"
+         @onpointermove="PointerMove"
+         @onpointerup="PointerUp"
+         @onpointercancel="PointerCancel">
+        @foreach (var week in Layout.Weeks)
+        {
+            <MonthWeekRow Week="week"
+                          SelectedDate="SelectedDate"
+                          ActiveEventId="ActiveEventId"
+                          DragTargetDate="DragTargetDate"
+                          DragPreview="DragPreview"
+                          SelectDateRange="SelectDateRange"
+                          CreateEvent="CreateEvent"
+                          DatePointerUp="DatePointerUp"
+                          DateKeyDown="DateKeyDown"
+                          EventFocused="EventFocused"
+                          EventPointerDown="EventPointerDown"
+                          EventSelected="EventSelected"
+                          EventEdit="EventEdit"
+                          MoreRequested="MoreRequested" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public CalendarMonthLayoutView Layout { get; set; } = null!;
+
+    [Parameter]
+    public DateOnly SelectedDate { get; set; }
+
+    [Parameter]
+    public Guid? ActiveEventId { get; set; }
+
+    [Parameter]
+    public DateOnly? DragTargetDate { get; set; }
+
+    [Parameter]
+    public MonthDragPreviewModel? DragPreview { get; set; }
+
+    [Parameter]
+    public bool IsDirectManipulation { get; set; }
+
+    [Parameter]
+    public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
+
+    [Parameter]
+    public EventCallback<DateOnly> CreateEvent { get; set; }
+
+    [Parameter]
+    public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
+
+    [Parameter]
+    public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> EventFocused { get; set; }
+
+    [Parameter]
+    public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> EventSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> EventEdit { get; set; }
+
+    [Parameter]
+    public EventCallback<DateOnly> MoreRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<PointerEventArgs> PointerMove { get; set; }
+
+    [Parameter]
+    public EventCallback<PointerEventArgs> PointerUp { get; set; }
+
+    [Parameter]
+    public EventCallback<PointerEventArgs> PointerCancel { get; set; }
+
+    public ElementReference GridElement { get; private set; }
+
+    private static string FormatCompactWeekday(string weekday) => weekday switch
+    {
+        "Mon" => "一",
+        "Tue" => "二",
+        "Wed" => "三",
+        "Thu" => "四",
+        "Fri" => "五",
+        "Sat" => "六",
+        "Sun" => "日",
+        _ => weekday
+    };
+}

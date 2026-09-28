@@ -13,8 +13,6 @@ public sealed class CalendarEventService(
     private const int MaximumTitleLength = 200;
     private const int MaximumDescriptionLength = 4_000;
     private const int MaximumLocationLength = 300;
-    private const int MinutesPerDay = 24 * 60;
-    private const int MinimumTimedEventDisplayMinutes = 30;
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly IRecurrenceExpansionService recurrenceExpansionService =
         recurrenceExpansionService ?? new RecurrenceExpansionService();
@@ -292,13 +290,13 @@ public sealed class CalendarEventService(
                 : 0;
             var endMinute = date == eventLastDate && DateOnly.FromDateTime(localEnd.DateTime) == date
                 ? GetMinuteOfDay(localEnd.TimeOfDay, roundUp: true)
-                : MinutesPerDay;
-            endMinute = Math.Clamp(endMinute, startMinute + 1, MinutesPerDay);
+                : CalendarMetrics.MinutesPerDay;
+            endMinute = Math.Clamp(endMinute, startMinute + 1, CalendarMetrics.MinutesPerDay);
             var durationMinutes = endMinute - startMinute;
             var position = CalendarPresentationLayout.CalculateTimedPosition(
                 startMinute,
                 durationMinutes,
-                MinimumTimedEventDisplayMinutes);
+                CalendarMetrics.DefaultMinimumTimedDisplayMinutes);
 
             timedGroups[date].Add(new CalendarWeekTimedEvent(
                 calendarEvent.Id,
@@ -325,7 +323,7 @@ public sealed class CalendarEventService(
 
     private static string FormatMinute(int minute)
     {
-        if (minute >= MinutesPerDay)
+        if (minute >= CalendarMetrics.MinutesPerDay)
         {
             return "24:00";
         }
@@ -345,15 +343,19 @@ public sealed class CalendarEventService(
             : displayTimeZone;
         var localStart = TimeZoneInfo.ConvertTime(calendarEvent.StartUtc, eventTimeZone);
         var localEnd = TimeZoneInfo.ConvertTime(calendarEvent.EndUtc, eventTimeZone);
-        var eventFirstDate = DateOnly.FromDateTime(localStart.DateTime);
-        var eventLastDate = DateOnly.FromDateTime(localEnd.AddTicks(-1).DateTime);
-        var firstVisibleDate = eventFirstDate < firstGridDate ? firstGridDate : eventFirstDate;
-        var lastGridDate = endGridDateExclusive.AddDays(-1);
-        var lastVisibleDate = eventLastDate > lastGridDate ? lastGridDate : eventLastDate;
+        var visibleRange = new CalendarVisibleRange(firstGridDate, endGridDateExclusive);
+        var segments = MultiDayLayoutEngine.Segment(
+            [new CalendarRenderEvent(
+                calendarEvent.Id,
+                calendarEvent.Title,
+                DateTime.SpecifyKind(localStart.DateTime, DateTimeKind.Unspecified),
+                DateTime.SpecifyKind(localEnd.DateTime, DateTimeKind.Unspecified),
+                calendarEvent.IsAllDay)],
+            visibleRange);
 
-        for (var date = firstVisibleDate; date <= lastVisibleDate; date = date.AddDays(1))
+        foreach (var segment in segments)
         {
-            var isFirstDate = date == eventFirstDate;
+            var isFirstDate = !segment.ContinuesFromPreviousDay;
             var timeLabel = calendarEvent.IsAllDay
                 ? "全天"
                 : isFirstDate ? localStart.ToString("HH:mm") : "续";
@@ -361,14 +363,14 @@ public sealed class CalendarEventService(
                 ? TimeSpan.Zero
                 : localStart.TimeOfDay;
 
-            groups[date].Add(new CalendarEventListItem(
+            groups[segment.Date].Add(new CalendarEventListItem(
                 calendarEvent.Id,
                 calendarEvent.Title,
                 timeLabel,
                 calendarEvent.IsAllDay,
                 sortTime,
                 !string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule),
-                CalendarPresentationLayout.GetSegmentPosition(date, eventFirstDate, eventLastDate),
+                segment.Position,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
                 eventTimeZone.Id));

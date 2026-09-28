@@ -17,7 +17,7 @@ public sealed class CalendarPresentationLayoutTests
                 TimeSpan.FromMinutes(item.StartMinute)))
             .ToArray();
 
-        var layout = CalendarPresentationLayout.GetMonthDayLayout(events, 3);
+        var layout = MonthLayoutEngine.LayoutDay(events, CalendarMetrics.DefaultMonthVisibleEventLimit);
 
         Assert.Equal(3, layout.VisibleEvents.Count);
         Assert.Equal(2, layout.OverflowCount);
@@ -31,7 +31,7 @@ public sealed class CalendarPresentationLayoutTests
         var second = CreateTimedEvent(2, 10 * 60 + 30, 60);
         var third = CreateTimedEvent(3, 10 * 60 + 45, 30);
 
-        var layout = CalendarPresentationLayout.LayoutOverlappingEvents([third, first, second]);
+        var layout = OverlapLayoutEngine.Layout([third, first, second]);
 
         Assert.Equal(new TimedEventLayout(0, 3), layout[first.Id]);
         Assert.Equal(new TimedEventLayout(1, 3), layout[second.Id]);
@@ -44,7 +44,7 @@ public sealed class CalendarPresentationLayoutTests
         var first = CreateTimedEvent(1, 9 * 60, 60);
         var second = CreateTimedEvent(2, 11 * 60, 60);
 
-        var layout = CalendarPresentationLayout.LayoutOverlappingEvents([second, first]);
+        var layout = OverlapLayoutEngine.Layout([second, first]);
 
         Assert.Equal(new TimedEventLayout(0, 1), layout[first.Id]);
         Assert.Equal(new TimedEventLayout(0, 1), layout[second.Id]);
@@ -56,7 +56,7 @@ public sealed class CalendarPresentationLayoutTests
         var first = CreateTimedEvent(1, 10 * 60, 5);
         var second = CreateTimedEvent(2, 10 * 60 + 10, 5);
 
-        var layout = CalendarPresentationLayout.LayoutOverlappingEvents([first, second]);
+        var layout = OverlapLayoutEngine.Layout([first, second]);
 
         Assert.Equal(new TimedEventLayout(0, 2), layout[first.Id]);
         Assert.Equal(new TimedEventLayout(1, 2), layout[second.Id]);
@@ -65,7 +65,7 @@ public sealed class CalendarPresentationLayoutTests
     [Fact]
     public void TimedPosition_UsesStartTimeAndMinimumReadableHeight()
     {
-        var position = CalendarPresentationLayout.CalculateTimedPosition(6 * 60, 5);
+        var position = TimeGridLayoutEngine.CalculatePosition(6 * 60, 5);
 
         Assert.Equal(25d, position.TopPercentage, 6);
         Assert.Equal(30d * 100d / (24 * 60), position.HeightPercentage, 6);
@@ -79,7 +79,7 @@ public sealed class CalendarPresentationLayoutTests
         int day,
         CalendarEventSegmentPosition expected)
     {
-        var position = CalendarPresentationLayout.GetSegmentPosition(
+        var position = MultiDayLayoutEngine.GetSegmentPosition(
             new DateOnly(2026, 9, day),
             new DateOnly(2026, 9, 10),
             new DateOnly(2026, 9, 12));
@@ -96,6 +96,15 @@ public sealed class CalendarPresentationLayoutTests
         Assert.False(CalendarPresentationLayout.IsCurrentDate(today.AddDays(-1), today));
     }
 
+    [Fact]
+    public void CompatibilityFacade_UsesTheDedicatedLayoutEngines()
+    {
+        var direct = TimeGridLayoutEngine.CalculatePosition(9 * 60, 45);
+        var compatible = CalendarPresentationLayout.CalculateTimedPosition(9 * 60, 45);
+
+        Assert.Equal(direct, compatible);
+    }
+
     private static CalendarWeekTimedEvent CreateTimedEvent(
         int index,
         int startMinute,
@@ -103,7 +112,7 @@ public sealed class CalendarPresentationLayoutTests
     {
         var idBytes = new byte[16];
         idBytes[0] = (byte)index;
-        var position = CalendarPresentationLayout.CalculateTimedPosition(startMinute, durationMinutes);
+        var position = TimeGridLayoutEngine.CalculatePosition(startMinute, durationMinutes);
         return new CalendarWeekTimedEvent(
             new Guid(idBytes),
             $"事件 {index}",

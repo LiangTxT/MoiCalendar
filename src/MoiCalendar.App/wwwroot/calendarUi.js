@@ -1,5 +1,6 @@
 window.moicalendarUi = {
     rememberedFocus: [],
+    calendarScrollPositions: {},
     shortcutHandler: null,
     isWideViewport: () => window.matchMedia("(min-width: 56rem)").matches,
     applyAppearance: (colorTheme, appearance, typography) => {
@@ -15,28 +16,37 @@ window.moicalendarUi = {
             themeColor.content = isDark ? "#1c1c1e" : "#f5f5f7";
         }
     },
-    scrollCalendarToActiveHours: () => {
-        const timeline = document.querySelector(".week-timed-scroll");
-        if (!timeline) {
+    initializeCalendarScroll: (timeline, contextKey, initialMinute, visibleStartMinute, visibleEndMinute) => {
+        if (!timeline || visibleEndMinute <= visibleStartMinute) {
             return;
         }
 
-        const hour = new Date().getHours();
-        timeline.scrollTop = Math.max(0, (Math.min(18, Math.max(7, hour)) - 2) * 48);
-    },
-    getElementBounds: element => {
-        const rect = element.getBoundingClientRect();
-        return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-    },
-    capturePointer: (element, pointerId) => {
-        if (element?.setPointerCapture) {
-            element.setPointerCapture(pointerId);
+        const frame = timeline.closest(".week-grid-frame");
+        if (frame) {
+            const scrollbarWidth = Math.max(0, timeline.offsetWidth - timeline.clientWidth);
+            frame.style.setProperty("--time-grid-scrollbar-width", `${scrollbarWidth}px`);
         }
-    },
-    releasePointer: (element, pointerId) => {
-        if (element?.hasPointerCapture?.(pointerId)) {
-            element.releasePointerCapture(pointerId);
+
+        if (timeline._moicalendarScrollHandler) {
+            timeline.removeEventListener("scroll", timeline._moicalendarScrollHandler);
         }
+
+        const positions = window.moicalendarUi.calendarScrollPositions;
+        const remembered = positions[contextKey];
+        if (Number.isFinite(remembered)) {
+            timeline.scrollTop = remembered;
+        } else {
+            const relative = Math.max(
+                0,
+                Math.min(1, (initialMinute - visibleStartMinute) / (visibleEndMinute - visibleStartMinute)));
+            timeline.scrollTop = Math.max(0, relative * timeline.scrollHeight - timeline.clientHeight * 0.25);
+        }
+
+        const handler = () => {
+            positions[contextKey] = timeline.scrollTop;
+        };
+        timeline._moicalendarScrollHandler = handler;
+        timeline.addEventListener("scroll", handler, { passive: true });
     },
     rememberCalendarFocus: () => {
         window.moicalendarUi.rememberedFocus.push(document.activeElement);

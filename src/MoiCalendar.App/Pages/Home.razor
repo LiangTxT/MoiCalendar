@@ -70,14 +70,6 @@
             {
                 <div class="calendar-loading" role="status">正在读取本地日历…</div>
             }
-            else if (!calendarVisible)
-            {
-                <section class="calendar-empty-state" role="status">
-                    <h2>本地日历已隐藏</h2>
-                    <p>在侧栏重新勾选“本地日历”即可显示事件。</p>
-                    <button type="button" @onclick="() => SetCalendarVisibility(true)">显示本地日历</button>
-                </section>
-            }
             else if (displayMode == CalendarViewMode.Month ||
                      displayMode == CalendarViewMode.Agenda && agendaEvents.Days.Count == 0)
             {
@@ -90,81 +82,25 @@
                 </div>
             }
 
-            <div class="weekday-grid" role="row">
-                @foreach (var weekday in monthView.WeekdayLabels)
-                {
-                    <div class="weekday" role="columnheader">@FormatCompactWeekday(weekday)</div>
-                }
-            </div>
-
-            <div class="month-grid @(monthGesture?.IsActive == true ? "is-direct-manipulation" : null)"
-                 role="grid"
-                 @ref="monthGridElement"
-                 @onpointermove="HandleMonthPointerMoveAsync"
-                 @onpointerup="CommitMonthPointerInteractionAsync"
-                 @onpointercancel="CancelMonthPointerInteraction">
-                @foreach (var date in monthView.Dates)
-                {
-                    <div class="@GetDateClass(date) @(monthPreview?.TargetDate == date.Date ? "drag-target" : null)"
-                         role="gridcell"
-                         tabindex="0"
-                         aria-label="@date.Date.ToString("yyyy-MM-dd")"
-                         aria-current="@(date.IsToday ? "date" : null)"
-                         @onclick="() => SelectMonthDate(date.Date)"
-                         @ondblclick="() => OpenQuickCreate(date.Date)"
-                         @onpointerup="args => HandleMonthDatePointerUp(date.Date, args)"
-                         @onkeydown="args => HandleDateKey(args, date.Date)">
-                        <span class="date-number">@date.DayNumber</span>
-
-                        <div class="day-events">
-                            @if (monthPreview?.TargetDate == date.Date)
-                            {
-                                <div class="month-drag-preview" role="status" aria-live="polite">
-                                    <strong>@monthPreview.Title</strong>
-                                    <span>@monthPreview.TimeLabel · @date.Date.ToString("M月d日")</span>
-                                </div>
-                            }
-                            @foreach (var calendarEvent in GetVisibleMonthEvents(date.Date))
-                            {
-                                <button class="@GetMonthEventClass(calendarEvent) @(monthGesture?.CalendarEvent.Id == calendarEvent.Id && monthGesture.IsActive ? "interaction-source" : null)"
-                                        type="button"
-                                        title="@calendarEvent.Title"
-                                        @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
-                                        @onpointerdown="args => BeginMonthMove(calendarEvent, date.Date, args)"
-                                        @onpointerdown:stopPropagation="true"
-                                        @onpointerup:stopPropagation="true"
-                                        @onclick="() => HandleMonthEventClickAsync(calendarEvent.Id)"
-                                        @ondblclick="() => OpenEventEditorAsync(calendarEvent.Id)"
-                                        @ondblclick:stopPropagation="true"
-                                        @onclick:stopPropagation="true">
-                                    @if (ContinuesBefore(calendarEvent.SegmentPosition))
-                                    {
-                                        <span class="event-continuation" aria-hidden="true">‹</span>
-                                    }
-                                    <span class="event-time">@calendarEvent.TimeLabel</span>
-                                    @if (calendarEvent.IsRecurring)
-                                    {
-                                        <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
-                                    }
-                                    <span class="event-title">@calendarEvent.Title</span>
-                                    @if (ContinuesAfter(calendarEvent.SegmentPosition))
-                                    {
-                                        <span class="event-continuation trailing" aria-hidden="true">›</span>
-                                    }
-                                </button>
-                            }
-                            @if (GetRemainingMonthEventCount(date.Date) > 0)
-                            {
-                                <button class="month-show-more"
-                                        type="button"
-                                        aria-label="@($"{date.Date:yyyy-MM-dd} 还有 {GetRemainingMonthEventCount(date.Date)} 个事件")"
-                                        @onclick="() => OpenDayOverflow(date.Date)"
-                                        @onclick:stopPropagation="true">＋@GetRemainingMonthEventCount(date.Date) 更多</button>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
+            <MoiCalendar.App.Components.MonthView @ref="monthViewComponent"
+                                                   Layout="monthLayout"
+                                                   SelectedDate="selectedDate"
+                                                   ActiveEventId="@(monthGesture?.IsActive == true ? monthGesture.CalendarEvent.Id : null)"
+                                                   DragTargetDate="monthPreview?.TargetDate"
+                                                   DragPreview="monthPreview"
+                                                   IsDirectManipulation="@(monthGesture?.IsActive == true)"
+                                                   SelectDateRange="HandleCalendarInteractionAsync"
+                                                   CreateEvent="OpenQuickCreate"
+                                                   DatePointerUp="HandleMonthDatePointerUp"
+                                                   DateKeyDown="HandleMonthDateKeyDown"
+                                                   EventFocused="SetFocusedEvent"
+                                                   EventPointerDown="HandleMonthEventPointerDown"
+                                                   EventSelected="HandleMonthEventClickAsync"
+                                                   EventEdit="OpenEventEditorAsync"
+                                                   MoreRequested="OpenDayOverflow"
+                                                   PointerMove="HandleMonthPointerMoveAsync"
+                                                   PointerUp="CommitMonthPointerInteractionAsync"
+                                                   PointerCancel="CancelMonthPointerInteraction" />
         </section>
             }
             else if (displayMode == CalendarViewMode.Agenda)
@@ -210,31 +146,31 @@
             else if (displayMode == CalendarViewMode.Week)
             {
         <MoiCalendar.App.Components.CalendarTimeGrid @key="displayMode"
-                                                      WeekEvents="weekEvents"
+                                                      WeekEvents="@(calendarVisible ? weekEvents : CalendarWeekEventView.Empty)"
                                                       SelectedDate="selectedDate"
+                                                      SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="displayTimeZoneId"
                                                       AriaLabel="@($"{WeekTitle}周视图")"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
                                                       EventEditRequested="OpenEventEditorAsync"
                                                       DateSelected="SelectTimelineDate"
-                                                      QuickCreateRequested="HandleCalendarInteractionAsync"
-                                                      InteractionRequested="HandleCalendarInteractionAsync" />
+                                                      IntentRequested="HandleCalendarInteractionAsync" />
             }
             else
             {
         <MoiCalendar.App.Components.CalendarTimeGrid @key="displayMode"
-                                                      WeekEvents="weekEvents"
+                                                      WeekEvents="@(calendarVisible ? weekEvents : CalendarWeekEventView.Empty)"
                                                       VisibleDate="selectedDate"
                                                       SelectedDate="selectedDate"
+                                                      SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="displayTimeZoneId"
                                                       AriaLabel="@($"{DayTitle}日视图")"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
                                                       EventEditRequested="OpenEventEditorAsync"
                                                       DateSelected="SelectTimelineDate"
-                                                      QuickCreateRequested="HandleCalendarInteractionAsync"
-                                                      InteractionRequested="HandleCalendarInteractionAsync" />
+                                                      IntentRequested="HandleCalendarInteractionAsync" />
             }
         </div>
     </div>
@@ -277,10 +213,24 @@
                 </div>
                 <button class="icon-button" type="button" aria-label="关闭当天事件列表" @onclick="CloseDayOverflow">×</button>
             </header>
-            <div class="overflow-event-list">
-                @foreach (var calendarEvent in monthEvents.GetEvents(overflowDay))
+            <div class="overflow-event-list overflow-density-regular">
+                @foreach (var calendarEvent in GetOverflowEvents(overflowDay, compact: false))
                 {
                     <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
+                            style="@GetCalendarColorStyle(calendarEvent)"
+                            type="button"
+                            @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
+                            @onclick="() => OpenEventDetailsFromOverflowAsync(calendarEvent.Id)">
+                        <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
+                        <span class="agenda-event-title">@calendarEvent.Title</span>
+                    </button>
+                }
+            </div>
+            <div class="overflow-event-list overflow-density-compact">
+                @foreach (var calendarEvent in GetOverflowEvents(overflowDay, compact: true))
+                {
+                    <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
+                            style="@GetCalendarColorStyle(calendarEvent)"
                             type="button"
                             @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
                             @onclick="() => OpenEventDetailsFromOverflowAsync(calendarEvent.Id)">
@@ -492,7 +442,6 @@
 
 @code {
     private const int AgendaEventPageSize = 25;
-    private const int MonthEventLimit = 3;
     private static readonly (DayOfWeek Day, string Label)[] RecurrenceWeekdays =
     [
         (DayOfWeek.Monday, "一"),
@@ -509,6 +458,7 @@
     private string displayTimeZoneId = TimeZoneInfo.Utc.Id;
     private CalendarMonthView monthView = null!;
     private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
+    private CalendarMonthLayoutView monthLayout = null!;
     private CalendarAgendaView agendaEvents = CalendarAgendaView.Empty;
     private CalendarWeekView weekView = null!;
     private CalendarWeekEventView weekEvents = CalendarWeekEventView.Empty;
@@ -537,13 +487,15 @@
     private bool viewportInitialized;
     private string? interactionMessage;
     private bool interactionSucceeded;
-    private ElementReference monthGridElement;
+    private MoiCalendar.App.Components.MonthView? monthViewComponent;
     private MonthPointerGesture? monthGesture;
-    private MonthDragPreview? monthPreview;
+    private MoiCalendar.App.Components.MonthDragPreviewModel? monthPreview;
     private bool suppressNextMonthClick;
     private DotNetObjectReference<Home>? shortcutReference;
     private CancellationTokenSource? eventClickCancellation;
     private Guid? focusedEventId;
+
+    private ElementReference MonthGridElement => monthViewComponent?.GridElement ?? default;
 
     private string MonthTitle => $"{monthView.Month.Year}年{monthView.Month.Month}月";
 
@@ -601,6 +553,7 @@
             selectedDate = today;
             displayTimeZoneId = TimeZoneInfo.Local.Id;
             monthView = CalendarMonth.FromDate(today).CreateView(today);
+            monthLayout = monthEvents.CreateLayout(monthView);
             weekView = CalendarWeek.FromDate(today).CreateView(today);
             displayMode = requestedMode ?? await LoadPreferredViewAsync();
             isInitialized = true;
@@ -818,6 +771,9 @@
     private async Task ShowMonthAsync(CalendarMonth month)
     {
         monthView = month.CreateView(today);
+        monthLayout = CalendarMonthEventView.Empty.CreateLayout(
+            monthView,
+            includeEvents: calendarVisible);
         await LoadEventsAsync();
     }
 
@@ -855,7 +811,11 @@
 
     private void ToggleSidebar() => isSidebarOpen = !isSidebarOpen;
 
-    private void SetCalendarVisibility(bool visible) => calendarVisible = visible;
+    private void SetCalendarVisibility(bool visible)
+    {
+        calendarVisible = visible;
+        monthLayout = monthEvents.CreateLayout(monthView, includeEvents: visible);
+    }
 
     private async Task SelectDateAsync(DateOnly date)
     {
@@ -882,6 +842,7 @@
             if (displayMode == CalendarViewMode.Month)
             {
                 monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+                monthLayout = monthEvents.CreateLayout(monthView, includeEvents: calendarVisible);
             }
             else if (displayMode == CalendarViewMode.Agenda)
             {
@@ -898,6 +859,7 @@
         catch (EventRepositoryException exception)
         {
             monthEvents = CalendarMonthEventView.Empty;
+            monthLayout = monthEvents.CreateLayout(monthView, includeEvents: calendarVisible);
             agendaEvents = CalendarAgendaView.Empty;
             weekEvents = CalendarWeekEventView.Empty;
             storageError = exception.Message;
@@ -1026,23 +988,30 @@
         await RestoreFocusAsync();
     }
 
-    private async Task HandleCalendarInteractionAsync(CalendarInteractionRequest request)
+    private async Task HandleCalendarInteractionAsync(CalendarInteractionIntent intent)
     {
-        var result = await InteractionService.ExecuteAsync(request);
+        var result = await InteractionService.ExecuteAsync(intent);
         interactionMessage = result.Message;
         interactionSucceeded = result.Succeeded || result.Status == CalendarInteractionStatus.NoChange;
 
         if (result.Status == CalendarInteractionStatus.SelectionReady &&
-            request.NewStartLocal is DateTime start &&
-            request.NewEndLocal is DateTime end)
+            result.Intent is SelectTimeRangeIntent timeRange)
         {
-            await OpenQuickCreate(start, end);
+            await OpenQuickCreate(timeRange.StartLocal, timeRange.EndLocal);
             return;
         }
 
-        if (result.Status == CalendarInteractionStatus.RecurrenceScopeRequired && request.EventId is Guid recurringId)
+        if (result.Status == CalendarInteractionStatus.SelectionReady &&
+            result.Intent is SelectDateRangeIntent dateRange)
         {
-            await OpenEventDetailsAsync(recurringId);
+            selectedDate = dateRange.StartDate;
+            return;
+        }
+
+        if (result.Status == CalendarInteractionStatus.RecurrenceScopeRequired &&
+            result.Intent is ICalendarEventInteractionIntent recurringIntent)
+        {
+            await OpenEventDetailsAsync(recurringIntent.EventId);
             return;
         }
 
@@ -1054,7 +1023,7 @@
 
     private void BeginMonthMove(CalendarEventListItem calendarEvent, DateOnly date, PointerEventArgs args)
     {
-        if (args.Button != 0)
+        if (args.Button != 0 || calendarEvent.IsReadOnly)
         {
             return;
         }
@@ -1068,6 +1037,9 @@
             date,
             calendarEvent);
     }
+
+    private void HandleMonthEventPointerDown(MoiCalendar.App.Components.MonthEventPointerArgs args) =>
+        BeginMonthMove(args.CalendarEvent, args.Date, args.PointerEvent);
 
     private async Task HandleMonthPointerMoveAsync(PointerEventArgs args)
     {
@@ -1092,7 +1064,7 @@
             monthGesture = current;
             try
             {
-                await JS.InvokeVoidAsync("moicalendarUi.capturePointer", monthGridElement, args.PointerId);
+                await JS.InvokeVoidAsync("moicalendarInteraction.capturePointer", MonthGridElement, args.PointerId);
             }
             catch (JSException)
             {
@@ -1103,7 +1075,7 @@
         CalendarElementBounds bounds;
         try
         {
-            bounds = await JS.InvokeAsync<CalendarElementBounds>("moicalendarUi.getElementBounds", monthGridElement);
+            bounds = await JS.InvokeAsync<CalendarElementBounds>("moicalendarInteraction.getElementBounds", MonthGridElement);
         }
         catch (JSException)
         {
@@ -1120,7 +1092,7 @@
             bounds.Height,
             monthView.Dates.Count);
         var targetDate = monthView.Dates[index].Date;
-        monthPreview = new MonthDragPreview(
+        monthPreview = new MoiCalendar.App.Components.MonthDragPreviewModel(
             targetDate,
             current.CalendarEvent.Title,
             current.CalendarEvent.TimeLabel);
@@ -1142,7 +1114,7 @@
         monthPreview = null;
         try
         {
-            await JS.InvokeVoidAsync("moicalendarUi.releasePointer", monthGridElement, args.PointerId);
+            await JS.InvokeVoidAsync("moicalendarInteraction.releasePointer", MonthGridElement, args.PointerId);
         }
         catch (JSException)
         {
@@ -1150,10 +1122,11 @@
         }
 
         await HandleCalendarInteractionAsync(
-            CalendarInteractionRequest.MoveToDate(
+            MoveEventIntent.ToDate(
                 current.CalendarEvent.Id,
                 current.CalendarEvent.OriginalStartUtc,
                 current.CalendarEvent.OriginalEndUtc,
+                current.OriginalDate,
                 committedPreview.TargetDate,
                 current.CalendarEvent.InteractionTimeZoneId));
     }
@@ -1187,20 +1160,21 @@
         }
     }
 
-    private void SelectMonthDate(DateOnly date) => selectedDate = date;
-
     private void SelectTimelineDate(DateOnly date) => selectedDate = date;
 
     private void SetFocusedEvent(Guid eventId) => focusedEventId = eventId;
 
-    private async Task HandleMonthDatePointerUp(DateOnly date, PointerEventArgs args)
+    private async Task HandleMonthDatePointerUp(MoiCalendar.App.Components.MonthDatePointerArgs interaction)
     {
-        if (string.Equals(args.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
+        if (string.Equals(interaction.PointerEvent.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
             monthGesture?.IsActive != true)
         {
-            await OpenQuickCreate(date);
+            await OpenQuickCreate(interaction.Date);
         }
     }
+
+    private Task HandleMonthDateKeyDown(MoiCalendar.App.Components.MonthDateKeyboardArgs interaction) =>
+        HandleDateKey(interaction.KeyboardEvent, interaction.Date);
 
     private static bool IsMonthTouchWaiting(MonthPointerGesture current) =>
         string.Equals(current.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
@@ -1325,6 +1299,7 @@
 
     private async Task OpenEventDetailsFromOverflowAsync(Guid id)
     {
+        overflowDate = null;
         await OpenEventDetailsAsync(id);
     }
 
@@ -1459,53 +1434,24 @@
         await RestoreFocusAsync();
     }
 
-    private string GetDateClass(CalendarDateCell date)
+    private IReadOnlyList<CalendarEventListItem> GetOverflowEvents(DateOnly date, bool compact)
     {
-        var classes = "calendar-date";
-
-        if (!date.IsInActiveMonth)
+        var day = monthLayout.Weeks
+            .SelectMany(week => week.Days)
+            .SingleOrDefault(item => item.Date.Date == date);
+        if (day is null)
         {
-            classes += " outside-month";
+            return Array.Empty<CalendarEventListItem>();
         }
 
-        if (date.IsToday)
-        {
-            classes += " today";
-        }
-
-        if (date.Date == selectedDate)
-        {
-            classes += " selected";
-        }
-
-        return classes;
+        var visibleCount = compact
+            ? day.Compact.VisibleEvents.Count
+            : day.Regular.VisibleEvents.Count;
+        return day.AllEvents.Skip(visibleCount).ToArray();
     }
 
-    private IReadOnlyList<CalendarEventListItem> GetVisibleMonthEvents(DateOnly date) =>
-        GetMonthDayLayout(date).VisibleEvents;
-
-    private int GetRemainingMonthEventCount(DateOnly date) =>
-        GetMonthDayLayout(date).OverflowCount;
-
-    private MonthDayLayout GetMonthDayLayout(DateOnly date) =>
-        CalendarPresentationLayout.GetMonthDayLayout(monthEvents.GetEvents(date), MonthEventLimit);
-
-    private static string GetMonthEventClass(CalendarEventListItem calendarEvent) =>
-        $"event-chip {(calendarEvent.IsAllDay ? "all-day" : "timed")} {GetSegmentClass(calendarEvent.SegmentPosition)}";
-
-    private static string GetSegmentClass(CalendarEventSegmentPosition position) => position switch
-    {
-        CalendarEventSegmentPosition.Start => "segment-start continues-after",
-        CalendarEventSegmentPosition.Middle => "segment-middle continues-before continues-after",
-        CalendarEventSegmentPosition.End => "segment-end continues-before",
-        _ => "segment-single"
-    };
-
-    private static bool ContinuesBefore(CalendarEventSegmentPosition position) =>
-        position is CalendarEventSegmentPosition.Middle or CalendarEventSegmentPosition.End;
-
-    private static bool ContinuesAfter(CalendarEventSegmentPosition position) =>
-        position is CalendarEventSegmentPosition.Start or CalendarEventSegmentPosition.Middle;
+    private static string GetCalendarColorStyle(CalendarEventListItem calendarEvent) =>
+        $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(calendarEvent.CalendarColorIndex, 1, 8)});";
 
     private string FormatEventTime(CalendarEvent calendarEvent)
     {
@@ -1554,18 +1500,6 @@
         _ => string.Empty
     };
 
-    private static string FormatCompactWeekday(string weekday) => weekday switch
-    {
-        "Mon" => "周一",
-        "Tue" => "周二",
-        "Wed" => "周三",
-        "Thu" => "周四",
-        "Fri" => "周五",
-        "Sat" => "周六",
-        "Sun" => "周日",
-        _ => weekday
-    };
-
     private static string FormatAgendaDate(DateOnly date)
     {
         var weekday = date.DayOfWeek switch
@@ -1584,7 +1518,9 @@
     }
 
     private IEnumerable<CalendarEventListItem> GetVisibleAgendaEvents(CalendarAgendaDay day) =>
-        day.Events.Take(GetVisibleAgendaEventCount(day));
+        calendarVisible
+            ? day.Events.Take(GetVisibleAgendaEventCount(day))
+            : Array.Empty<CalendarEventListItem>();
 
     private int GetVisibleAgendaEventCount(CalendarAgendaDay day) =>
         Math.Min(
@@ -1592,7 +1528,7 @@
             day.Events.Count);
 
     private int GetRemainingAgendaEventCount(CalendarAgendaDay day) =>
-        day.Events.Count - GetVisibleAgendaEventCount(day);
+        calendarVisible ? day.Events.Count - GetVisibleAgendaEventCount(day) : 0;
 
     private void ShowMoreAgendaEvents(CalendarAgendaDay day)
     {
@@ -1656,11 +1592,6 @@
         DateOnly OriginalDate,
         CalendarEventListItem CalendarEvent,
         bool IsActive = false);
-
-    private sealed record MonthDragPreview(
-        DateOnly TargetDate,
-        string Title,
-        string TimeLabel);
 
     private sealed record CalendarElementBounds(double Left, double Top, double Width, double Height);
 }

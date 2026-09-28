@@ -1,0 +1,76 @@
+<button class="@EventClass"
+        type="button"
+        style="@EventStyle"
+        title="@($"{CalendarEvent.TimeLabel} {CalendarEvent.Title}")"
+        aria-pressed="@IsSelected"
+        aria-disabled="@CalendarEvent.IsReadOnly"
+        @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
+        @onpointerdown="args => PointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args))"
+        @onpointerdown:stopPropagation="true"
+        @onclick="() => Selected.InvokeAsync(CalendarEvent.Id)"
+        @onclick:stopPropagation="true"
+        @ondblclick="() => Edit.InvokeAsync(CalendarEvent.Id)"
+        @ondblclick:stopPropagation="true">
+    <span class="timed-event-time">@CalendarEvent.TimeLabel</span>
+    <strong>
+        @if (CalendarEvent.IsRecurring)
+        {
+            <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+        }
+        @CalendarEvent.Title
+    </strong>
+    @if (ShowExtendedMetadata)
+    {
+        <span class="timed-event-metadata">
+            <span class="calendar-color" aria-hidden="true"></span>本地日历
+            @if (!string.IsNullOrWhiteSpace(CalendarEvent.Location))
+            {
+                <span> · @CalendarEvent.Location</span>
+            }
+            @if (CalendarEvent.IsReadOnly)
+            {
+                <span> · 只读</span>
+            }
+        </span>
+    }
+    @if (!CalendarEvent.IsReadOnly &&
+         CalendarEvent.SegmentPosition == CalendarEventSegmentPosition.Single)
+    {
+        <span class="event-resize-handle"
+              aria-hidden="true"
+              @onpointerdown="args => ResizePointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args))"
+              @onpointerdown:stopPropagation="true"></span>
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public CalendarWeekTimedEvent CalendarEvent { get; set; } = null!;
+    [Parameter, EditorRequired] public TimeGridLayoutItem Layout { get; set; } = null!;
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    [Parameter] public bool ShowExtendedMetadata { get; set; }
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public bool IsInteractionSource { get; set; }
+    [Parameter] public EventCallback<Guid> Focused { get; set; }
+    [Parameter] public EventCallback<Guid> Selected { get; set; }
+    [Parameter] public EventCallback<Guid> Edit { get; set; }
+    [Parameter] public EventCallback<TimedEventPointerArgs> PointerDown { get; set; }
+    [Parameter] public EventCallback<TimedEventPointerArgs> ResizePointerDown { get; set; }
+
+    private string EventStyle => FormattableString.Invariant(
+        $"--event-top:{Layout.Position.TopPercentage:0.####}%;--event-height:{Layout.Position.HeightPercentage:0.####}%;--event-left:{Layout.Overlap.LeftPercentage:0.####}%;--event-width:{Layout.Overlap.WidthPercentage:0.####}%;--calendar-entity-color:var(--calendar-color-{Math.Clamp(CalendarEvent.CalendarColorIndex, 1, 8)});");
+
+    private string EventClass => string.Join(' ', new[]
+    {
+        "week-timed-event",
+        CalendarEvent.SegmentPosition switch
+        {
+            CalendarEventSegmentPosition.Start => "segment-start continues-after",
+            CalendarEventSegmentPosition.Middle => "segment-middle continues-before continues-after",
+            CalendarEventSegmentPosition.End => "segment-end continues-before",
+            _ => "segment-single"
+        },
+        IsSelected ? "selected" : null,
+        IsInteractionSource ? "interaction-source" : null,
+        CalendarEvent.IsReadOnly ? "read-only" : null
+    }.Where(value => value is not null));
+}

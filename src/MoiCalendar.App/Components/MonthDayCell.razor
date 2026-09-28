@@ -1,0 +1,67 @@
+<div class="@CellClass"
+     role="gridcell"
+     tabindex="0"
+     aria-label="@Day.Date.Date.ToString("yyyy-MM-dd")"
+     aria-current="@(Day.Date.IsToday ? "date" : null)"
+     @onclick="() => SelectDateRange.InvokeAsync(SelectDateRangeIntent.SingleDay(Day.Date.Date))"
+     @ondblclick="() => CreateEvent.InvokeAsync(Day.Date.Date)"
+     @onpointerup="args => DatePointerUp.InvokeAsync(new MonthDatePointerArgs(Day.Date.Date, args))"
+     @onkeydown="args => DateKeyDown.InvokeAsync(new MonthDateKeyboardArgs(Day.Date.Date, args))">
+    <header class="month-day-header">
+        <span class="date-number">@Day.Date.DayNumber</span>
+    </header>
+
+    <div class="day-events month-density-regular">
+        <MonthDayEvents Date="Day.Date.Date"
+                        Layout="Day.Regular"
+                        ActiveEventId="ActiveEventId"
+                        DragPreview="DragPreview"
+                        EventFocused="EventFocused"
+                        EventPointerDown="EventPointerDown"
+                        EventSelected="EventSelected"
+                        EventEdit="EventEdit"
+                        MoreRequested="MoreRequested" />
+    </div>
+
+    <div class="day-events month-density-compact">
+        <MonthDayEvents Date="Day.Date.Date"
+                        Layout="Day.Compact"
+                        ActiveEventId="ActiveEventId"
+                        DragPreview="DragPreview"
+                        EventFocused="EventFocused"
+                        EventPointerDown="EventPointerDown"
+                        EventSelected="EventSelected"
+                        EventEdit="EventEdit"
+                        MoreRequested="MoreRequested" />
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CalendarMonthDayLayout Day { get; set; } = null!;
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public bool IsDragTarget { get; set; }
+    [Parameter] public Guid? ActiveEventId { get; set; }
+    [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
+    [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
+    [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> MoreRequested { get; set; }
+
+    private string CellClass => string.Join(' ', new[]
+    {
+        "calendar-date",
+        Day.Date.IsInActiveMonth ? null : "outside-month",
+        Day.Date.IsToday ? "today" : null,
+        IsWeekend(Day.Date.Date) ? "weekend" : null,
+        Selected ? "selected" : null,
+        IsDragTarget ? "drag-target" : null
+    }.Where(value => value is not null));
+
+    private static bool IsWeekend(DateOnly date) =>
+        date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+}

@@ -1,0 +1,100 @@
+<div class="week-all-day-row">
+    <strong class="week-section-label">全天</strong>
+    <div class="week-all-day-days">
+        @foreach (var day in Days)
+        {
+            var expanded = expandedDates.Contains(day.Date.Date);
+            var visibleEvents = expanded
+                ? day.AllDayEvents
+                : day.AllDayEvents.Take(MaxVisibleRows).ToArray();
+            var hiddenCount = day.AllDayEvents.Count - visibleEvents.Count;
+
+            <div class="week-all-day-cell @(day.Date.Date == Today ? "today" : null)">
+                @foreach (var calendarEvent in visibleEvents)
+                {
+                    <button class="@GetEventClass(calendarEvent)"
+                            style="@GetCalendarColorStyle(calendarEvent.CalendarColorIndex)"
+                            type="button"
+                            title="@calendarEvent.Title"
+                            aria-disabled="@calendarEvent.IsReadOnly"
+                            @onfocus="() => EventFocused.InvokeAsync(calendarEvent.Id)"
+                            @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
+                        @if (ContinuesBefore(calendarEvent.SegmentPosition))
+                        {
+                            <span class="event-continuation" aria-hidden="true">‹</span>
+                        }
+                        @if (calendarEvent.IsRecurring)
+                        {
+                            <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
+                        }
+                        <span class="week-all-day-title">@calendarEvent.Title</span>
+                        @if (ContinuesAfter(calendarEvent.SegmentPosition))
+                        {
+                            <span class="event-continuation trailing" aria-hidden="true">›</span>
+                        }
+                    </button>
+                }
+
+                @if (hiddenCount > 0)
+                {
+                    <button class="all-day-more"
+                            type="button"
+                            @onclick="() => Expand(day.Date.Date)"
+                            @onclick:stopPropagation="true">+@hiddenCount 更多</button>
+                }
+                else if (expanded && day.AllDayEvents.Count > MaxVisibleRows)
+                {
+                    <button class="all-day-more"
+                            type="button"
+                            @onclick="() => Collapse(day.Date.Date)"
+                            @onclick:stopPropagation="true">收起</button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly HashSet<DateOnly> expandedDates = [];
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CalendarWeekDayEvents> Days { get; set; } = Array.Empty<CalendarWeekDayEvents>();
+
+    [Parameter]
+    public DateOnly Today { get; set; }
+
+    [Parameter]
+    public int MaxVisibleRows { get; set; } = 3;
+
+    [Parameter]
+    public EventCallback<Guid> EventSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> EventFocused { get; set; }
+
+    private void Expand(DateOnly date) => expandedDates.Add(date);
+
+    private void Collapse(DateOnly date) => expandedDates.Remove(date);
+
+    private static string GetEventClass(CalendarWeekAllDayEvent calendarEvent) => string.Join(' ', new[]
+    {
+        "week-all-day-event",
+        calendarEvent.SegmentPosition switch
+        {
+            CalendarEventSegmentPosition.Start => "segment-start continues-after",
+            CalendarEventSegmentPosition.Middle => "segment-middle continues-before continues-after",
+            CalendarEventSegmentPosition.End => "segment-end continues-before",
+            _ => "segment-single"
+        },
+        calendarEvent.IsReadOnly ? "read-only" : null
+    }.Where(value => value is not null));
+
+    private static bool ContinuesBefore(CalendarEventSegmentPosition position) =>
+        position is CalendarEventSegmentPosition.Middle or CalendarEventSegmentPosition.End;
+
+    private static bool ContinuesAfter(CalendarEventSegmentPosition position) =>
+        position is CalendarEventSegmentPosition.Start or CalendarEventSegmentPosition.Middle;
+
+    private static string GetCalendarColorStyle(int colorIndex) =>
+        $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(colorIndex, 1, 8)});";
+}
