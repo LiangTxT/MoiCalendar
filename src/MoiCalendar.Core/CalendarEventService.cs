@@ -8,7 +8,8 @@ public sealed class CalendarEventService(
     ILocalEventChangeRepository localEventChanges,
     TimeProvider timeProvider,
     IRecurrenceExpansionService? recurrenceExpansionService = null,
-    ILocalDataOperationLock? operationLock = null)
+    ILocalDataOperationLock? operationLock = null,
+    ICalendarObservanceProvider? observanceProvider = null)
 {
     private const int MaximumTitleLength = 200;
     private const int MaximumDescriptionLength = 4_000;
@@ -18,6 +19,8 @@ public sealed class CalendarEventService(
         recurrenceExpansionService ?? new RecurrenceExpansionService();
     private readonly ILocalDataOperationLock operationLock =
         operationLock ?? NoOpLocalDataOperationLock.Instance;
+    private readonly ICalendarObservanceProvider observanceProvider =
+        observanceProvider ?? EmptyCalendarObservanceProvider.Instance;
 
     public CalendarEventDraft CreateDraft(DateOnly date, string timeZoneId)
     {
@@ -181,6 +184,15 @@ public sealed class CalendarEventService(
                 timedGroups);
         }
 
+        foreach (var observance in observanceProvider.GetObservances(firstDate, endDateExclusive))
+        {
+            allDayGroups[observance.Date].Add(new CalendarWeekAllDayEvent(
+                observance.Id,
+                observance.Title,
+                CalendarColorIndex: observance.Kind == CalendarObservanceKind.Holiday ? 4 : 2,
+                IsReadOnly: true));
+        }
+
         var days = weekView.Dates
             .Select(date => new CalendarWeekDayEvents(
                 date,
@@ -216,6 +228,18 @@ public sealed class CalendarEventService(
         foreach (var calendarEvent in range.Events)
         {
             AddEventToDates(calendarEvent, range.DisplayTimeZone, firstDate, endDateExclusive, groups);
+        }
+
+        foreach (var observance in observanceProvider.GetObservances(firstDate, endDateExclusive))
+        {
+            groups[observance.Date].Add(new CalendarEventListItem(
+                observance.Id,
+                observance.Title,
+                "全天",
+                true,
+                TimeSpan.Zero,
+                CalendarColorIndex: observance.Kind == CalendarObservanceKind.Holiday ? 4 : 2,
+                IsReadOnly: true));
         }
 
         var orderedGroups = groups.ToDictionary(

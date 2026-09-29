@@ -203,6 +203,24 @@ public sealed class CalendarFrontendArchitectureTests
     }
 
     [Fact]
+    public void MonthView_UsesThreePanelContinuousLocalStream()
+    {
+        var root = FindRepositoryRoot();
+        var component = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "Components", "ContinuousMonthView.razor"));
+        var script = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "wwwroot", "calendarUi.js"));
+        var program = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "Program.cs"));
+
+        Assert.Contains("PreviousLayout", component, StringComparison.Ordinal);
+        Assert.Contains("NextLayout", component, StringComparison.Ordinal);
+        Assert.Contains("initializeMonthStream", script, StringComparison.Ordinal);
+        Assert.Contains("ChangeVisibleMonth", script, StringComparison.Ordinal);
+        Assert.Contains("ChineseCalendarObservanceProvider", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CalendarOverlays_UseOneHostForEscapeOutsideClickAndFocusTrap()
     {
         var root = FindRepositoryRoot();

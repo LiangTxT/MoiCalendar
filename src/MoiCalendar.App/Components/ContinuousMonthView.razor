@@ -1,0 +1,104 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="month-view continuous-month-view">
+    <div class="weekday-grid" role="row">
+        @for (var index = 0; index < Layout.Month.WeekdayLabels.Count; index++)
+        {
+            var weekday = Layout.Month.WeekdayLabels[index];
+            <div class="weekday @(index >= 5 ? "weekend" : null)" role="columnheader">@FormatWeekday(weekday)</div>
+        }
+    </div>
+
+    <div class="month-stream" @ref="streamElement">
+        <MonthPanel Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
+                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
+
+        <MonthPanel @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+                    DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
+                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
+                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested"
+                    PointerMove="PointerMove" PointerUp="PointerUp" PointerCancel="PointerCancel" />
+
+        <MonthPanel Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
+                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
+    </div>
+</div>
+
+@code {
+    private ElementReference streamElement;
+    private MonthPanel? currentPanel;
+    private DotNetObjectReference<ContinuousMonthView>? dotNetReference;
+    private string? initializedMonthKey;
+
+    [Parameter, EditorRequired] public CalendarMonthLayoutView PreviousLayout { get; set; } = null!;
+    [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
+    [Parameter, EditorRequired] public CalendarMonthLayoutView NextLayout { get; set; } = null!;
+    [Parameter] public DateOnly SelectedDate { get; set; }
+    [Parameter] public Guid? ActiveEventId { get; set; }
+    [Parameter] public DateOnly? DragTargetDate { get; set; }
+    [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
+    [Parameter] public bool IsDirectManipulation { get; set; }
+    [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
+    [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> MoreRequested { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerMove { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerUp { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerCancel { get; set; }
+    [Parameter] public EventCallback<int> VisibleMonthChanged { get; set; }
+
+    public ElementReference GridElement => currentPanel?.GridElement ?? default;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        dotNetReference ??= DotNetObjectReference.Create(this);
+        var monthKey = $"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}";
+        if (initializedMonthKey == monthKey)
+        {
+            return;
+        }
+
+        initializedMonthKey = monthKey;
+        try
+        {
+            await JS.InvokeVoidAsync("moicalendarUi.initializeMonthStream", streamElement, dotNetReference);
+        }
+        catch (JSException)
+        {
+            // 连续滚动是渐进增强；导航按钮仍可切换月份。
+        }
+    }
+
+    [JSInvokable]
+    public Task ChangeVisibleMonth(int direction) => VisibleMonthChanged.InvokeAsync(direction);
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("moicalendarUi.disposeMonthStream", streamElement);
+        }
+        catch (JSDisconnectedException)
+        {
+            // 页面卸载时浏览器会清理监听器。
+        }
+        dotNetReference?.Dispose();
+    }
+
+    private static string FormatWeekday(string weekday) => weekday switch
+    {
+        "Mon" => "周一", "Tue" => "周二", "Wed" => "周三", "Thu" => "周四",
+        "Fri" => "周五", "Sat" => "周六", "Sun" => "周日", _ => weekday
+    };
+}

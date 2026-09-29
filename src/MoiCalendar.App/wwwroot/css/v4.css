@@ -714,9 +714,10 @@ a {
 
 .month-view {
     display: grid;
-    grid-template-rows: 32px minmax(0, 1fr);
+    grid-template-rows: 42px minmax(0, 1fr);
     height: 100%;
-    min-height: 600px;
+    min-height: 0;
+    background: var(--v4-elevated);
 }
 
 .month-view .weekday-grid {
@@ -732,9 +733,46 @@ a {
     place-items: center;
     padding: 0;
     color: var(--v4-ink-tertiary);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: .12em;
+}
+
+.month-stream {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-snap-type: y proximity;
+    scrollbar-gutter: stable;
+}
+
+.month-panel {
+    display: grid;
+    grid-template-rows: 84px auto;
+    min-height: 100%;
+    scroll-snap-align: start;
+    background: var(--v4-elevated);
+}
+
+.month-panel-title {
+    display: flex;
+    align-items: end;
+    padding: 0 clamp(18px, 3vw, 42px) 18px;
+    border-bottom: 1px solid var(--v4-line-strong);
+    background: var(--v4-elevated);
+}
+
+.month-panel-title h2 {
+    margin: 0;
+    color: var(--v4-ink);
+    font-size: clamp(26px, 3vw, 40px);
+    font-weight: 400;
+    letter-spacing: -.03em;
+}
+
+.month-panel-title h2 strong {
+    font-weight: 700;
 }
 
 .month-view .weekday.weekend {
@@ -743,7 +781,7 @@ a {
 
 .month-view .month-grid {
     display: grid;
-    grid-template-rows: repeat(6, minmax(82px, 1fr));
+    grid-template-rows: repeat(6, minmax(104px, 1fr));
     min-height: 0;
     gap: 0;
     background: var(--v4-line);
@@ -765,7 +803,7 @@ a {
     position: relative;
     min-width: 0;
     min-height: 0;
-    padding: var(--space-1) var(--space-1) var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-3);
     overflow: hidden;
     border: 0;
     border-radius: 0;
@@ -792,18 +830,27 @@ a {
     display: flex;
     min-height: 22px;
     align-items: center;
-    justify-content: flex-end;
-    padding-right: var(--space-1);
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-1);
+}
+
+.month-view .lunar-date {
+    overflow: hidden;
+    color: var(--v4-ink-tertiary);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .month-view .date-number {
     display: inline-grid;
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
     place-items: center;
     border-radius: 50%;
     color: inherit;
-    font-size: 11px;
+    font-size: 15px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -853,8 +900,13 @@ a {
 }
 
 .month-view .event-chip.all-day {
-    background: transparent;
+    background: color-mix(in srgb, var(--calendar-entity-color, var(--v4-calendar-1)) 18%, var(--v4-elevated));
     font-weight: 600;
+}
+
+.month-view .event-chip.read-only {
+    border-left-style: solid;
+    cursor: default;
 }
 
 .month-view .event-time {

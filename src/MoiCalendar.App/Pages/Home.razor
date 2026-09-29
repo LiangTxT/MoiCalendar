@@ -64,8 +64,10 @@
                 </div>
             }
 
-            <MoiCalendar.App.Components.MonthView @ref="monthViewComponent"
+            <MoiCalendar.App.Components.ContinuousMonthView @ref="monthViewComponent"
+                                                   PreviousLayout="previousMonthLayout"
                                                    Layout="monthLayout"
+                                                   NextLayout="nextMonthLayout"
                                                    SelectedDate="selectedDate"
                                                    ActiveEventId="@(monthGesture?.IsActive == true ? monthGesture.CalendarEvent.Id : null)"
                                                    DragTargetDate="monthPreview?.TargetDate"
@@ -80,6 +82,7 @@
                                                    EventSelected="HandleMonthEventClickAsync"
                                                    EventEdit="OpenEventEditorAsync"
                                                    MoreRequested="OpenDayOverflow"
+                                                   VisibleMonthChanged="ChangeVisibleMonthAsync"
                                                    PointerMove="HandleMonthPointerMoveAsync"
                                                    PointerUp="CommitMonthPointerInteractionAsync"
                                                    PointerCancel="CancelMonthPointerInteraction" />
@@ -497,6 +500,10 @@
     private CalendarMonthView monthView = null!;
     private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
     private CalendarMonthLayoutView monthLayout = null!;
+    private CalendarMonthEventView previousMonthEvents = CalendarMonthEventView.Empty;
+    private CalendarMonthLayoutView previousMonthLayout = null!;
+    private CalendarMonthEventView nextMonthEvents = CalendarMonthEventView.Empty;
+    private CalendarMonthLayoutView nextMonthLayout = null!;
     private CalendarAgendaView agendaEvents = CalendarAgendaView.Empty;
     private CalendarWeekView weekView = null!;
     private CalendarWeekEventView weekEvents = CalendarWeekEventView.Empty;
@@ -520,7 +527,7 @@
     private bool viewportInitialized;
     private string? interactionMessage;
     private bool interactionSucceeded;
-    private MoiCalendar.App.Components.MonthView? monthViewComponent;
+    private MoiCalendar.App.Components.ContinuousMonthView? monthViewComponent;
     private MonthPointerGesture? monthGesture;
     private MoiCalendar.App.Components.MonthDragPreviewModel? monthPreview;
     private bool suppressNextMonthClick;
@@ -651,6 +658,8 @@
             displayTimeZoneId = TimeZoneInfo.Local.Id;
             monthView = CalendarMonth.FromDate(today).CreateView(today);
             monthLayout = monthEvents.CreateLayout(monthView);
+            previousMonthLayout = previousMonthEvents.CreateLayout(monthView.Month.Previous().CreateView(today));
+            nextMonthLayout = nextMonthEvents.CreateLayout(monthView.Month.Next().CreateView(today));
             weekView = CalendarWeek.FromDate(today).CreateView(today);
             displayMode = requestedMode ?? await LoadPreferredViewAsync();
             isInitialized = true;
@@ -900,8 +909,19 @@
         monthLayout = CalendarMonthEventView.Empty.CreateLayout(
             monthView,
             includeEvents: calendarVisible);
+        previousMonthLayout = CalendarMonthEventView.Empty.CreateLayout(
+            month.Previous().CreateView(today),
+            includeEvents: calendarVisible);
+        nextMonthLayout = CalendarMonthEventView.Empty.CreateLayout(
+            month.Next().CreateView(today),
+            includeEvents: calendarVisible);
         await LoadEventsAsync();
     }
+
+    private Task ChangeVisibleMonthAsync(int direction) =>
+        direction < 0
+            ? ShowMonthAsync(monthView.Month.Previous())
+            : ShowMonthAsync(monthView.Month.Next());
 
     private async Task ShowWeekAsync(CalendarWeek week)
     {
@@ -941,6 +961,12 @@
     {
         calendarVisible = visible;
         monthLayout = monthEvents.CreateLayout(monthView, includeEvents: visible);
+        previousMonthLayout = previousMonthEvents.CreateLayout(
+            monthView.Month.Previous().CreateView(today),
+            includeEvents: visible);
+        nextMonthLayout = nextMonthEvents.CreateLayout(
+            monthView.Month.Next().CreateView(today),
+            includeEvents: visible);
     }
 
     private async Task SelectDateAsync(DateOnly date)
@@ -967,8 +993,18 @@
         {
             if (displayMode == CalendarViewMode.Month)
             {
-                monthEvents = await EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+                var previousView = monthView.Month.Previous().CreateView(today);
+                var nextView = monthView.Month.Next().CreateView(today);
+                var previousTask = EventService.GetMonthViewAsync(previousView, displayTimeZoneId);
+                var currentTask = EventService.GetMonthViewAsync(monthView, displayTimeZoneId);
+                var nextTask = EventService.GetMonthViewAsync(nextView, displayTimeZoneId);
+                await Task.WhenAll(previousTask, currentTask, nextTask);
+                previousMonthEvents = await previousTask;
+                monthEvents = await currentTask;
+                nextMonthEvents = await nextTask;
+                previousMonthLayout = previousMonthEvents.CreateLayout(previousView, includeEvents: calendarVisible);
                 monthLayout = monthEvents.CreateLayout(monthView, includeEvents: calendarVisible);
+                nextMonthLayout = nextMonthEvents.CreateLayout(nextView, includeEvents: calendarVisible);
             }
             else if (displayMode == CalendarViewMode.Agenda)
             {
@@ -986,6 +1022,10 @@
         {
             monthEvents = CalendarMonthEventView.Empty;
             monthLayout = monthEvents.CreateLayout(monthView, includeEvents: calendarVisible);
+            previousMonthEvents = CalendarMonthEventView.Empty;
+            nextMonthEvents = CalendarMonthEventView.Empty;
+            previousMonthLayout = previousMonthEvents.CreateLayout(monthView.Month.Previous().CreateView(today));
+            nextMonthLayout = nextMonthEvents.CreateLayout(monthView.Month.Next().CreateView(today));
             agendaEvents = CalendarAgendaView.Empty;
             weekEvents = CalendarWeekEventView.Empty;
             storageError = exception.Message;

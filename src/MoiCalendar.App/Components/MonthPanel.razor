@@ -1,0 +1,57 @@
+<section class="month-panel" data-month="@MonthKey" aria-label="@MonthTitle">
+    <header class="month-panel-title">
+        <h2>@Layout.Month.Month.Year 年 <strong>@Layout.Month.Month.Month 月</strong></h2>
+    </header>
+    <div class="month-grid @(IsDirectManipulation ? "is-direct-manipulation" : null)"
+         role="grid"
+         aria-rowcount="6"
+         aria-colcount="7"
+         @ref="GridElement"
+         @onpointermove="PointerMove"
+         @onpointerup="PointerUp"
+         @onpointercancel="PointerCancel">
+        @foreach (var week in Layout.Weeks)
+        {
+            <MonthWeekRow Week="week"
+                          SelectedDate="SelectedDate"
+                          ActiveEventId="ActiveEventId"
+                          DragTargetDate="DragTargetDate"
+                          DragPreview="DragPreview"
+                          SelectDateRange="SelectDateRange"
+                          CreateEvent="CreateEvent"
+                          DatePointerUp="DatePointerUp"
+                          DateKeyDown="DateKeyDown"
+                          EventFocused="EventFocused"
+                          EventPointerDown="EventPointerDown"
+                          EventSelected="EventSelected"
+                          EventEdit="EventEdit"
+                          MoreRequested="MoreRequested" />
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
+    [Parameter] public DateOnly SelectedDate { get; set; }
+    [Parameter] public Guid? ActiveEventId { get; set; }
+    [Parameter] public DateOnly? DragTargetDate { get; set; }
+    [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
+    [Parameter] public bool IsDirectManipulation { get; set; }
+    [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
+    [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> MoreRequested { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerMove { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerUp { get; set; }
+    [Parameter] public EventCallback<PointerEventArgs> PointerCancel { get; set; }
+
+    public ElementReference GridElement { get; private set; }
+
+    private string MonthKey => $"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}";
+    private string MonthTitle => $"{Layout.Month.Month.Year}年{Layout.Month.Month.Month}月";
+}

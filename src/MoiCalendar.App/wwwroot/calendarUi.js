@@ -97,5 +97,44 @@ window.moicalendarUi = {
             document.removeEventListener("keydown", window.moicalendarUi.shortcutHandler);
             window.moicalendarUi.shortcutHandler = null;
         }
+    },
+    initializeMonthStream: (stream, dotnetReference) => {
+        if (!stream) return;
+        window.moicalendarUi.disposeMonthStream(stream);
+        const panels = Array.from(stream.querySelectorAll(":scope > .month-panel"));
+        if (panels.length !== 3) return;
+
+        let frame = 0;
+        let changing = false;
+        let ignoreUntil = performance.now() + 300;
+        const centerCurrentMonth = () => {
+            stream.scrollTop = panels[1].offsetTop;
+        };
+        requestAnimationFrame(centerCurrentMonth);
+
+        const handler = () => {
+            if (frame || changing || performance.now() < ignoreUntil) return;
+            frame = requestAnimationFrame(async () => {
+                frame = 0;
+                const center = stream.scrollTop + stream.clientHeight / 2;
+                const distances = panels.map(panel =>
+                    Math.abs(panel.offsetTop + panel.offsetHeight / 2 - center));
+                const closestIndex = distances.indexOf(Math.min(...distances));
+                if (closestIndex === 1) return;
+                changing = true;
+                await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", closestIndex === 0 ? -1 : 1);
+            });
+        };
+        stream._moicalendarMonthStreamHandler = handler;
+        stream._moicalendarMonthStreamFrame = () => frame;
+        stream.addEventListener("scroll", handler, { passive: true });
+    },
+    disposeMonthStream: stream => {
+        if (!stream?._moicalendarMonthStreamHandler) return;
+        stream.removeEventListener("scroll", stream._moicalendarMonthStreamHandler);
+        const frame = stream._moicalendarMonthStreamFrame?.();
+        if (frame) cancelAnimationFrame(frame);
+        delete stream._moicalendarMonthStreamHandler;
+        delete stream._moicalendarMonthStreamFrame;
     }
 };
