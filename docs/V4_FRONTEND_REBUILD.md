@@ -1,7 +1,7 @@
 # MoiCalendar V4 前端重构审计
 
-状态：R0 已完成审计，等待 R1 设计系统阶段  
-最后更新：2026-09-28  
+状态：R0–R9 已完成
+最后更新：2026-09-29
 适用范围：V4 前端重构 R0–R9
 
 ## 1. 决策与优先级
@@ -205,4 +205,4 @@ App
 | 新 V4 UI 不需要知道 Supabase 实现 | PASS（边界已建立） | 日历组件静态护栏禁止提供程序实现引用；V4 尚未开始渲染 |
 | 完整测试和构建通过 | PASS | 2026-09-28：`dotnet test MoiCalendar.slnx --no-restore`，502/502 通过；`dotnet build MoiCalendar.slnx --no-restore` 成功，0 警告、0 错误 |
 
-R0 不包含截图门槛，因为没有进行视觉重写。R2 起必须在 `docs/ui-audit/` 保存固定视口截图，并在进入下一阶段前人工验收。
+R0 不包含截图门槛，因为没有进行视觉重写。R2 起的固定视口截图已保存在 `docs/ui-audit/`，最终结果见 `V4_UI_QUALITY_AUDIT.md`。

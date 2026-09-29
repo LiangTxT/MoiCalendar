@@ -1,13 +1,10 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<section class="week-calendar @(IsDayView ? "day-mode" : null) @(ShowHalfHourLines ? "show-half-hour-lines" : "hide-half-hour-lines") @(gesture?.IsActive == true ? "is-direct-manipulation" : null)"
+<section class="week-calendar @(IsDayView ? "day-mode" : null) @(ShowHalfHourLines ? "show-half-hour-lines" : "hide-half-hour-lines") @(gesture is not null ? "is-direct-manipulation" : null)"
          aria-label="@AriaLabel"
          style="@GridStyle"
-         @ref="interactionSurface"
-         @onpointermove="HandlePointerMoveAsync"
-         @onpointerup="CommitPointerInteractionAsync"
-         @onpointercancel="CancelPointerInteraction">
+         @ref="interactionSurface">
     @if (!VisibleDays.Any(day => day.AllDayEvents.Count > 0 || day.TimedEvents.Count > 0))
     {
         <p class="week-empty" role="status">@EmptyMessage</p>
@@ -43,18 +40,13 @@
                                  @onpointerdown="args => BeginSelection(day.Date.Date, args)"
                                  @onclick="args => HandleDateClickAsync(day.Date.Date, args)"
                                  @ondblclick="args => RequestQuickCreateAtPointerAsync(day.Date.Date, args)">
-                                <CurrentTimeIndicator Date="day.Date.Date" Metrics="GridMetrics" />
-
-                                @if (preview is { } activePreview && activePreview.TargetDate == day.Date.Date)
+                                @foreach (var slot in TimeGridSlots)
                                 {
-                                    <div class="calendar-interaction-preview @activePreview.Kind.ToString().ToLowerInvariant()"
-                                         style="@GetPreviewStyle(activePreview)"
-                                         role="status"
-                                         aria-live="polite">
-                                        <strong>@activePreview.Label</strong>
-                                        <span>@FormatPreview(activePreview)</span>
-                                    </div>
+                                    <span class="time-grid-line @(slot % 2 == 0 ? "hour" : "half-hour")"
+                                          style="@GetTimeGridLineStyle(slot)"
+                                          aria-hidden="true"></span>
                                 }
+                                <CurrentTimeIndicator Date="day.Date.Date" Metrics="GridMetrics" />
 
                                 @foreach (var calendarEvent in day.TimedEvents.Where(item => eventLayouts.ContainsKey(item.Id)))
                                 {
@@ -80,7 +72,6 @@
 </section>
 
 @code {
-    private const int TouchHoldMilliseconds = 350;
     private ElementReference interactionSurface;
     private ElementReference timedScrollElement;
     private ElementReference timedDaysElement;
@@ -88,10 +79,10 @@
     private string? initializedScrollContext;
     private bool scrollInitializationPending = true;
     private PointerGesture? gesture;
-    private InteractionPreview? preview;
     private bool suppressNextClick;
     private string lastPointerType = string.Empty;
     private CancellationTokenSource? eventClickCancellation;
+    private DotNetObjectReference<CalendarTimeGrid>? dotNetReference;
 
     [Parameter, EditorRequired]
     public CalendarWeekEventView WeekEvents { get; set; } = CalendarWeekEventView.Empty;
@@ -154,6 +145,10 @@
         .Range(VisibleStartHour, VisibleEndHour - VisibleStartHour)
         .ToArray();
 
+    private IReadOnlyList<int> TimeGridSlots => Enumerable
+        .Range(0, (VisibleEndHour - VisibleStartHour) * 2 + 1)
+        .ToArray();
+
     private string ScrollContextKey => IsDayView ? "day" : "week";
 
     private string GridStyle => FormattableString.Invariant(
@@ -176,6 +171,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            dotNetReference = DotNetObjectReference.Create(this);
+        }
+
         if (!scrollInitializationPending)
         {
             return;
@@ -198,16 +198,28 @@
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         eventClickCancellation?.Cancel();
         eventClickCancellation?.Dispose();
-        return ValueTask.CompletedTask;
+        try
+        {
+            await JS.InvokeVoidAsync("moicalendarInteraction.cancelActiveInteraction", interactionSurface);
+        }
+        catch (JSDisconnectedException)
+        {
+            // 页面卸载时浏览器会清理临时监听器和镜像。
+        }
+        dotNetReference?.Dispose();
     }
 
     private string GetTimeLabelStyle(int hour) =>
         FormattableString.Invariant(
             $"--time-label-top:{TimeGridCoordinateConverter.MinuteToPercentage(hour * 60, GridMetrics):0.####}%;");
+
+    private string GetTimeGridLineStyle(int slot) =>
+        FormattableString.Invariant(
+            $"--time-grid-line-top:{slot * 100d / Math.Max(1, TimeGridSlots.Count - 1):0.####}%;");
 
     private IReadOnlyDictionary<Guid, TimeGridLayoutItem> GetTimedEventLayouts(CalendarWeekDayEvents day) =>
         CalendarTimeGridProjection.LayoutTimedEvents(day, GridMetrics);
@@ -238,7 +250,7 @@
             DateTimeOffset.UtcNow);
     }
 
-    private void HandleTimedEventPointerDown(TimedEventPointerArgs interaction)
+    private async Task HandleTimedEventPointerDown(TimedEventPointerArgs interaction)
     {
         if (!interaction.CalendarEvent.IsReadOnly)
         {
@@ -246,6 +258,7 @@
                 interaction.CalendarEvent,
                 interaction.Date,
                 interaction.PointerEvent);
+            await StartBrowserInteractionAsync(interaction.PointerEvent);
         }
     }
 
@@ -267,7 +280,7 @@
             DateTimeOffset.UtcNow);
     }
 
-    private void HandleResizePointerDown(TimedEventPointerArgs interaction)
+    private async Task HandleResizePointerDown(TimedEventPointerArgs interaction)
     {
         if (!interaction.CalendarEvent.IsReadOnly)
         {
@@ -275,10 +288,11 @@
                 interaction.CalendarEvent,
                 interaction.Date,
                 interaction.PointerEvent);
+            await StartBrowserInteractionAsync(interaction.PointerEvent);
         }
     }
 
-    private void BeginSelection(DateOnly date, PointerEventArgs args)
+    private async Task BeginSelection(DateOnly date, PointerEventArgs args)
     {
         if (args.Button != 0)
         {
@@ -287,151 +301,74 @@
 
         gesture = PointerGesture.ForSelection(date, args, DateTimeOffset.UtcNow);
         lastPointerType = args.PointerType;
+        await StartBrowserInteractionAsync(args);
     }
 
-    private async Task HandlePointerMoveAsync(PointerEventArgs args)
+    private async Task StartBrowserInteractionAsync(PointerEventArgs args)
     {
-        if (gesture is not { } current || current.PointerId != args.PointerId)
+        if (gesture is not { } current || dotNetReference is null)
         {
             return;
         }
 
-        if (!current.IsActive)
-        {
-            if (!CalendarInteractionGeometry.HasExceededMovementThreshold(
-                    current.StartX,
-                    current.StartY,
-                    args.ClientX,
-                    args.ClientY) ||
-                IsTouchWaiting(current))
-            {
-                return;
-            }
+        var calendarEvent = current.CalendarEvent;
+        var config = new BrowserInteractionConfig(
+            args.PointerId,
+            args.PointerType,
+            args.ClientX,
+            args.ClientY,
+            current.Kind.ToString().ToLowerInvariant(),
+            VisibleDays.Select(day => day.Date.Date.ToString("yyyy-MM-dd")).ToArray(),
+            GridMetrics.VisibleStartMinute,
+            GridMetrics.VisibleEndMinute,
+            calendarEvent?.StartMinute ?? GridMetrics.VisibleStartMinute,
+            calendarEvent?.DurationMinutes ?? CalendarInteractionGeometry.MinimumTimedDurationMinutes,
+            current.OriginalDate.ToString("yyyy-MM-dd"),
+            calendarEvent?.Title ?? "新事件");
 
-            current = current with { IsActive = true };
-            gesture = current;
-            try
-            {
-                await JS.InvokeVoidAsync("moicalendarInteraction.capturePointer", interactionSurface, args.PointerId);
-            }
-            catch (JSException)
-            {
-                // 指针捕获失败时仍允许在网格范围内完成交互。
-            }
-        }
-
-        ElementBounds bounds;
         try
         {
-            bounds = await JS.InvokeAsync<ElementBounds>("moicalendarInteraction.getElementBounds", timedDaysElement);
+            await JS.InvokeVoidAsync(
+                "moicalendarInteraction.beginTimeGridInteraction",
+                interactionSurface,
+                timedDaysElement,
+                timedScrollElement,
+                dotNetReference,
+                config);
         }
         catch (JSException)
-        {
-            CancelPointerInteraction();
-            return;
-        }
-
-        var dayIndex = CalendarInteractionGeometry.DateIndexFromPointer(
-            args.ClientX,
-            bounds.Left,
-            bounds.Width,
-            VisibleDays.Count);
-        var targetDate = VisibleDays[dayIndex].Date.Date;
-        var pointerMinute = CalendarInteractionGeometry.MinuteFromPointer(
-            args.ClientY,
-            bounds.Top,
-            bounds.Height,
-            metrics: GridMetrics);
-        preview = CreatePreview(current, targetDate, pointerMinute, bounds, args.ClientY);
-    }
-
-    private async Task CommitPointerInteractionAsync(PointerEventArgs args)
-    {
-        if (gesture is not { IsActive: true } current ||
-            current.PointerId != args.PointerId ||
-            preview is not { } committedPreview)
         {
             gesture = null;
-            preview = null;
+        }
+    }
+
+    [JSInvokable]
+    public async Task CompleteBrowserInteraction(BrowserInteractionResult result)
+    {
+        if (gesture is not { } current || result.Cancelled)
+        {
+            gesture = null;
             return;
         }
 
-        suppressNextClick = true;
-        gesture = null;
-        preview = null;
-        try
+        if (!DateOnly.TryParse(result.TargetDate, out var targetDate))
         {
-            await JS.InvokeVoidAsync("moicalendarInteraction.releasePointer", interactionSurface, args.PointerId);
-        }
-        catch (JSException)
-        {
-            // 浏览器也会在 pointerup 后自动释放捕获。
+            gesture = null;
+            return;
         }
 
-        var intent = BuildIntent(current, committedPreview);
-        if (IntentRequested.HasDelegate)
-        {
-            await IntentRequested.InvokeAsync(intent);
-        }
-    }
-
-    private void CancelPointerInteraction()
-    {
-        gesture = null;
-        preview = null;
-    }
-
-    private InteractionPreview CreatePreview(
-        PointerGesture current,
-        DateOnly targetDate,
-        int pointerMinute,
-        ElementBounds bounds,
-        double currentY)
-    {
-        if (current.Kind == CalendarPointerGestureKind.Selection)
-        {
-            var startMinute = CalendarInteractionGeometry.MinuteFromPointer(
-                current.StartY,
-                bounds.Top,
-                bounds.Height,
-                metrics: GridMetrics);
-            var first = Math.Min(startMinute, pointerMinute);
-            var last = Math.Max(startMinute, pointerMinute);
-            if (last - first < CalendarInteractionGeometry.MinimumTimedDurationMinutes)
-            {
-                last = Math.Min(
-                    GridMetrics.VisibleEndMinute,
-                    first + CalendarInteractionGeometry.MinimumTimedDurationMinutes);
-            }
-
-            return new InteractionPreview(current.Kind, targetDate, first, last, "新事件");
-        }
-
-        var calendarEvent = current.CalendarEvent!;
-        if (current.Kind == CalendarPointerGestureKind.Resize)
-        {
-            var endMinute = Math.Max(
-                calendarEvent.StartMinute + CalendarInteractionGeometry.MinimumTimedDurationMinutes,
-                pointerMinute);
-            return new InteractionPreview(
-                current.Kind,
-                current.OriginalDate,
-                calendarEvent.StartMinute,
-                Math.Min(GridMetrics.VisibleEndMinute, endMinute),
-                calendarEvent.Title);
-        }
-
-        var duration = calendarEvent.DurationMinutes;
-        var start = Math.Min(
-            pointerMinute,
-            GridMetrics.VisibleEndMinute - Math.Min(duration, GridMetrics.VisibleDurationMinutes));
-        start = Math.Max(GridMetrics.VisibleStartMinute, start);
-        return new InteractionPreview(
+        var committedPreview = new InteractionPreview(
             current.Kind,
             targetDate,
-            start,
-            Math.Min(GridMetrics.VisibleEndMinute, start + duration),
-            calendarEvent.Title);
+            result.StartMinute,
+            result.EndMinute,
+            current.CalendarEvent?.Title ?? "新事件");
+        gesture = null;
+        suppressNextClick = true;
+        if (IntentRequested.HasDelegate)
+        {
+            await IntentRequested.InvokeAsync(BuildIntent(current, committedPreview));
+        }
     }
 
     private CalendarInteractionIntent BuildIntent(PointerGesture current, InteractionPreview committedPreview)
@@ -474,12 +411,12 @@
         eventClickCancellation = cancellation;
         try
         {
-            await Task.Delay(220, cancellation.Token);
+            await Task.Delay(180, cancellation.Token);
             await EventSelected.InvokeAsync(eventId);
         }
         catch (OperationCanceledException)
         {
-            // 第二次点击会取消详情打开并改为直接编辑。
+            // 双击会取消轻量详情，直接进入完整编辑器。
         }
     }
 
@@ -557,37 +494,13 @@
         return true;
     }
 
-    private bool IsTouchWaiting(PointerGesture current) =>
-        string.Equals(current.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
-        DateTimeOffset.UtcNow - current.StartedAt < TimeSpan.FromMilliseconds(TouchHoldMilliseconds);
-
     private bool IsInteracting(Guid eventId) =>
-        gesture is { IsActive: true, CalendarEvent.Id: var activeId } && activeId == eventId;
+        gesture is { CalendarEvent.Id: var activeId } && activeId == eventId;
 
     private static DateTime ToLocalDateTime(DateOnly date, int minute) =>
         minute >= CalendarMetrics.MinutesPerDay
             ? date.AddDays(1).ToDateTime(TimeOnly.MinValue)
             : date.ToDateTime(TimeOnly.MinValue).AddMinutes(minute);
-
-    private string GetPreviewStyle(InteractionPreview item)
-    {
-        var position = TimeGridLayoutEngine.CalculateClippedPosition(
-            item.StartMinute,
-            Math.Max(item.StartMinute + 1, item.EndMinute),
-            new TimeGridMetrics(
-                GridMetrics.VisibleStartMinute,
-                GridMetrics.VisibleEndMinute,
-                CalendarInteractionGeometry.MinimumTimedDurationMinutes));
-        return FormattableString.Invariant(
-            $"--event-top:{position.TopPercentage:0.####}%;--event-height:{position.HeightPercentage:0.####}%;");
-    }
-
-    private static string FormatPreview(InteractionPreview item) =>
-        $"{item.TargetDate:M月d日} {FormatMinute(item.StartMinute)}–{FormatMinute(item.EndMinute)}";
-
-    private static string FormatMinute(int minute) => minute >= CalendarMetrics.MinutesPerDay
-        ? "24:00"
-        : $"{minute / 60:D2}:{minute % 60:D2}";
 
     private enum CalendarPointerGestureKind
     {
@@ -602,10 +515,8 @@
         string PointerType,
         double StartX,
         double StartY,
-        DateTimeOffset StartedAt,
         DateOnly OriginalDate,
-        CalendarWeekTimedEvent? CalendarEvent,
-        bool IsActive = false)
+        CalendarWeekTimedEvent? CalendarEvent)
     {
         public static PointerGesture ForEvent(
             CalendarPointerGestureKind kind,
@@ -613,13 +524,14 @@
             DateOnly date,
             PointerEventArgs args,
             DateTimeOffset startedAt) =>
-            new(kind, args.PointerId, args.PointerType, args.ClientX, args.ClientY, startedAt, date, calendarEvent);
+            new(kind, args.PointerId, args.PointerType, args.ClientX, args.ClientY, date, calendarEvent);
 
         public static PointerGesture ForSelection(
             DateOnly date,
             PointerEventArgs args,
             DateTimeOffset startedAt) =>
-            new(CalendarPointerGestureKind.Selection, args.PointerId, args.PointerType, args.ClientX, args.ClientY, startedAt, date, null);
+            new(CalendarPointerGestureKind.Selection, args.PointerId, args.PointerType, args.ClientX, args.ClientY, date, null);
+
     }
 
     private sealed record InteractionPreview(
@@ -630,4 +542,24 @@
         string Label);
 
     private sealed record ElementBounds(double Left, double Top, double Width, double Height);
+
+    public sealed record BrowserInteractionConfig(
+        long PointerId,
+        string PointerType,
+        double StartX,
+        double StartY,
+        string Kind,
+        IReadOnlyList<string> Dates,
+        int VisibleStartMinute,
+        int VisibleEndMinute,
+        int EventStartMinute,
+        int DurationMinutes,
+        string OriginalDate,
+        string Label);
+
+    public sealed record BrowserInteractionResult(
+        bool Cancelled,
+        string TargetDate,
+        int StartMinute,
+        int EndMinute);
 }

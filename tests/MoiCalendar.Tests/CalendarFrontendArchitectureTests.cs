@@ -117,6 +117,44 @@ public sealed class CalendarFrontendArchitectureTests
     }
 
     [Fact]
+    public void V4DesignSystem_DefinesTheConstrainedSemanticTokens()
+    {
+        var root = FindRepositoryRoot();
+        var css = File.ReadAllText(Path.Combine(
+            root,
+            "src",
+            "MoiCalendar.App",
+            "wwwroot",
+            "css",
+            "v4.css"));
+
+        foreach (var token in new[]
+        {
+            "--v4-canvas",
+            "--v4-surface",
+            "--v4-elevated",
+            "--v4-ink",
+            "--v4-line",
+            "--v4-primary",
+            "--v4-signal",
+            "--space-1",
+            "--space-7",
+            "--radius-event",
+            "--radius-control",
+            "--radius-overlay",
+            "--motion-fast",
+            "--motion-major"
+        })
+        {
+            Assert.Contains(token, css, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("prefers-reduced-motion", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("linear-gradient", css, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("backdrop-filter", css, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void InteractionEngine_ExposesExplicitIntentTypes()
     {
         var intentType = typeof(CalendarInteractionIntent);
@@ -151,6 +189,20 @@ public sealed class CalendarFrontendArchitectureTests
     }
 
     [Fact]
+    public void TimeGrid_UsesBoundTimeZoneAndSharedScrollbarWidth()
+    {
+        var root = FindRepositoryRoot();
+        var home = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "Pages", "Home.razor"));
+        var css = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "wwwroot", "css", "v4.css"));
+
+        Assert.Equal(2, home.Split("InteractionTimeZoneId=\"@displayTimeZoneId\"").Length - 1);
+        Assert.DoesNotContain("InteractionTimeZoneId=\"displayTimeZoneId\"", home, StringComparison.Ordinal);
+        Assert.Contains("padding-right: var(--time-grid-scrollbar-width, 0px)", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CalendarOverlays_UseOneHostForEscapeOutsideClickAndFocusTrap()
     {
         var root = FindRepositoryRoot();
@@ -158,18 +210,60 @@ public sealed class CalendarFrontendArchitectureTests
         var host = File.ReadAllText(Path.Combine(componentDirectory, "CalendarOverlayHost.razor"));
         var overlayScript = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "calendarOverlay.js"));
         var home = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "Pages", "Home.razor"));
-        var css = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "css", "app.css"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "css", "v4.css"));
 
         Assert.Contains("@onclick=\"Close\"", host, StringComparison.Ordinal);
         Assert.Contains("args.Key == \"Escape\"", host, StringComparison.Ordinal);
         Assert.Contains("moicalendarOverlay.activate", host, StringComparison.Ordinal);
         Assert.Contains("event.key !== \"Tab\"", overlayScript, StringComparison.Ordinal);
+        Assert.Contains("[autofocus], [data-overlay-initial-focus]", overlayScript, StringComparison.Ordinal);
         Assert.Contains("private CalendarOverlayState overlayState", home, StringComparison.Ordinal);
         Assert.DoesNotContain("private CalendarEventDraft? quickCreateDraft;", home, StringComparison.Ordinal);
         Assert.DoesNotContain("private CalendarEvent? selectedEvent;", home, StringComparison.Ordinal);
         Assert.DoesNotContain("private DateOnly? overflowDate;", home, StringComparison.Ordinal);
-        Assert.Contains("@media (max-width: 48rem)", css, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 720px)", css, StringComparison.Ordinal);
         Assert.Contains(".recurrence-scope-popover", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void V4Frontend_HasOneStylesheetAndOneHighFrequencyPointerPipeline()
+    {
+        var root = FindRepositoryRoot();
+        var wwwroot = Path.Combine(root, "src", "MoiCalendar.App", "wwwroot");
+        var index = File.ReadAllText(Path.Combine(wwwroot, "index.html"));
+        var interaction = File.ReadAllText(Path.Combine(wwwroot, "calendarInteraction.js"));
+        var timeGrid = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "Components", "CalendarTimeGrid.razor"));
+
+        Assert.Contains("css/v4.css", index, StringComparison.Ordinal);
+        Assert.DoesNotContain("css/app.css", index, StringComparison.Ordinal);
+        Assert.DoesNotContain("css/typography.css", index, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(wwwroot, "css", "app.css")));
+        Assert.False(File.Exists(Path.Combine(wwwroot, "css", "typography.css")));
+        Assert.Contains("requestAnimationFrame", interaction, StringComparison.Ordinal);
+        Assert.Contains("beginTimeGridInteraction", interaction, StringComparison.Ordinal);
+        Assert.Contains("if (!session.active)", interaction, StringComparison.Ordinal);
+        Assert.Contains("session.active = true;", interaction, StringComparison.Ordinal);
+        Assert.True(
+            interaction.IndexOf("session.active = true;", StringComparison.Ordinal) <
+            interaction.IndexOf("surface.setPointerCapture", StringComparison.Ordinal));
+        Assert.DoesNotContain("bounds.top + scroll.scrollTop", interaction, StringComparison.Ordinal);
+        Assert.Contains("config.pointerStartMinute - config.eventStartMinute", interaction, StringComparison.Ordinal);
+        Assert.DoesNotContain("HandlePointerMoveAsync", timeGrid, StringComparison.Ordinal);
+        Assert.DoesNotContain("CommitPointerInteractionAsync", timeGrid, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserViewPreference_AllowsEveryExposedCalendarView()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "MoiCalendar.Storage",
+            "wwwroot",
+            "indexedDbEventRepository.js"));
+
+        Assert.Contains("[\"Month\", \"Week\", \"Day\", \"Agenda\"]", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -222,6 +316,7 @@ public sealed class CalendarFrontendArchitectureTests
         Assert.Contains("<AllDayPanel", timeGrid, StringComparison.Ordinal);
         Assert.Contains("<TimedEventBlock", timeGrid, StringComparison.Ordinal);
         Assert.Contains("<CurrentTimeIndicator", timeGrid, StringComparison.Ordinal);
+        Assert.Contains("time-grid-line", timeGrid, StringComparison.Ordinal);
     }
 
     [Fact]

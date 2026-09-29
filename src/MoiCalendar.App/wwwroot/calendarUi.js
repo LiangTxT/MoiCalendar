@@ -2,12 +2,10 @@ window.moicalendarUi = {
     rememberedFocus: [],
     calendarScrollPositions: {},
     shortcutHandler: null,
-    isWideViewport: () => window.matchMedia("(min-width: 56rem)").matches,
-    applyAppearance: (colorTheme, appearance, typography) => {
+    isWideViewport: () => window.matchMedia("(min-width: 1181px)").matches,
+    applyAppearance: (appearance) => {
         const root = document.documentElement;
-        root.dataset.colorTheme = colorTheme;
         root.dataset.appearance = appearance;
-        root.dataset.typography = typography;
 
         const systemIsDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         const isDark = appearance === "dark" || (appearance === "system" && systemIsDark);
@@ -72,13 +70,14 @@ window.moicalendarUi = {
             document.removeEventListener("keydown", window.moicalendarUi.shortcutHandler);
         }
 
-        const supported = new Set(["n", "t", "m", "w", "d", "a", "arrowleft", "arrowright", "escape", "enter", "delete"]);
+        const supported = new Set(["n", "t", "m", "w", "d", "a", "k", "arrowleft", "arrowright", "escape", "enter", "delete"]);
         window.moicalendarUi.shortcutHandler = event => {
             const target = event.target;
             const tag = target?.tagName?.toLowerCase();
             const isTextEntry = tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
             const key = event.key.toLowerCase();
-            if (isTextEntry || event.ctrlKey || event.altKey || event.metaKey || !supported.has(key)) {
+            const isSearchShortcut = key === "k" && !event.altKey && event.ctrlKey !== event.metaKey;
+            if (isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
                 return;
             }
 

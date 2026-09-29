@@ -50,37 +50,19 @@ public sealed class AppearanceService(
         }
     }
 
-    public Task SetThemeColorAsync(
-        ThemeColorId themeColor,
-        CancellationToken cancellationToken = default) =>
-        UpdateAsync(Current with { ThemeColor = themeColor }, cancellationToken);
-
     public Task SetModeAsync(
         AppearanceMode mode,
         CancellationToken cancellationToken = default) =>
         UpdateAsync(Current with { Mode = mode }, cancellationToken);
-
-    public Task SetTypographyAsync(
-        TypographyTheme typography,
-        CancellationToken cancellationToken = default) =>
-        UpdateAsync(Current with { Typography = typography }, cancellationToken);
 
     private async Task UpdateAsync(
         AppearancePreference preference,
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(
-            Enum.IsDefined(preference.ThemeColor),
-            true,
-            nameof(preference.ThemeColor));
-        ArgumentOutOfRangeException.ThrowIfNotEqual(
             Enum.IsDefined(preference.Mode),
             true,
             nameof(preference.Mode));
-        ArgumentOutOfRangeException.ThrowIfNotEqual(
-            Enum.IsDefined(preference.Typography),
-            true,
-            nameof(preference.Typography));
 
         Current = preference;
         await ApplyAsync(cancellationToken);
@@ -99,13 +81,9 @@ public sealed class AppearanceService(
 
     private ValueTask ApplyAsync(CancellationToken cancellationToken)
     {
-        var theme = ThemeColorCatalog.Get(Current.ThemeColor);
-        var typography = TypographyCatalog.Get(Current.Typography);
         return jsRuntime.InvokeVoidAsync(
             "moicalendarUi.applyAppearance",
             cancellationToken,
-            theme.CssId,
-            Current.Mode.ToString().ToLowerInvariant(),
-            typography.CssId);
+            Current.Mode.ToString().ToLowerInvariant());
     }
 }

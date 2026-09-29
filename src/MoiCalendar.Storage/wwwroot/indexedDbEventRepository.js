@@ -1379,7 +1379,7 @@ export async function getCalendarViewPreference() {
 }
 
 export async function saveCalendarViewPreference(viewMode) {
-    if (!["Month", "Week", "Agenda"].includes(viewMode)) {
+    if (!["Month", "Week", "Day", "Agenda"].includes(viewMode)) {
         throw new Error("日历视图偏好无效。");
     }
 
@@ -1402,30 +1402,22 @@ export async function getAppearancePreference() {
         return null;
     }
 
-    const themeColor = typeof record.value.themeColor === "string"
-        ? record.value.themeColor
-        : "";
     const mode = typeof record.value.mode === "string"
         ? record.value.mode
         : "";
-    const typography = typeof record.value.typography === "string"
-        ? record.value.typography
-        : "System";
-    return themeColor + "|" + mode + "|" + typography;
+    return mode;
 }
 
-export async function saveAppearancePreference(themeColor, mode, typography) {
-    const themes = ["Cupertino", "Ocean", "Sage", "Lavender", "Sunset", "Rose", "Graphite"];
+export async function saveAppearancePreference(mode) {
     const modes = ["System", "Light", "Dark"];
-    const typographyThemes = ["System", "Gallery", "Editorial", "Studio"];
-    if (!themes.includes(themeColor) || !modes.includes(mode) || !typographyThemes.includes(typography)) {
+    if (!modes.includes(mode)) {
         throw new Error("外观偏好无效。");
     }
 
     const database = await getDatabase();
     const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
     const request = transaction.objectStore(configuredSettingsStoreName)
-        .put({ key: "appearance", value: { themeColor, mode, typography } });
+        .put({ key: "appearance", value: { version: 2, mode } });
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
 }
 

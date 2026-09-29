@@ -1,25 +1,23 @@
 <header class="calendar-toolbar">
     <div class="toolbar-leading">
         <button class="icon-button" type="button" aria-label="切换日历侧栏" aria-expanded="@SidebarOpen" @onclick="ToggleSidebar">
-            <span aria-hidden="true">☰</span>
+            <span class="nav-toggle-glyph" aria-hidden="true"><i></i><i></i></span>
         </button>
-        <button class="toolbar-today" type="button" @onclick="ShowToday">今天</button>
+        <span class="command-brand"><b>MOI</b><span>/ CAL</span></span>
     </div>
 
     <nav class="toolbar-period" aria-label="日期范围导航">
         <button class="icon-button" type="button" aria-label="@PreviousAriaLabel" @onclick="ShowPrevious">
             <span aria-hidden="true">‹</span>
         </button>
-        <strong aria-live="polite">@PeriodTitle</strong>
+        <button class="toolbar-today" type="button" @onclick="ShowToday">今天</button>
         <button class="icon-button" type="button" aria-label="@NextAriaLabel" @onclick="ShowNext">
             <span aria-hidden="true">›</span>
         </button>
+        <strong class="command-period-title" aria-live="polite">@PeriodTitle</strong>
     </nav>
 
     <div class="toolbar-actions">
-        <button class="add-event-button" type="button" aria-label="新建事件" @onclick="CreateEvent">
-            <span aria-hidden="true">＋</span><span class="add-event-label">新建事件</span>
-        </button>
         <nav class="view-switcher" aria-label="日历视图">
             @foreach (var option in ViewOptions)
             {
@@ -29,6 +27,12 @@
                         @onclick="() => ViewChanged.InvokeAsync(option.Mode)">@option.Label</button>
             }
         </nav>
+        <button class="header-search" type="button" aria-label="搜索日历" @onclick="SearchRequested">
+            <span aria-hidden="true">⌕</span><span>搜索</span><kbd>Ctrl K</kbd>
+        </button>
+        <button class="add-event-button" type="button" aria-label="新建事件" @onclick="CreateEvent">
+            <span aria-hidden="true">＋</span><span class="add-event-label">新建</span>
+        </button>
     </div>
 </header>
 
@@ -51,5 +55,6 @@
     [Parameter] public EventCallback ShowPrevious { get; set; }
     [Parameter] public EventCallback ShowNext { get; set; }
     [Parameter] public EventCallback CreateEvent { get; set; }
+    [Parameter] public EventCallback SearchRequested { get; set; }
     [Parameter] public EventCallback<CalendarViewMode> ViewChanged { get; set; }
 }

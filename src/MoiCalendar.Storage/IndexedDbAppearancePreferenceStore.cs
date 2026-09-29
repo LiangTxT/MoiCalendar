@@ -19,23 +19,13 @@ public sealed class IndexedDbAppearancePreferenceStore(IndexedDbConnection conne
         }
 
         var parts = value.Split('|', StringSplitOptions.TrimEntries);
-        var themeColor = parts.Length > 0 &&
-                         Enum.TryParse<ThemeColorId>(parts[0], ignoreCase: true, out var parsedThemeColor) &&
-                         Enum.IsDefined(parsedThemeColor)
-            ? parsedThemeColor
-            : AppearancePreference.Default.ThemeColor;
-        var mode = parts.Length > 1 &&
-                   Enum.TryParse<AppearanceMode>(parts[1], ignoreCase: true, out var parsedMode) &&
+        var modeText = parts.Length >= 3 ? parts[1] : parts[0];
+        var mode = Enum.TryParse<AppearanceMode>(modeText, ignoreCase: true, out var parsedMode) &&
                    Enum.IsDefined(parsedMode)
             ? parsedMode
             : AppearancePreference.Default.Mode;
-        var typography = parts.Length > 2 &&
-                         Enum.TryParse<TypographyTheme>(parts[2], ignoreCase: true, out var parsedTypography) &&
-                         Enum.IsDefined(parsedTypography)
-            ? parsedTypography
-            : AppearancePreference.Default.Typography;
 
-        return new AppearancePreference(themeColor, mode, typography);
+        return new AppearancePreference(mode);
     }
 
     public Task SaveAsync(
@@ -45,9 +35,7 @@ public sealed class IndexedDbAppearancePreferenceStore(IndexedDbConnection conne
             "保存外观偏好",
             "saveAppearancePreference",
             cancellationToken,
-            preference.ThemeColor.ToString(),
-            preference.Mode.ToString(),
-            preference.Typography.ToString());
+            preference.Mode.ToString());
 
     private async Task<T> InvokeAsync<T>(
         string operation,

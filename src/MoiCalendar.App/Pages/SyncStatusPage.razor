@@ -13,8 +13,14 @@
 <PageTitle>同步状态 | MoiCalendar</PageTitle>
 
 <main class="settings-shell">
-    <h1>云同步状态</h1>
-    <p>IndexedDB 始终是本机日历的数据来源。网络或 Realtime 不可用时仍可继续编辑本地日历。</p>
+    <header class="settings-page-header">
+        <div>
+            <span class="v4-meta">SYNC / STATUS</span>
+            <h1>同步</h1>
+        </div>
+        <a href="">返回日历</a>
+    </header>
+    <p class="settings-note">本地日历始终可用。这里只显示需要你关注的同步状态；实现细节位于诊断区域。</p>
 
     @if (status is null)
     {

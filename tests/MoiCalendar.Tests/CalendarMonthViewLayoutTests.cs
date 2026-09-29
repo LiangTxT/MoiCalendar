@@ -26,7 +26,7 @@ public sealed class CalendarMonthViewLayoutTests
     public async Task ManyEvents_ProducesDensitySpecificMoreCounts()
     {
         var (service, repository) = CreateService();
-        for (var index = 1; index <= 5; index++)
+        for (var index = 1; index <= 8; index++)
         {
             await repository.CreateAsync(Event(
                 index,
@@ -38,9 +38,9 @@ public sealed class CalendarMonthViewLayoutTests
         var day = FindDay(await GetLayoutAsync(service), new DateOnly(2026, 9, 8));
 
         Assert.Equal(3, day.Regular.VisibleEvents.Count);
-        Assert.Equal(2, day.Regular.OverflowCount);
+        Assert.Equal(5, day.Regular.OverflowCount);
         Assert.Equal(2, day.Compact.VisibleEvents.Count);
-        Assert.Equal(3, day.Compact.OverflowCount);
+        Assert.Equal(6, day.Compact.OverflowCount);
     }
 
     [Fact]

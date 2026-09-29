@@ -53,8 +53,8 @@
 ### 2.3 主题与排版
 
 - `ThemeColorCatalog` 和 `AppearanceService` 负责语义色板与用户偏好。
-- `app.css` 使用 `--color-*`、`--surface-*`、`--text-*`、间距和圆角变量表达视觉语义。
-- `typography.css` 通过 `--font-display`、`--font-ui`、`--font-body`、`--font-calendar` 切换排版。
+- `v4.css` 是唯一视觉系统，使用 `--v4-*`、固定间距、圆角、阴影和动效 token 表达视觉语义。
+- V4 Beta 只使用系统字体栈，不再提供字体主题或自托管字体切换。
 - 后续布局模型不得携带颜色、字体或 CSS 类名；这些由 Razor 组件和语义 token 决定。
 
 ### 2.4 数据、持久化和重复事件

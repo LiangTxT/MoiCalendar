@@ -12,7 +12,8 @@ public enum CalendarShortcutAction
     NextPeriod,
     CloseOverlay,
     OpenSelected,
-    DeleteSelected
+    DeleteSelected,
+    Search
 }
 
 public static class CalendarShortcutPolicy
@@ -24,7 +25,19 @@ public static class CalendarShortcutPolicy
         bool altKey,
         bool metaKey)
     {
-        if (isTextEntry || controlKey || altKey || metaKey || string.IsNullOrWhiteSpace(key))
+        if (isTextEntry || string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        if (key.Equals("k", StringComparison.OrdinalIgnoreCase) &&
+            !altKey &&
+            controlKey != metaKey)
+        {
+            return CalendarShortcutAction.Search;
+        }
+
+        if (controlKey || altKey || metaKey)
         {
             return null;
         }

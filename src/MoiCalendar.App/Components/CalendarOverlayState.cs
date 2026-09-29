@@ -8,6 +8,7 @@ public enum CalendarOverlayKind
     QuickCreate,
     EventDetails,
     MoreEvents,
+    Search,
     RecurrenceScope,
     FullEditor
 }
@@ -35,6 +36,9 @@ public sealed record EventDetailsOverlayState(CalendarEvent CalendarEvent) :
 public sealed record MoreEventsOverlayState(DateOnly Date) :
     CalendarOverlayState(CalendarOverlayKind.MoreEvents);
 
+public sealed record SearchOverlayState() :
+    CalendarOverlayState(CalendarOverlayKind.Search);
+
 public sealed record RecurrenceScopeOverlayState(
     CalendarEvent CalendarEvent,
     CalendarRecurrenceAction Action,
@@ -59,6 +63,8 @@ public static class CalendarOverlayTransitions
 
     public static CalendarOverlayState OpenMoreEvents(DateOnly date) =>
         new MoreEventsOverlayState(date);
+
+    public static CalendarOverlayState OpenSearch() => new SearchOverlayState();
 
     public static CalendarOverlayState OpenEventFromMore(
         CalendarOverlayState state,

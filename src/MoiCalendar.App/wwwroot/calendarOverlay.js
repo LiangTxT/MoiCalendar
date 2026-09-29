@@ -30,7 +30,14 @@ window.moicalendarOverlay = {
 
         host._moicalendarOverlayKeydown = handler;
         host.addEventListener("keydown", handler);
-        queueMicrotask(() => focusable()[0]?.focus());
+        queueMicrotask(() => {
+            const preferred = host.querySelector("[autofocus], [data-overlay-initial-focus]");
+            if (preferred?.offsetParent !== null) {
+                preferred.focus();
+                return;
+            }
+            focusable()[0]?.focus();
+        });
     },
     deactivate: host => {
         if (host?._moicalendarOverlayKeydown) {

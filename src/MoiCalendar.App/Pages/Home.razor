@@ -1,17 +1,15 @@
 @page "/"
 @implements IAsyncDisposable
-@using MoiCalendar.Sync
 @using MoiCalendar.App.Components
 @inject CalendarEventService EventService
 @inject CalendarInteractionService InteractionService
-@inject ISyncService SyncService
 @inject ICalendarViewPreferenceStore ViewPreferences
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
 <PageTitle>MoiCalendar</PageTitle>
 
-<main class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed")">
+<main id="main-content" class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed") @(selectedEvent is not null ? "inspector-open" : null)">
     @if (isSidebarOpen)
     {
         <MoiCalendar.App.Components.CalendarSidebar MainMonth="monthView.Month"
@@ -36,27 +34,10 @@
                                                      ShowPrevious="ShowPreviousPeriodAsync"
                                                      ShowNext="ShowNextPeriodAsync"
                                                      CreateEvent="() => OpenQuickCreate(SelectedCreateDate)"
+                                                     SearchRequested="OpenSearch"
                                                      ViewChanged="ShowDisplayMode" />
 
         <div class="calendar-content">
-            <details class="calendar-onboarding">
-                <summary>本地优先 · 离线可用</summary>
-                <p>事件保存在此浏览器。跨设备同步、外部备份和数据导出可在设置中管理。</p>
-                <a href="help">查看入门与备份说明</a>
-            </details>
-
-            <div class="calendar-utility-row">
-                <a href="sync-status">查看云同步状态</a>
-                <button type="button" disabled="@isSyncing" @onclick="SynchronizeAsync">
-                    @(isSyncing ? "正在处理外部备份…" : "运行外部备份")
-                </button>
-            </div>
-
-            @if (!string.IsNullOrWhiteSpace(syncMessage))
-            {
-                <p class="settings-status @(syncSucceeded ? "success" : "failure")" role="status">@syncMessage</p>
-            }
-
             @if (!string.IsNullOrWhiteSpace(LocalError))
             {
                 <p class="storage-error" role="alert">@LocalError</p>
@@ -150,7 +131,7 @@
                                                       WeekEvents="@(calendarVisible ? weekEvents : CalendarWeekEventView.Empty)"
                                                       SelectedDate="selectedDate"
                                                       SelectedEventId="focusedEventId"
-                                                      InteractionTimeZoneId="displayTimeZoneId"
+                                                      InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{WeekTitle}周视图")"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
@@ -165,7 +146,7 @@
                                                       VisibleDate="selectedDate"
                                                       SelectedDate="selectedDate"
                                                       SelectedEventId="focusedEventId"
-                                                      InteractionTimeZoneId="displayTimeZoneId"
+                                                      InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{DayTitle}日视图")"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
@@ -175,6 +156,17 @@
             }
         </div>
     </div>
+
+    @if (selectedEvent is not null)
+    {
+        <MoiCalendar.App.Components.EventDetailPopover CalendarEvent="selectedEvent"
+                                                        TimeText="@FormatEventTime(selectedEvent)"
+                                                        Error="@detailError"
+                                                        IsDeleting="isDeletingFromDetails"
+                                                        Edit="EditSelectedEvent"
+                                                        Delete="DeleteSelectedEventAsync"
+                                                        Close="CloseEventDetails" />
+    }
 </main>
 
 @if (HasOpenOverlay)
@@ -190,18 +182,6 @@
                                                         Create="CreateQuickEventAsync"
                                                         MoreDetails="PromoteQuickCreateToEditor"
                                                         Close="CloseQuickCreate" />
-}
-
-@if (selectedEvent is not null)
-{
-    <MoiCalendar.App.Components.EventDetailPopover CalendarEvent="selectedEvent"
-                                                          TimeText="@FormatEventTime(selectedEvent)"
-                                                          AnchorStyle="detailAnchorStyle"
-                                                          Error="@detailError"
-                                                          IsDeleting="isDeletingFromDetails"
-                                                          Edit="EditSelectedEvent"
-                                                          Delete="DeleteSelectedEventAsync"
-                                                          Close="CloseEventDetails" />
 }
 
 @if (overflowDate is DateOnly overflowDay)
@@ -247,6 +227,52 @@
             <footer>
                 <button class="primary-button" type="button" @onclick="() => OpenQuickCreateFromOverflow(overflowDay)">新建事件</button>
             </footer>
+        </section>
+}
+
+@if (overlayState is SearchOverlayState)
+{
+        <section class="calendar-search-popover"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="calendar-search-title"
+                 @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <span class="v4-meta">SEARCH / LOCAL</span>
+                    <h2 id="calendar-search-title">搜索当前月份</h2>
+                </div>
+                <button class="icon-button" type="button" aria-label="关闭搜索" @onclick="CloseCurrentOverlayAsync">×</button>
+            </header>
+            <label class="visually-hidden" for="calendar-search-input">搜索标题或地点</label>
+            <input id="calendar-search-input"
+                   type="search"
+                   autofocus
+                   placeholder="搜索标题或地点"
+                   @bind="searchQuery"
+                   @bind:event="oninput" />
+            <div class="calendar-search-results" role="list">
+                @if (string.IsNullOrWhiteSpace(searchQuery))
+                {
+                    <p>输入关键词以筛选当前月份的本地事件。</p>
+                }
+                else if (SearchResults.Count == 0)
+                {
+                    <p>没有匹配的事件。</p>
+                }
+                else
+                {
+                    @foreach (var calendarEvent in SearchResults)
+                    {
+                        <button type="button"
+                                role="listitem"
+                                @onclick="() => OpenEventDetailsFromSearchAsync(calendarEvent.Id)">
+                            <span>@calendarEvent.TimeLabel</span>
+                            <strong>@calendarEvent.Title</strong>
+                        </button>
+                    }
+                }
+            </div>
         </section>
 }
 
@@ -479,18 +505,16 @@
     private bool isInitialized;
     private CalendarOverlayState overlayState = CalendarOverlayState.None;
     private Guid? editingEventId;
+    private string searchQuery = string.Empty;
     private string? editorError;
     private string? quickCreateError;
     private string? detailError;
     private string? detailAnchorStyle;
     private string? storageError;
     private string? preferenceError;
-    private string? syncMessage;
     private bool isLoadingEvents = true;
-    private bool isSyncing;
     private bool isQuickCreating;
     private bool isDeletingFromDetails;
-    private bool syncSucceeded;
     private bool calendarVisible = true;
     private bool isSidebarOpen = true;
     private bool viewportInitialized;
@@ -671,6 +695,8 @@
 
     public async ValueTask DisposeAsync()
     {
+        eventClickCancellation?.Cancel();
+        eventClickCancellation?.Dispose();
         try
         {
             await JS.InvokeVoidAsync("moicalendarUi.disposeCalendarShortcuts");
@@ -681,8 +707,6 @@
         }
 
         shortcutReference?.Dispose();
-        eventClickCancellation?.Cancel();
-        eventClickCancellation?.Dispose();
     }
 
     [JSInvokable]
@@ -750,10 +774,32 @@
             case CalendarShortcutAction.DeleteSelected when selectedEvent is not null:
                 await DeleteSelectedEventAsync();
                 break;
+            case CalendarShortcutAction.Search:
+                await OpenSearch();
+                break;
         }
     }
 
-    private bool HasOpenOverlay => overlayState.Kind != CalendarOverlayKind.None;
+    private bool HasOpenOverlay => overlayState.Kind is not (
+        CalendarOverlayKind.None or CalendarOverlayKind.EventDetails);
+
+    private async Task OpenSearch()
+    {
+        await RememberFocusAsync();
+        searchQuery = string.Empty;
+        overlayState = CalendarOverlayTransitions.OpenSearch();
+    }
+
+    private IReadOnlyList<CalendarEventListItem> SearchResults => monthLayout.Weeks
+        .SelectMany(week => week.Days)
+        .SelectMany(day => day.AllEvents)
+        .DistinctBy(calendarEvent => calendarEvent.Id)
+        .Where(calendarEvent => calendarEvent.Title.Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
+        .Take(20)
+        .ToArray();
+
+    private Task OpenEventDetailsFromSearchAsync(Guid id) =>
+        OpenEventDetailsCoreAsync(id, rememberFocus: false);
 
     private async Task CloseCurrentOverlayAsync()
     {
@@ -776,6 +822,12 @@
         else if (overlayState is RecurrenceScopeOverlayState)
         {
             overlayState = CalendarOverlayState.None;
+            await RestoreFocusAsync();
+        }
+        else if (overlayState is SearchOverlayState)
+        {
+            overlayState = CalendarOverlayState.None;
+            searchQuery = string.Empty;
             await RestoreFocusAsync();
         }
     }
@@ -941,29 +993,6 @@
         finally
         {
             isLoadingEvents = false;
-        }
-    }
-
-    private async Task SynchronizeAsync()
-    {
-        isSyncing = true;
-        syncMessage = null;
-
-        try
-        {
-            var result = await SyncService.SynchronizeAsync();
-            await LoadEventsAsync();
-            syncSucceeded = true;
-            syncMessage = $"外部备份处理完成：上传 {result.PushedCount} 项，下载 {result.DownloadedCount} 项，应用 {result.AppliedCount} 项。";
-        }
-        catch (Exception exception) when (exception is SyncStorageException or SyncOperationException or EventRepositoryException)
-        {
-            syncSucceeded = false;
-            syncMessage = $"外部备份未完成：{exception.Message}";
-        }
-        finally
-        {
-            isSyncing = false;
         }
     }
 
@@ -1241,7 +1270,7 @@
         eventClickCancellation = cancellation;
         try
         {
-            await Task.Delay(220, cancellation.Token);
+            await Task.Delay(180, cancellation.Token);
             await OpenEventDetailsAsync(eventId);
         }
         catch (OperationCanceledException)

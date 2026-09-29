@@ -8,46 +8,33 @@ namespace MoiCalendar.Tests;
 public sealed class AppearancePreferenceStoreTests
 {
     [Fact]
-    public async Task Store_ReadsAndSavesAppearancePreference()
+    public async Task Store_ReadsAndSavesModeOnlyPreference()
     {
-        var module = new FakeJsModule { StoredAppearance = "Ocean|Dark|Studio" };
+        var module = new FakeJsModule { StoredAppearance = "Dark" };
         await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
         var store = new IndexedDbAppearancePreferenceStore(connection);
 
-        var preference = await store.GetAsync();
-        await store.SaveAsync(new AppearancePreference(
-            ThemeColorId.Sage,
-            AppearanceMode.Light,
-            TypographyTheme.Editorial));
+        Assert.Equal(new AppearancePreference(AppearanceMode.Dark), await store.GetAsync());
 
-        Assert.Equal(
-            new AppearancePreference(ThemeColorId.Ocean, AppearanceMode.Dark, TypographyTheme.Studio),
-            preference);
-        Assert.Equal("Sage", module.SavedThemeColor);
+        await store.SaveAsync(new AppearancePreference(AppearanceMode.Light));
+
         Assert.Equal("Light", module.SavedMode);
-        Assert.Equal("Editorial", module.SavedTypography);
     }
 
     [Theory]
-    [InlineData("FutureTheme|Dark|Studio", ThemeColorId.Sage, AppearanceMode.Dark, TypographyTheme.Studio)]
-    [InlineData("|Light|Gallery", ThemeColorId.Sage, AppearanceMode.Light, TypographyTheme.Gallery)]
-    [InlineData("Ocean|FutureMode|Editorial", ThemeColorId.Ocean, AppearanceMode.System, TypographyTheme.Editorial)]
-    [InlineData("Ocean|Dark|FutureTypography", ThemeColorId.Ocean, AppearanceMode.Dark, TypographyTheme.System)]
-    [InlineData("Ocean|Light", ThemeColorId.Ocean, AppearanceMode.Light, TypographyTheme.System)]
-    [InlineData("Cupertino|Dark", ThemeColorId.Cupertino, AppearanceMode.Dark, TypographyTheme.System)]
-    public async Task Store_FallsBackInvalidFieldsIndependently(
+    [InlineData("Ocean|Dark|Studio", AppearanceMode.Dark)]
+    [InlineData("Sage|Light|System", AppearanceMode.Light)]
+    [InlineData("FutureTheme|FutureMode|Studio", AppearanceMode.System)]
+    [InlineData("Dark", AppearanceMode.Dark)]
+    public async Task Store_MigratesLegacyFormatAndFallsBackInvalidMode(
         string storedValue,
-        ThemeColorId expectedTheme,
-        AppearanceMode expectedMode,
-        TypographyTheme expectedTypography)
+        AppearanceMode expectedMode)
     {
         var module = new FakeJsModule { StoredAppearance = storedValue };
         await using var connection = new IndexedDbConnection(new FakeJsRuntime(module));
         var store = new IndexedDbAppearancePreferenceStore(connection);
 
-        Assert.Equal(
-            new AppearancePreference(expectedTheme, expectedMode, expectedTypography),
-            await store.GetAsync());
+        Assert.Equal(new AppearancePreference(expectedMode), await store.GetAsync());
     }
 
     [Theory]
@@ -97,9 +84,7 @@ public sealed class AppearancePreferenceStoreTests
     private sealed class FakeJsModule : IJSObjectReference
     {
         public string? StoredAppearance { get; init; }
-        public string? SavedThemeColor { get; private set; }
         public string? SavedMode { get; private set; }
-        public string? SavedTypography { get; private set; }
         public Exception? Failure { get; init; }
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
@@ -128,9 +113,9 @@ public sealed class AppearancePreferenceStoreTests
 
         private object? Save(object?[]? arguments)
         {
-            SavedThemeColor = Assert.IsType<string>(arguments![0]);
-            SavedMode = Assert.IsType<string>(arguments[1]);
-            SavedTypography = Assert.IsType<string>(arguments[2]);
+            var values = Assert.IsType<object?[]>(arguments);
+            Assert.Single(values);
+            SavedMode = Assert.IsType<string>(values[0]);
             return null;
         }
     }

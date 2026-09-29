@@ -39,4 +39,18 @@ public sealed class CalendarShortcutPolicyTests
     {
         Assert.Null(CalendarShortcutPolicy.Resolve("n", false, control, alt, meta));
     }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Resolve_MapsPlatformSearchShortcut(bool control, bool meta)
+    {
+        Assert.Equal(
+            CalendarShortcutAction.Search,
+            CalendarShortcutPolicy.Resolve("k", false, control, false, meta));
+    }
+
+    [Fact]
+    public void Resolve_DoesNotOpenSearchWhileTyping() =>
+        Assert.Null(CalendarShortcutPolicy.Resolve("k", true, true, false, false));
 }

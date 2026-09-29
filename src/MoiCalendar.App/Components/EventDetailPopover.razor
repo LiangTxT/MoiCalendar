@@ -1,17 +1,14 @@
-<article class="event-popover"
-             role="dialog"
-             aria-modal="true"
-             aria-labelledby="event-details-title"
-             style="@AnchorStyle"
-             @onclick:stopPropagation="true">
+<aside class="context-inspector event-popover"
+       aria-labelledby="event-details-title">
         <header>
-            <span class="event-color-bar" aria-hidden="true"></span>
             <div>
+                <span class="v4-meta">EVENT / 004</span>
                 <h2 id="event-details-title">@CalendarEvent.Title</h2>
-                <p>@TimeText</p>
             </div>
             <button class="icon-button" @ref="closeButton" type="button" aria-label="关闭事件详情" @onclick="Close">×</button>
         </header>
+
+        <p class="inspector-time">@TimeText</p>
 
         <dl class="event-detail-list">
             <dt>日历</dt><dd><span class="calendar-color" aria-hidden="true"></span>本地日历</dd>
@@ -42,7 +39,7 @@
             <span class="action-spacer"></span>
             <button class="primary-button" type="button" @onclick="Edit">编辑</button>
         </footer>
-    </article>
+</aside>
 
 @code {
     private ElementReference closeButton;
