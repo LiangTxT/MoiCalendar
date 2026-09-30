@@ -1,20 +1,27 @@
 <div class="month-week-row" role="row">
     @foreach (var day in Week.Days)
     {
-        <MonthDayCell Day="day"
-                      Selected="@(day.Date.Date == SelectedDate)"
-                      ActiveEventId="ActiveEventId"
-                      IsDragTarget="@(day.Date.Date == DragTargetDate)"
-                      DragPreview="@(day.Date.Date == DragTargetDate ? DragPreview : null)"
-                      SelectDateRange="SelectDateRange"
-                      CreateEvent="CreateEvent"
-                      DatePointerUp="DatePointerUp"
-                      DateKeyDown="DateKeyDown"
-                      EventFocused="EventFocused"
-                      EventPointerDown="EventPointerDown"
-                      EventSelected="EventSelected"
-                      EventEdit="EventEdit"
-                      MoreRequested="MoreRequested" />
+        @if (HideOutsideMonth && !day.Date.IsInActiveMonth)
+        {
+            <div class="calendar-date month-blank-date" role="gridcell" aria-label="非本月日期"></div>
+        }
+        else
+        {
+            <MonthDayCell Day="day"
+                          Selected="@(day.Date.Date == SelectedDate)"
+                          ActiveEventId="ActiveEventId"
+                          IsDragTarget="@(day.Date.Date == DragTargetDate)"
+                          DragPreview="@(day.Date.Date == DragTargetDate ? DragPreview : null)"
+                          SelectDateRange="SelectDateRange"
+                          CreateEvent="CreateEvent"
+                          DatePointerUp="DatePointerUp"
+                          DateKeyDown="DateKeyDown"
+                          EventFocused="EventFocused"
+                          EventPointerDown="EventPointerDown"
+                          EventSelected="EventSelected"
+                          EventEdit="EventEdit"
+                          MoreRequested="MoreRequested" />
+        }
     }
 </div>
 
@@ -22,6 +29,7 @@
     [Parameter, EditorRequired]
     public CalendarMonthWeekLayout Week { get; set; } = null!;
 
+    [Parameter] public bool HideOutsideMonth { get; set; }
     [Parameter] public DateOnly SelectedDate { get; set; }
     [Parameter] public Guid? ActiveEventId { get; set; }
     [Parameter] public DateOnly? DragTargetDate { get; set; }

@@ -10,7 +10,13 @@
      @onpointerup="args => DatePointerUp.InvokeAsync(new MonthDatePointerArgs(Day.Date.Date, args))"
      @onkeydown="args => DateKeyDown.InvokeAsync(new MonthDateKeyboardArgs(Day.Date.Date, args))">
     <header class="month-day-header">
-        <span class="lunar-date">@Observances.GetLunarLabel(Day.Date.Date)</span>
+        <span class="month-day-meta">
+            @if (Day.Date.Date.Day == 1)
+            {
+                <span class="month-marker">@($"{Day.Date.Date.Month}月")</span>
+            }
+            <span class="lunar-date">@Observances.GetLunarLabel(Day.Date.Date)</span>
+        </span>
         <span class="date-number">@Day.Date.DayNumber</span>
     </header>
 

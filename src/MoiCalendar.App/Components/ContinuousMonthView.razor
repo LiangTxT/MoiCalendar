@@ -11,19 +11,29 @@
     </div>
 
     <div class="month-stream" @ref="streamElement">
-        <MonthPanel Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="PreviousPreviousLayout.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
-        <MonthPanel @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="PreviousLayout.Month" Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
+                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
+
+        <MonthPanel @key="Layout.Month" @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested"
                     PointerMove="PointerMove" PointerUp="PointerUp" PointerCancel="PointerCancel" />
 
-        <MonthPanel Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="NextLayout.Month" Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
+                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
+
+        <MonthPanel @key="NextNextLayout.Month" Layout="NextNextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
@@ -34,11 +44,14 @@
     private ElementReference streamElement;
     private MonthPanel? currentPanel;
     private DotNetObjectReference<ContinuousMonthView>? dotNetReference;
-    private string? initializedMonthKey;
+    private int initializedNavigationVersion = -1;
 
+    [Parameter, EditorRequired] public CalendarMonthLayoutView PreviousPreviousLayout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView PreviousLayout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextLayout { get; set; } = null!;
+    [Parameter, EditorRequired] public CalendarMonthLayoutView NextNextLayout { get; set; } = null!;
+    [Parameter] public int NavigationVersion { get; set; }
     [Parameter] public DateOnly SelectedDate { get; set; }
     [Parameter] public Guid? ActiveEventId { get; set; }
     [Parameter] public DateOnly? DragTargetDate { get; set; }
@@ -57,19 +70,19 @@
     [Parameter] public EventCallback<PointerEventArgs> PointerUp { get; set; }
     [Parameter] public EventCallback<PointerEventArgs> PointerCancel { get; set; }
     [Parameter] public EventCallback<int> VisibleMonthChanged { get; set; }
+    [Parameter] public EventCallback<CalendarMonth> DisplayedMonthChanged { get; set; }
 
     public ElementReference GridElement => currentPanel?.GridElement ?? default;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         dotNetReference ??= DotNetObjectReference.Create(this);
-        var monthKey = $"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}";
-        if (initializedMonthKey == monthKey)
+        if (initializedNavigationVersion == NavigationVersion)
         {
             return;
         }
 
-        initializedMonthKey = monthKey;
+        initializedNavigationVersion = NavigationVersion;
         try
         {
             await JS.InvokeVoidAsync("moicalendarUi.initializeMonthStream", streamElement, dotNetReference);
@@ -82,6 +95,10 @@
 
     [JSInvokable]
     public Task ChangeVisibleMonth(int direction) => VisibleMonthChanged.InvokeAsync(direction);
+
+    [JSInvokable]
+    public Task SetDisplayedMonth(int year, int month) =>
+        DisplayedMonthChanged.InvokeAsync(new CalendarMonth(year, month));
 
     public async ValueTask DisposeAsync()
     {

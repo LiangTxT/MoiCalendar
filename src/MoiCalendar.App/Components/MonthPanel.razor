@@ -1,18 +1,17 @@
 <section class="month-panel" data-month="@MonthKey" aria-label="@MonthTitle">
-    <header class="month-panel-title">
-        <h2>@Layout.Month.Month.Year 年 <strong>@Layout.Month.Month.Month 月</strong></h2>
-    </header>
     <div class="month-grid @(IsDirectManipulation ? "is-direct-manipulation" : null)"
          role="grid"
-         aria-rowcount="6"
+         aria-rowcount="@visibleWeeks.Length"
          aria-colcount="7"
+         style="@($"--month-week-count: {visibleWeeks.Length}")"
          @ref="GridElement"
          @onpointermove="PointerMove"
          @onpointerup="PointerUp"
          @onpointercancel="PointerCancel">
-        @foreach (var week in Layout.Weeks)
+        @foreach (var week in visibleWeeks)
         {
             <MonthWeekRow Week="week"
+                          HideOutsideMonth="true"
                           SelectedDate="SelectedDate"
                           ActiveEventId="ActiveEventId"
                           DragTargetDate="DragTargetDate"
@@ -31,6 +30,8 @@
 </section>
 
 @code {
+    private CalendarMonthWeekLayout[] visibleWeeks = [];
+
     [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
     [Parameter] public DateOnly SelectedDate { get; set; }
     [Parameter] public Guid? ActiveEventId { get; set; }
@@ -51,6 +52,11 @@
     [Parameter] public EventCallback<PointerEventArgs> PointerCancel { get; set; }
 
     public ElementReference GridElement { get; private set; }
+
+    protected override void OnParametersSet() =>
+        visibleWeeks = Layout.Weeks
+            .TakeWhile(week => week.Days.Any(day => day.Date.IsInActiveMonth))
+            .ToArray();
 
     private string MonthKey => $"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}";
     private string MonthTitle => $"{Layout.Month.Month.Year}年{Layout.Month.Month.Month}月";

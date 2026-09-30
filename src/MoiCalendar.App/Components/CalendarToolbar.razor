@@ -1,4 +1,4 @@
-<header class="calendar-toolbar">
+<header class="calendar-toolbar @(DisplayMode == CalendarViewMode.Month ? "month-mode" : null)">
     <div class="toolbar-leading">
         <button class="icon-button" type="button" aria-label="切换日历侧栏" aria-expanded="@SidebarOpen" @onclick="ToggleSidebar">
             <span class="nav-toggle-glyph" aria-hidden="true"><i></i><i></i></span>
@@ -14,7 +14,17 @@
         <button class="icon-button" type="button" aria-label="@NextAriaLabel" @onclick="ShowNext">
             <span aria-hidden="true">›</span>
         </button>
-        <strong class="command-period-title" aria-live="polite">@PeriodTitle</strong>
+        @if (DisplayMode == CalendarViewMode.Month)
+        {
+            <strong @key="PeriodTitle" class="command-period-title month-period-title" aria-live="polite">
+                <span class="period-number">@MonthYear</span><span class="period-unit">年</span>
+                <span class="period-number">@MonthNumber</span><span class="period-unit">月</span>
+            </strong>
+        }
+        else
+        {
+            <strong @key="PeriodTitle" class="command-period-title" aria-live="polite">@PeriodTitle</strong>
+        }
     </nav>
 
     <div class="toolbar-actions">
@@ -47,6 +57,8 @@
 
     [Parameter] public bool SidebarOpen { get; set; }
     [Parameter, EditorRequired] public string PeriodTitle { get; set; } = string.Empty;
+    [Parameter] public int MonthYear { get; set; }
+    [Parameter] public int MonthNumber { get; set; }
     [Parameter, EditorRequired] public string PreviousAriaLabel { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string NextAriaLabel { get; set; } = string.Empty;
     [Parameter] public CalendarViewMode DisplayMode { get; set; }

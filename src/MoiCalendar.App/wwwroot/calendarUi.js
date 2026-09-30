@@ -101,28 +101,60 @@ window.moicalendarUi = {
     initializeMonthStream: (stream, dotnetReference) => {
         if (!stream) return;
         window.moicalendarUi.disposeMonthStream(stream);
-        const panels = Array.from(stream.querySelectorAll(":scope > .month-panel"));
-        if (panels.length !== 3) return;
+        const getPanels = () => Array.from(stream.querySelectorAll(":scope > .month-panel"));
+        const panels = getPanels();
+        if (panels.length !== 5) return;
+        const panelTop = panel => panel.getBoundingClientRect().top - stream.getBoundingClientRect().top + stream.scrollTop;
 
         let frame = 0;
-        let changing = false;
-        let ignoreUntil = performance.now() + 300;
-        const centerCurrentMonth = () => {
-            stream.scrollTop = panels[1].offsetTop;
-        };
-        requestAnimationFrame(centerCurrentMonth);
+        let changing = true;
+        let reportedMonth = panels[2].dataset.month;
+        requestAnimationFrame(() => {
+            stream.scrollTop = panelTop(panels[2]);
+            changing = false;
+        });
 
         const handler = () => {
-            if (frame || changing || performance.now() < ignoreUntil) return;
+            if (frame || changing) return;
             frame = requestAnimationFrame(async () => {
                 frame = 0;
-                const center = stream.scrollTop + stream.clientHeight / 2;
-                const distances = panels.map(panel =>
-                    Math.abs(panel.offsetTop + panel.offsetHeight / 2 - center));
-                const closestIndex = distances.indexOf(Math.min(...distances));
-                if (closestIndex === 1) return;
+                const currentPanels = getPanels();
+                if (currentPanels.length !== 5) return;
+                const top = stream.scrollTop;
+                const viewportCenter = top + stream.clientHeight / 2;
+                const displayedPanel = currentPanels.reduce((nearest, panel) =>
+                    Math.abs(panelTop(panel) + panel.offsetHeight / 2 - viewportCenter) <
+                    Math.abs(panelTop(nearest) + nearest.offsetHeight / 2 - viewportCenter)
+                        ? panel
+                        : nearest);
+                if (displayedPanel.dataset.month !== reportedMonth) {
+                    reportedMonth = displayedPanel.dataset.month;
+                    const [year, month] = reportedMonth.split("-").map(Number);
+                    void dotnetReference.invokeMethodAsync("SetDisplayedMonth", year, month);
+                }
+                const previousBoundary = panelTop(currentPanels[1]);
+                const nextBoundary = panelTop(currentPanels[3]);
+                const targetIndex = top <= previousBoundary + 2
+                    ? 1
+                    : top >= nextBoundary - 2 ? 3 : 2;
+                if (targetIndex === 2) return;
                 changing = true;
-                await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", closestIndex === 0 ? -1 : 1);
+                const anchorMonth = currentPanels[targetIndex].dataset.month;
+                const anchorViewportTop = currentPanels[targetIndex].getBoundingClientRect().top - stream.getBoundingClientRect().top;
+                try {
+                    await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex === 1 ? -1 : 1);
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        const anchor = getPanels().find(panel => panel.dataset.month === anchorMonth);
+                        if (anchor) {
+                            const newViewportTop = anchor.getBoundingClientRect().top - stream.getBoundingClientRect().top;
+                            stream.scrollTop += newViewportTop - anchorViewportTop;
+                        }
+                        changing = false;
+                        handler();
+                    }));
+                } catch {
+                    changing = false;
+                }
             });
         };
         stream._moicalendarMonthStreamHandler = handler;

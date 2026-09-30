@@ -203,7 +203,7 @@ public sealed class CalendarFrontendArchitectureTests
     }
 
     [Fact]
-    public void MonthView_UsesThreePanelContinuousLocalStream()
+    public void MonthView_UsesCachedFivePanelContinuousLocalStream()
     {
         var root = FindRepositoryRoot();
         var component = File.ReadAllText(Path.Combine(
@@ -212,11 +212,27 @@ public sealed class CalendarFrontendArchitectureTests
             root, "src", "MoiCalendar.App", "wwwroot", "calendarUi.js"));
         var program = File.ReadAllText(Path.Combine(
             root, "src", "MoiCalendar.App", "Program.cs"));
+        var home = File.ReadAllText(Path.Combine(
+            root, "src", "MoiCalendar.App", "Pages", "Home.razor"));
 
         Assert.Contains("PreviousLayout", component, StringComparison.Ordinal);
         Assert.Contains("NextLayout", component, StringComparison.Ordinal);
+        Assert.Contains("PreviousPreviousLayout", component, StringComparison.Ordinal);
+        Assert.Contains("NextNextLayout", component, StringComparison.Ordinal);
+        Assert.Contains("NavigationVersion", component, StringComparison.Ordinal);
         Assert.Contains("initializeMonthStream", script, StringComparison.Ordinal);
         Assert.Contains("ChangeVisibleMonth", script, StringComparison.Ordinal);
+        Assert.Contains("SetDisplayedMonth", script, StringComparison.Ordinal);
+        Assert.Contains("panels.length !== 5", script, StringComparison.Ordinal);
+        Assert.Contains("panelTop(currentPanels[3])", script, StringComparison.Ordinal);
+        Assert.Contains("panelTop(currentPanels[1])", script, StringComparison.Ordinal);
+        Assert.Contains("top >= nextBoundary - 2", script, StringComparison.Ordinal);
+        Assert.Contains("top <= previousBoundary + 2", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("ignoreUntil", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("distances.indexOf", script, StringComparison.Ordinal);
+        Assert.Contains("monthEventCache", home, StringComparison.Ordinal);
+        Assert.Contains("monthStreamNavigationVersion++", home, StringComparison.Ordinal);
+        Assert.Contains("showLoading: !seamless", home, StringComparison.Ordinal);
         Assert.Contains("ChineseCalendarObservanceProvider", program, StringComparison.Ordinal);
     }
 
@@ -358,6 +374,25 @@ public sealed class CalendarFrontendArchitectureTests
         {
             Assert.DoesNotContain(forbiddenTerm, source, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Fact]
+    public void MonthView_PutsMonthLabelsInDayOneCellsAndUsesSplitToolbarTypography()
+    {
+        var root = FindRepositoryRoot();
+        var components = Path.Combine(root, "src", "MoiCalendar.App", "Components");
+        var monthPanel = File.ReadAllText(Path.Combine(components, "MonthPanel.razor"));
+        var dayCell = File.ReadAllText(Path.Combine(components, "MonthDayCell.razor"));
+        var toolbar = File.ReadAllText(Path.Combine(components, "CalendarToolbar.razor"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "wwwroot", "css", "v4.css"));
+
+        Assert.DoesNotContain("month-panel-title", monthPanel, StringComparison.Ordinal);
+        Assert.Contains("Day.Date.Date.Day == 1", dayCell, StringComparison.Ordinal);
+        Assert.Contains("month-marker", dayCell, StringComparison.Ordinal);
+        Assert.Contains("period-number", toolbar, StringComparison.Ordinal);
+        Assert.Contains("period-unit", toolbar, StringComparison.Ordinal);
+        Assert.Contains("Bahnschrift SemiCondensed", css, StringComparison.Ordinal);
+        Assert.Contains(".month-period-title .period-unit", css, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()
