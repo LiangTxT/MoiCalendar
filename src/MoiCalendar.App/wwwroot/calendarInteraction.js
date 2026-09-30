@@ -14,6 +14,7 @@
         window.removeEventListener("pointercancel", session.cancel, true);
         if (session.frame) cancelAnimationFrame(session.frame);
         session.mirror?.remove();
+        session.preview?.remove();
         session.source?.classList.remove("interaction-source");
         surface?.classList.remove("is-browser-interacting");
         if (surface?.hasPointerCapture?.(session.pointerId)) surface.releasePointerCapture(session.pointerId);
@@ -29,6 +30,19 @@
         mirror.append(title, time);
         document.body.append(mirror);
         return { mirror, time };
+    }
+
+    function createPreview(config) {
+        const preview = document.createElement("div");
+        preview.className = "calendar-interaction-preview";
+        preview.setAttribute("aria-hidden", "true");
+        preview.style.setProperty("--event-left", "0%");
+        preview.style.setProperty("--event-width", "100%");
+        const title = document.createElement("strong");
+        title.textContent = config.label;
+        const time = document.createElement("span");
+        preview.append(title, time);
+        return { preview, time };
     }
 
     function calculate(config, grid, scroll, x, y) {
@@ -89,6 +103,8 @@
                 frame: 0,
                 mirror: null,
                 time: null,
+                preview: null,
+                previewTime: null,
                 source: document.activeElement?.closest?.(".week-timed-event") ?? null
             };
 
@@ -102,6 +118,15 @@
                 session.result = calculate(interactionConfig, grid, scroll, x, y);
                 session.mirror.style.transform = `translate3d(${Math.round(x + 12)}px, ${Math.round(y + 12)}px, 0)`;
                 session.time.textContent = `${session.result.targetDate}  ${formatMinute(session.result.startMinute)}–${formatMinute(session.result.endMinute)}`;
+                const targetIndex = interactionConfig.dates.indexOf(session.result.targetDate);
+                const targetDay = grid.children[targetIndex];
+                if (targetDay && session.preview) {
+                    if (session.preview.parentElement !== targetDay) targetDay.append(session.preview);
+                    const range = interactionConfig.visibleEndMinute - interactionConfig.visibleStartMinute;
+                    session.preview.style.setProperty("--event-top", `${(session.result.startMinute - interactionConfig.visibleStartMinute) / range * 100}%`);
+                    session.preview.style.setProperty("--event-height", `${(session.result.endMinute - session.result.startMinute) / range * 100}%`);
+                    session.previewTime.textContent = `${formatMinute(session.result.startMinute)}–${formatMinute(session.result.endMinute)}`;
+                }
             };
 
             session.move = event => {
@@ -115,6 +140,9 @@
                     const created = createMirror(config);
                     session.mirror = created.mirror;
                     session.time = created.time;
+                    const preview = createPreview(config);
+                    session.preview = preview.preview;
+                    session.previewTime = preview.time;
                     session.source?.classList.add("interaction-source");
                     surface.classList.add("is-browser-interacting");
                     surface.setPointerCapture?.(config.pointerId);

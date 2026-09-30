@@ -1320,6 +1320,22 @@ a {
     pointer-events: none;
 }
 
+.calendar-interaction-preview > strong,
+.calendar-interaction-preview > span {
+    display: block;
+    overflow: hidden;
+    color: var(--v4-ink);
+    font-size: 10px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.calendar-interaction-preview > span {
+    color: var(--v4-ink-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
 .event-resize-handle {
     position: absolute;
     inset: auto 0 0;

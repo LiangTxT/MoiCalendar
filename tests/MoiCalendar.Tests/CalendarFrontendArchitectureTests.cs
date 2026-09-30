@@ -266,6 +266,7 @@ public sealed class CalendarFrontendArchitectureTests
         var wwwroot = Path.Combine(root, "src", "MoiCalendar.App", "wwwroot");
         var index = File.ReadAllText(Path.Combine(wwwroot, "index.html"));
         var interaction = File.ReadAllText(Path.Combine(wwwroot, "calendarInteraction.js"));
+        var css = File.ReadAllText(Path.Combine(wwwroot, "css", "v4.css"));
         var timeGrid = File.ReadAllText(Path.Combine(
             root, "src", "MoiCalendar.App", "Components", "CalendarTimeGrid.razor"));
 
@@ -283,6 +284,12 @@ public sealed class CalendarFrontendArchitectureTests
             interaction.IndexOf("surface.setPointerCapture", StringComparison.Ordinal));
         Assert.DoesNotContain("bounds.top + scroll.scrollTop", interaction, StringComparison.Ordinal);
         Assert.Contains("config.pointerStartMinute - config.eventStartMinute", interaction, StringComparison.Ordinal);
+        Assert.Contains("session.preview = preview.preview", interaction, StringComparison.Ordinal);
+        Assert.Contains("targetDay.append(session.preview)", interaction, StringComparison.Ordinal);
+        Assert.Contains("--event-top", interaction, StringComparison.Ordinal);
+        Assert.Contains("--event-height", interaction, StringComparison.Ordinal);
+        Assert.Contains("session.preview?.remove()", interaction, StringComparison.Ordinal);
+        Assert.Contains(".calendar-interaction-preview", css, StringComparison.Ordinal);
         Assert.DoesNotContain("HandlePointerMoveAsync", timeGrid, StringComparison.Ordinal);
         Assert.DoesNotContain("CommitPointerInteractionAsync", timeGrid, StringComparison.Ordinal);
     }
