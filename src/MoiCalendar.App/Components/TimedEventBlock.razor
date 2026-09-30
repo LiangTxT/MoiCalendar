@@ -36,6 +36,10 @@
     @if (!CalendarEvent.IsReadOnly &&
          CalendarEvent.SegmentPosition == CalendarEventSegmentPosition.Single)
     {
+        <span class="event-resize-handle start"
+              aria-hidden="true"
+              @onpointerdown="args => ResizePointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args, ResizeStart: true))"
+              @onpointerdown:stopPropagation="true"></span>
         <span class="event-resize-handle"
               aria-hidden="true"
               @onpointerdown="args => ResizePointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args))"

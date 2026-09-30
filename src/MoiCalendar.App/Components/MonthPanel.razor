@@ -31,6 +31,10 @@
 
 @code {
     private CalendarMonthWeekLayout[] visibleWeeks = [];
+    private CalendarMonthLayoutView? renderedLayout;
+    private bool renderRequired = true;
+    private (DateOnly, Guid?, DateOnly?, MonthDragPreviewModel?, bool,
+        EventCallback<PointerEventArgs>, EventCallback<PointerEventArgs>, EventCallback<PointerEventArgs>) renderedState;
 
     [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
     [Parameter] public DateOnly SelectedDate { get; set; }
@@ -53,10 +57,22 @@
 
     public ElementReference GridElement { get; private set; }
 
-    protected override void OnParametersSet() =>
-        visibleWeeks = Layout.Weeks
-            .TakeWhile(week => week.Days.Any(day => day.Date.IsInActiveMonth))
-            .ToArray();
+    protected override void OnParametersSet()
+    {
+        var state = (SelectedDate, ActiveEventId, DragTargetDate, DragPreview, IsDirectManipulation,
+            PointerMove, PointerUp, PointerCancel);
+        renderRequired = !ReferenceEquals(renderedLayout, Layout) || !state.Equals(renderedState);
+        if (!ReferenceEquals(renderedLayout, Layout))
+        {
+            visibleWeeks = Layout.Weeks
+                .TakeWhile(week => week.Days.Any(day => day.Date.IsInActiveMonth))
+                .ToArray();
+        }
+        renderedLayout = Layout;
+        renderedState = state;
+    }
+
+    protected override bool ShouldRender() => renderRequired;
 
     private string MonthKey => $"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}";
     private string MonthTitle => $"{Layout.Month.Month.Year}年{Layout.Month.Month.Month}月";

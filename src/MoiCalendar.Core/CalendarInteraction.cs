@@ -75,11 +75,13 @@ public sealed record ResizeEventIntent(
     DateTimeOffset OriginalEndUtc,
     DateTime NewEndLocal,
     string InteractionTimeZoneId,
-    bool IsReadOnly = false) : CalendarInteractionIntent, ICalendarEventInteractionIntent
+    bool IsReadOnly = false,
+    DateTime? NewStartLocal = null) : CalendarInteractionIntent, ICalendarEventInteractionIntent
 {
     public ResizeEventIntent Snapped() => this with
     {
-        NewEndLocal = CalendarInteractionGeometry.SnapLocalDateTime(NewEndLocal)
+        NewEndLocal = CalendarInteractionGeometry.SnapLocalDateTime(NewEndLocal),
+        NewStartLocal = NewStartLocal is { } start ? CalendarInteractionGeometry.SnapLocalDateTime(start) : null
     };
 }
 
@@ -349,7 +351,7 @@ public sealed class CalendarInteractionService(CalendarEventService eventService
 
                 var snappedResize = resize.Snapped();
                 var interactionZone = ResolveTimeZone(snappedResize.InteractionTimeZoneId);
-                var startInInteractionZone = TimeZoneInfo.ConvertTime(existing.StartUtc, interactionZone).DateTime;
+                var startInInteractionZone = snappedResize.NewStartLocal ?? TimeZoneInfo.ConvertTime(existing.StartUtc, interactionZone).DateTime;
                 return ApplyTimedRange(intent, existing, draft, startInInteractionZone, snappedResize.NewEndLocal, snappedResize.InteractionTimeZoneId);
 
             default:

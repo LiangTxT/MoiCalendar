@@ -54,7 +54,10 @@
         let startMinute;
         let endMinute;
 
-        if (config.kind === "resize") {
+        if (config.kind === "resizestart") {
+            endMinute = config.eventStartMinute + config.durationMinutes;
+            startMinute = clamp(pointerMinute, config.visibleStartMinute, endMinute - snapMinutes);
+        } else if (config.kind === "resize") {
             startMinute = config.eventStartMinute;
             endMinute = clamp(Math.max(startMinute + snapMinutes, pointerMinute), startMinute + snapMinutes, config.visibleEndMinute);
         } else if (config.kind === "selection") {
@@ -68,7 +71,7 @@
             endMinute = Math.min(config.visibleEndMinute, startMinute + config.durationMinutes);
         }
 
-        return { cancelled: false, targetDate: config.kind === "resize" ? config.originalDate : config.dates[index], startMinute, endMinute };
+        return { cancelled: false, targetDate: config.kind === "resize" || config.kind === "resizestart" ? config.originalDate : config.dates[index], startMinute, endMinute };
     }
 
     function formatMinute(value) {

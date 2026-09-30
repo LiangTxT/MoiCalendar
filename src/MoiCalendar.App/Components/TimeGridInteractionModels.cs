@@ -6,4 +6,5 @@ namespace MoiCalendar.App.Components;
 public sealed record TimedEventPointerArgs(
     CalendarWeekTimedEvent CalendarEvent,
     DateOnly Date,
-    PointerEventArgs PointerEvent);
+    PointerEventArgs PointerEvent,
+    bool ResizeStart = false);

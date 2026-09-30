@@ -11,29 +11,29 @@
     </div>
 
     <div class="month-stream" @ref="streamElement">
-        <MonthPanel @key="PreviousPreviousLayout.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="PreviousPreviousLayout.Month.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
-        <MonthPanel @key="PreviousLayout.Month" Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="PreviousLayout.Month.Month" Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
-        <MonthPanel @key="Layout.Month" @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="Layout.Month.Month" @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested"
                     PointerMove="PointerMove" PointerUp="PointerUp" PointerCancel="PointerCancel" />
 
-        <MonthPanel @key="NextLayout.Month" Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="NextLayout.Month.Month" Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
-        <MonthPanel @key="NextNextLayout.Month" Layout="NextNextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        <MonthPanel @key="NextNextLayout.Month.Month" Layout="NextNextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />

@@ -108,6 +108,8 @@ window.moicalendarUi = {
 
         let frame = 0;
         let changing = true;
+        let pendingAnchor = null;
+        let disposed = false;
         let reportedMonth = panels[2].dataset.month;
         requestAnimationFrame(() => {
             stream.scrollTop = panelTop(panels[2]);
@@ -115,6 +117,8 @@ window.moicalendarUi = {
         });
 
         const handler = () => {
+            if (disposed) return;
+            if (pendingAnchor) pendingAnchor.scrollTop = stream.scrollTop;
             if (frame || changing) return;
             frame = requestAnimationFrame(async () => {
                 frame = 0;
@@ -122,11 +126,12 @@ window.moicalendarUi = {
                 if (currentPanels.length !== 5) return;
                 const top = stream.scrollTop;
                 const viewportCenter = top + stream.clientHeight / 2;
-                const displayedPanel = currentPanels.reduce((nearest, panel) =>
-                    Math.abs(panelTop(panel) + panel.offsetHeight / 2 - viewportCenter) <
-                    Math.abs(panelTop(nearest) + nearest.offsetHeight / 2 - viewportCenter)
-                        ? panel
-                        : nearest);
+                const positions = currentPanels.map(panel => ({ panel, top: panelTop(panel), height: panel.offsetHeight }));
+                const displayedPanel = positions.reduce((nearest, position) =>
+                    Math.abs(position.top + position.height / 2 - viewportCenter) <
+                    Math.abs(nearest.top + nearest.height / 2 - viewportCenter)
+                        ? position
+                        : nearest).panel;
                 if (displayedPanel.dataset.month !== reportedMonth) {
                     reportedMonth = displayedPanel.dataset.month;
                     const [year, month] = reportedMonth.split("-").map(Number);
@@ -140,22 +145,34 @@ window.moicalendarUi = {
                 if (targetIndex === 2) return;
                 changing = true;
                 const anchorMonth = currentPanels[targetIndex].dataset.month;
-                const anchorViewportTop = currentPanels[targetIndex].getBoundingClientRect().top - stream.getBoundingClientRect().top;
+                pendingAnchor = { month: anchorMonth, contentTop: positions[targetIndex].top, scrollTop: top };
                 try {
                     await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex === 1 ? -1 : 1);
-                    requestAnimationFrame(() => requestAnimationFrame(() => {
-                        const anchor = getPanels().find(panel => panel.dataset.month === anchorMonth);
-                        if (anchor) {
-                            const newViewportTop = anchor.getBoundingClientRect().top - stream.getBoundingClientRect().top;
-                            stream.scrollTop += newViewportTop - anchorViewportTop;
-                        }
-                        changing = false;
-                        handler();
-                    }));
+                    preserveAnchor();
                 } catch {
+                    pendingAnchor = null;
                     changing = false;
                 }
             });
+        };
+        // Blazor 更新月份节点后，在同一帧绘制前补偿高度变化。
+        // 加载期间继续记录滚动位置，避免把用户拉回加载前的位置。
+        const preserveAnchor = () => {
+            if (disposed || !pendingAnchor) return;
+            const updatedPanels = getPanels();
+            if (updatedPanels[2]?.dataset.month !== pendingAnchor.month) return;
+            const anchor = updatedPanels[2];
+            const expectedViewportTop = pendingAnchor.contentTop - pendingAnchor.scrollTop;
+            stream.scrollTop = panelTop(anchor) - expectedViewportTop;
+            pendingAnchor = null;
+            changing = false;
+            handler();
+        };
+        const observer = new MutationObserver(preserveAnchor);
+        observer.observe(stream, { childList: true });
+        stream._moicalendarMonthStreamDispose = () => {
+            disposed = true;
+            observer.disconnect();
         };
         stream._moicalendarMonthStreamHandler = handler;
         stream._moicalendarMonthStreamFrame = () => frame;
@@ -166,6 +183,8 @@ window.moicalendarUi = {
         stream.removeEventListener("scroll", stream._moicalendarMonthStreamHandler);
         const frame = stream._moicalendarMonthStreamFrame?.();
         if (frame) cancelAnimationFrame(frame);
+        stream._moicalendarMonthStreamDispose?.();
+        delete stream._moicalendarMonthStreamDispose;
         delete stream._moicalendarMonthStreamHandler;
         delete stream._moicalendarMonthStreamFrame;
     }

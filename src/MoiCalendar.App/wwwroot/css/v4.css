@@ -1343,6 +1343,10 @@ a {
     cursor: ns-resize;
 }
 
+.event-resize-handle.start {
+    inset: 0 0 auto;
+}
+
 .calendar-drag-mirror {
     position: fixed;
     top: 0;

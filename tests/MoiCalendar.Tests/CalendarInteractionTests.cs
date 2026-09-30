@@ -74,6 +74,30 @@ public sealed class CalendarInteractionTests
     }
 
     [Theory]
+    [InlineData(9, 26, CalendarInteractionStatus.Committed)]
+    [InlineData(10, 55, CalendarInteractionStatus.Rejected)]
+    public async Task ResizeStart_PreservesEndAndValidatesMinimumDuration(int hour, int minute, CalendarInteractionStatus expected)
+    {
+        var context = CreateContext();
+        var calendarEvent = CreateEvent(
+            new DateTimeOffset(2026, 9, 11, 10, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 11, 11, 0, 0, TimeSpan.Zero));
+        await context.Repository.CreateAsync(calendarEvent);
+
+        var result = await context.Interactions.ExecuteAsync(new ResizeEventIntent(
+            calendarEvent.Id, calendarEvent.StartUtc, calendarEvent.EndUtc,
+            new DateTime(2026, 9, 11, 11, 0, 0), TimeZoneInfo.Utc.Id,
+            NewStartLocal: new DateTime(2026, 9, 11, hour, minute, 0)));
+
+        Assert.Equal(expected, result.Status);
+        var saved = await context.Repository.GetByIdAsync(calendarEvent.Id);
+        Assert.Equal(calendarEvent.EndUtc, saved!.EndUtc);
+        Assert.Equal(expected == CalendarInteractionStatus.Committed
+            ? new DateTimeOffset(2026, 9, 11, 9, 30, 0, TimeSpan.Zero)
+            : calendarEvent.StartUtc, saved.StartUtc);
+    }
+
+    [Theory]
     [InlineData(0, 0)]
     [InlineData(7, 0)]
     [InlineData(8, 15)]
