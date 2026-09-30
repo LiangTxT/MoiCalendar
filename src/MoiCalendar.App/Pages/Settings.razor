@@ -21,6 +21,8 @@
 @inject IBrowserFileDownloadService BrowserFileDownloadService
 @inject ISyncDiagnosticsService SyncDiagnosticsService
 @inject AppearanceService Appearance
+@inject IJSRuntime JS
+@using MoiCalendar.App.Components
 
 <PageTitle>设置 | MoiCalendar</PageTitle>
 
@@ -35,63 +37,33 @@
 
     <nav class="settings-index" aria-label="设置分类">
         <section>
-            <h2>GENERAL</h2>
-            <a href="#appearance-heading"><span>外观</span><span>›</span></a>
-            <a href=""><span>日历</span><span>›</span></a>
+            <h2>账户</h2>
+            <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault><span>账户登录</span><span>›</span></a>
+            <a href="settings#cloud-devices-heading" @onclick='() => NavigateSectionAsync("cloud-devices-heading")' @onclick:preventDefault><span>我的设备</span><span>›</span></a>
         </section>
         <section>
-            <h2>ACCOUNT</h2>
-            <a href="#cloud-account-heading"><span>账户</span><span>›</span></a>
-            <a href="#cloud-devices-heading"><span>设备</span><span>›</span></a>
+            <h2>同步</h2>
+            <a href="settings#sync-settings" @onclick='() => NavigateSectionAsync("sync-settings")' @onclick:preventDefault><span>同步管理</span><span>›</span></a>
+            <a href="settings#external-backup" @onclick='() => NavigateSectionAsync("external-backup")' @onclick:preventDefault><span>外部备份</span><span>›</span></a>
         </section>
         <section>
-            <h2>DATA</h2>
-            <a href="sync-status"><span>同步</span><span>›</span></a>
-            <a href="#backup-heading"><span>备份与导出</span><span>›</span></a>
+            <h2>偏好与数据</h2>
+            <a href="settings#appearance-heading" @onclick='() => NavigateSectionAsync("appearance-heading")' @onclick:preventDefault><span>外观</span><span>›</span></a>
+            <a href="settings#backup-heading" @onclick='() => NavigateSectionAsync("backup-heading")' @onclick:preventDefault><span>本地备份与恢复</span><span>›</span></a>
+            <a href="settings#calendar-transfer-heading" @onclick='() => NavigateSectionAsync("calendar-transfer-heading")' @onclick:preventDefault><span>导入 / 导出</span><span>›</span></a>
         </section>
         <section>
-            <h2>SYSTEM</h2>
-            <a href="sync-status#diagnostics-heading"><span>诊断</span><span>›</span></a>
+            <h2>状态与帮助</h2>
+            <a href="sync-status"><span>同步状态</span><SyncIndicator /></a>
+            <a href="sync-status#diagnostics-heading"><span>运行诊断</span><span>›</span></a>
+            <a href="sync-status#backup-log-heading"><span>同步日志</span><span>›</span></a>
             <a href="privacy"><span>隐私</span><span>›</span></a>
             <a href="help"><span>关于与帮助</span><span>›</span></a>
         </section>
     </nav>
 
-    <section class="settings-card appearance-settings" aria-labelledby="appearance-heading">
-        <div class="settings-heading-row">
-            <div>
-                <h2 id="appearance-heading">外观</h2>
-                <p>V4 Beta 使用统一品牌配色与系统字体，只保留显示模式选择。</p>
-            </div>
-        </div>
-
-        <fieldset class="appearance-mode-group">
-            <legend>显示模式</legend>
-            <div class="appearance-segmented" role="radiogroup" aria-label="显示模式">
-                @foreach (var option in AppearanceModes)
-                {
-                    <button type="button"
-                            role="radio"
-                            aria-checked="@(appearancePreference.Mode == option.Mode ? "true" : "false")"
-                            class="@(appearancePreference.Mode == option.Mode ? "selected" : null)"
-                            disabled="@isAppearanceBusy"
-                            @onclick="() => SelectAppearanceModeAsync(option.Mode)">@option.Label</button>
-                }
-            </div>
-        </fieldset>
-
-        <p class="settings-note">字体：系统字体。品牌配色：MoiCalendar Operational Minimalism。</p>
-
-        @if (!string.IsNullOrWhiteSpace(appearanceMessage))
-        {
-            <p class="settings-status @(appearanceSucceeded ? "success" : "failure")" role="status">
-                @appearanceMessage
-            </p>
-        }
-    </section>
-
     <section class="settings-card" aria-labelledby="cloud-account-heading">
-        <h2 id="cloud-account-heading">MoiCalendar 云账户</h2>
+        <h2 id="cloud-account-heading" tabindex="-1">MoiCalendar 云账户</h2>
         <p>
             云账户用于身份验证和可选的增量云同步。仅登录、注册或恢复会话不会上传、下载或改变 IndexedDB 中的本地日历。
         </p>
@@ -292,12 +264,13 @@
         </section>
     }
 
+    <div id="cloud-devices-heading" tabindex="-1">
     @if (cloudAccount is not null && CloudDeviceService.IsAvailable)
     {
-        <section class="settings-card" aria-labelledby="cloud-devices-heading">
+        <section class="settings-card" aria-labelledby="cloud-devices-title">
             <div class="settings-heading-row">
                 <div>
-                    <h2 id="cloud-devices-heading">我的设备</h2>
+                    <h2 id="cloud-devices-title">我的设备</h2>
                     <p>设备会在首次成功执行云同步时登记。设备名称和状态只属于当前云账户。</p>
                 </div>
                 <button type="button"
@@ -379,8 +352,54 @@
             }
         </section>
     }
+    else
+    {
+        <section class="settings-card" aria-labelledby="cloud-devices-title">
+            <h2 id="cloud-devices-title">我的设备</h2>
+            <p>登录云账户后可管理设备。云账户未配置时，本地日历仍可正常使用。</p>
+            <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault>前往账户登录</a>
+        </section>
+    }
+    </div>
 
-    <fieldset class="settings-group">
+    <div id="sync-settings" tabindex="-1">
+        <SyncSettings @key="cloudAccount?.Id" />
+    </div>
+
+    <section class="settings-card appearance-settings" aria-labelledby="appearance-heading">
+        <div class="settings-heading-row">
+            <div>
+                <h2 id="appearance-heading" tabindex="-1">外观</h2>
+                <p>V4 Beta 使用统一品牌配色与系统字体，只保留显示模式选择。</p>
+            </div>
+        </div>
+
+        <fieldset class="appearance-mode-group">
+            <legend>显示模式</legend>
+            <div class="appearance-segmented" role="radiogroup" aria-label="显示模式">
+                @foreach (var option in AppearanceModes)
+                {
+                    <button type="button"
+                            role="radio"
+                            aria-checked="@(appearancePreference.Mode == option.Mode ? "true" : "false")"
+                            class="@(appearancePreference.Mode == option.Mode ? "selected" : null)"
+                            disabled="@isAppearanceBusy"
+                            @onclick="() => SelectAppearanceModeAsync(option.Mode)">@option.Label</button>
+                }
+            </div>
+        </fieldset>
+
+        <p class="settings-note">字体：系统字体。品牌配色：MoiCalendar Operational Minimalism。</p>
+
+        @if (!string.IsNullOrWhiteSpace(appearanceMessage))
+        {
+            <p class="settings-status @(appearanceSucceeded ? "success" : "failure")" role="status">
+                @appearanceMessage
+            </p>
+        }
+    </section>
+
+    <fieldset id="external-backup" tabindex="-1" class="settings-group">
         <legend>可选外部备份提供商</legend>
 
         <label>
@@ -463,7 +482,7 @@
     </section>
 
     <p class="settings-note">
-        OneDrive 登录和连接成功后，可返回日历首页使用“运行外部备份”。WebDAV 需要先完成服务器连接配置。外部备份可能合并远端记录，不替代 MoiCalendar 云同步。
+        OneDrive 登录和连接成功后，可在上方“同步管理”中运行备份同步。WebDAV 需要先完成服务器连接配置。外部备份可能合并远端记录，不替代 MoiCalendar 云同步。
     </p>
 
     @if (!string.IsNullOrWhiteSpace(providerStatusMessage))
@@ -472,7 +491,7 @@
     }
 
     <section class="settings-card" aria-labelledby="backup-heading">
-        <h2 id="backup-heading">本地 JSON 手动备份</h2>
+        <h2 id="backup-heading" tabindex="-1">本地 JSON 手动备份</h2>
         <p>
             将本机日历数据导出为版本化 JSON 文件。备份只在浏览器本地生成，不会上传到同步提供商。
         </p>
@@ -592,7 +611,7 @@
     </section>
 
     <section class="settings-card" aria-labelledby="calendar-transfer-heading">
-        <h2 id="calendar-transfer-heading">导入 / 导出</h2>
+        <h2 id="calendar-transfer-heading" tabindex="-1">导入 / 导出</h2>
         <p>导出或预览通用 iCalendar（.ics）文件。选择文件和预览不会修改本地日历。</p>
         <div class="settings-actions">
             <button type="button"
@@ -705,8 +724,15 @@
         }
     </section>
 </main>
+<SectionNavigation />
 
 @code {
+    private async Task NavigateSectionAsync(string id)
+    {
+        Navigation.NavigateTo($"settings#{id}");
+        await JS.InvokeVoidAsync("moicalendarUi.scrollToSection", id);
+    }
+
     private static readonly (AppearanceMode Mode, string Label)[] AppearanceModes =
     [
         (AppearanceMode.System, "跟随系统"),
@@ -989,7 +1015,7 @@
             {
                 CloudSyncDisplayState.Synced => "云同步已完成。",
                 CloudSyncDisplayState.Conflict =>
-                    $"检测到 {status.ConflictCount} 个同步冲突；请在“同步状态”页面选择保留的版本。",
+                    $"检测到 {status.ConflictCount} 个同步冲突；请在下方“同步管理”区域选择保留的版本。",
                 CloudSyncDisplayState.PendingChanges =>
                     $"仍有 {status.PendingChangeCount} 项本地变更等待同步。",
                 CloudSyncDisplayState.RetryScheduled when status.NextRetryAtUtc is not null =>

@@ -1,0 +1,31 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+@code {
+    [Parameter] public bool Ready { get; set; } = true;
+    private bool navigationPending = true;
+
+    protected override void OnInitialized() =>
+        Navigation.LocationChanged += OnLocationChanged;
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        navigationPending = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!navigationPending || !Ready) return;
+        navigationPending = false;
+        var fragment = new Uri(Navigation.Uri).Fragment;
+        if (fragment.Length > 1)
+        {
+            await JS.InvokeVoidAsync("moicalendarUi.scrollToSection",
+                Uri.UnescapeDataString(fragment[1..]));
+        }
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

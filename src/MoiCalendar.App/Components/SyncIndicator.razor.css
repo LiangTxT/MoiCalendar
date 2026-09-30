@@ -1,0 +1,14 @@
+.sync-indicator {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid var(--v4-ink-secondary);
+    box-sizing: border-box;
+    background: var(--v4-ink-secondary);
+}
+.signal-success { background: var(--v4-success, #3F8B67); }
+.signal-active { background: var(--v4-information, #4AAAB6); }
+.signal-warning { background: var(--v4-warning, #CF9138); }
+.signal-danger { background: var(--v4-danger, #CA5454); }

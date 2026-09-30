@@ -1,4 +1,18 @@
 window.moicalendarUi = {
+    scrollToSection: (id) => {
+        // Route content can finish loading after its first render.
+        const findSection = (attempt) => {
+            const target = document.getElementById(id);
+            if (target) {
+                target.scrollIntoView({ block: "start", behavior: "instant" });
+                if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+                target.focus({ preventScroll: true });
+            } else if (attempt < 120) {
+                requestAnimationFrame(() => findSection(attempt + 1));
+            }
+        };
+        findSection(0);
+    },
     rememberedFocus: [],
     calendarScrollPositions: {},
     shortcutHandler: null,

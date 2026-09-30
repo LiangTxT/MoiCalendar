@@ -1,0 +1,29 @@
+.settings-index {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    padding: var(--space-5) 0;
+}
+.settings-index a {
+    min-height: 44px;
+}
+.settings-index a:hover {
+    color: var(--v4-information);
+}
+.settings-index a:focus-visible {
+    outline: 2px solid var(--v4-information);
+    outline-offset: 2px;
+}
+.settings-shell :deep([tabindex="-1"]) {
+    scroll-margin-top: var(--space-5);
+}
+@media (min-width: 800px) {
+    .settings-index { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.settings-heading-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}

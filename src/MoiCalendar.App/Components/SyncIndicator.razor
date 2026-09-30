@@ -1,0 +1,55 @@
+@using MoiCalendar.Sync.Cloud
+@implements IAsyncDisposable
+@inject ICloudSyncStatusService SyncStatusService
+
+<span class="sync-indicator signal-@Presentation.CssClass" role="img"
+      aria-label="@Presentation.Label" title="@Presentation.Label"></span>
+
+@code {
+    [Parameter] public CloudSyncDisplayState? State { get; set; }
+    [Parameter] public DateTimeOffset? LastSuccessfulSyncAtUtc { get; set; }
+    private CloudSyncSnapshot? snapshot;
+    private readonly CancellationTokenSource lifetime = new();
+    private Task? refreshTask;
+    private SyncIndicatorPresentation Presentation =>
+        SyncIndicatorPresentation.From(State ?? snapshot?.State,
+            State is null ? snapshot?.LastSuccessfulSyncAtUtc : LastSuccessfulSyncAtUtc);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State is not null) return;
+        await RefreshAsync();
+        refreshTask = RefreshPeriodicallyAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try { snapshot = await SyncStatusService.GetStatusAsync(lifetime.Token); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch { snapshot = null; }
+    }
+
+    private async Task RefreshPeriodicallyAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        if (refreshTask is not null) await refreshTask;
+        lifetime.Dispose();
+    }
+}
