@@ -140,7 +140,7 @@ window.moicalendarUi = {
             const isTextEntry = tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
             const key = event.key.toLowerCase();
             const isSearchShortcut = key === "k" && !event.altKey && event.ctrlKey !== event.metaKey;
-            if (target?.closest?.(".month-navigation-rail") || isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
+            if (target?.closest?.(".month-navigation-rail, .form-picker") || isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
                 return;
             }
 

@@ -1,0 +1,22 @@
+# 主题化表单选择器
+
+## 设计依据
+
+参考 [Adobe React Spectrum DatePicker](https://react-spectrum.adobe.com/DatePicker) 的输入字段与日历组合，以及 [Radix Select](https://www.radix-ui.com/primitives/docs/components/select) 的选项、键盘导航和焦点处理。仅参考交互原则，没有引入 React 依赖或复制其源代码。
+
+按 Impeccable 的操作型界面规范保留现有主题令牌。按 Motion Ref 的弹层建议：桌面使用 200ms 淡入展开、窄屏使用 240ms 底部面板动效；减少动态效果时关闭动画。
+
+## 边界
+
+- `formPickerModel.js`：民用日期、六行月历、日期移动、分钟格式、视口边界。日期计算使用 UTC 日期分量避免受运行设备的夏令时影响；不负责事件的时区转换。
+- `formPicker.js`：一个活动控件弹层，纯临时草稿；原生输入与 select 仍是字段值与表单校验入口。确认后发送标准 `input/change` 事件给原有 Blazor 绑定。
+- `dateTimePicker.js`：继续保持整框单击选择、双击直接输入、Alt+下打开及原生降级。
+- 使用 Popover top layer 避免裁切；弹层 DOM 位于原有编辑器内，与共享编辑器的焦点边界协作。Escape 只取消最内层控件；外部点击取消；确认恢复源字段焦点。
+- 时间列包含 24 小时、60 分钟，允许键盘直接输入整数，不执行十五分钟取整。日期网格支持方向键、Home/End、PageUp/PageDown。
+- 选项与日期值通过 textContent 创建，不解析用户文本为 HTML。控件不直接写 IndexedDB、调用云服务或决定重复事件的变更范围。
+
+## 回归覆盖
+
+新增 19 项 Node 测试，覆盖日期合法性、闰年与月末、年份边界、分钟精度、上下界、弹层避让、未确认草稿、Escape、字段移除、禁用、下拉键盘操作、重复确认与无效分钟。
+
+真实浏览器检查使用独立本地测试标签，不保存测试日程。桌面与 375×812 窄屏模拟不替代 iPad/Android 实机、系统屏幕阅读器和触摸输入测试。

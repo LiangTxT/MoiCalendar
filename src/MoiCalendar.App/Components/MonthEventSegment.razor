@@ -8,7 +8,7 @@
         @onpointerdown:stopPropagation="true"
         @onpointerup:stopPropagation="true"
         @onclick="() => Selected.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
-        @ondblclick="() => Edit.InvokeAsync(CalendarEvent.Id)"
+        @ondblclick="() => Edit.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @ondblclick:stopPropagation="true"
         @onclick:stopPropagation="true">
     @if (ContinuesBefore)
@@ -37,7 +37,7 @@
     [Parameter] public EventCallback<Guid> Focused { get; set; }
     [Parameter] public EventCallback<MonthEventPointerArgs> PointerDown { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> Selected { get; set; }
-    [Parameter] public EventCallback<Guid> Edit { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> Edit { get; set; }
 
     private bool ContinuesBefore =>
         CalendarEvent.SegmentPosition is CalendarEventSegmentPosition.Middle or CalendarEventSegmentPosition.End;

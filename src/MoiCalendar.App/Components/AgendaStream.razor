@@ -3,10 +3,13 @@
 @inject IJSRuntime JS
 
 <section class="agenda agenda-stream app-scrollable" aria-label="日程列表" @ref="stream">
-    <button class="agenda-load" type="button" disabled="@busy" @onclick="() => ExtendAsync(-1)">@(busy ? "正在读取…" : "查看更早的月份")</button>
+    <div class="agenda-edge" data-agenda-previous role="status" aria-live="polite">
+        @(busy ? "正在读取月份…" : "向上滚动查看更早月份")
+    </div>
     @if (error is not null)
     {
         <p class="storage-error" role="alert">@error</p>
+        <button class="agenda-load" type="button" disabled="@busy" @onclick="RetryAsync">重试读取月份</button>
     }
     @foreach (var entry in months)
     {
@@ -38,7 +41,7 @@
                                 {
                                     <button class="agenda-stream-event" type="button" style="@EventStyle(item)" title="@item.Title"
                                             @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(item.Id, item.OriginalStartUtc, item.OriginalEndUtc))"
-                                            @ondblclick="() => EventEdit.InvokeAsync(item.Id)" @ondblclick:stopPropagation="true">
+                                            @ondblclick="() => EventEdit.InvokeAsync(new CalendarOccurrenceReference(item.Id, item.OriginalStartUtc, item.OriginalEndUtc))" @ondblclick:stopPropagation="true">
                                         <span class="agenda-stream-title">@item.Title</span>
                                         <span class="agenda-stream-time">@(item.IsAllDay ? "全天" : item.TimeLabel)</span>
                                         @if (item.IsRecurring)
@@ -63,7 +66,7 @@
     [Parameter] public string TimeZoneId { get; set; } = "UTC";
     [Parameter] public bool CalendarVisible { get; set; } = true;
     [Parameter] public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
-    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> EventEdit { get; set; }
     [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
     [Parameter] public EventCallback<CalendarMonth> VisibleMonthChanged { get; set; }
@@ -74,28 +77,35 @@
     private DotNetObjectReference<AgendaStream>? reference;
     private bool busy;
     private bool disposed;
+    private int loadVersion;
+    private int failedDirection = -1;
     private string? error;
 
     protected override async Task OnParametersSetAsync()
     {
         if (loadedMonth == Month) return;
         loadedMonth = Month;
+        var version = ++loadVersion;
         months.Clear();
         busy = true;
         try
         {
             // 保留本月在顶部，预读后两个月；向上扩展时不替换已呈现的内容。
             var next = Month;
+            var loaded = new List<(CalendarMonth Month, CalendarAgendaView View)>();
             for (var index = 0; index < 3; index++)
             {
-                months.Add((next, await Events.GetAgendaViewAsync(next, TimeZoneId)));
+                var view = await Events.GetAgendaViewAsync(next, TimeZoneId);
+                if (disposed || version != loadVersion) return;
+                loaded.Add((next, view));
                 if (next.Year == 9999 && next.Month == 12) break;
                 next = next.Next();
             }
+            months.AddRange(loaded);
             error = null;
         }
-        catch (EventRepositoryException exception) { error = exception.Message; }
-        finally { busy = false; }
+        catch (EventRepositoryException exception) { if (version == loadVersion) error = exception.Message; }
+        finally { if (version == loadVersion) busy = false; }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -105,13 +115,13 @@
         {
             module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./agendaStream.js");
             reference ??= DotNetObjectReference.Create(this);
-            await module.InvokeVoidAsync("connect", stream, reference, error is null);
+            await module.InvokeVoidAsync("connect", stream, reference, error is null && !busy, loadedMonth?.ToString());
         }
         catch (JSException) { /* 无脚本时仍可通过按钮读取相邻月份。 */ }
     }
 
     [JSInvokable]
-    public Task ReportVisibleMonth(int year, int month) => VisibleMonthChanged.InvokeAsync(new CalendarMonth(year, month));
+    public Task ReportVisibleMonth(int year, int month) => disposed ? Task.CompletedTask : VisibleMonthChanged.InvokeAsync(new CalendarMonth(year, month));
 
     [JSInvokable]
     public async Task ExtendAsync(int direction)
@@ -120,11 +130,12 @@
         var edge = direction < 0 ? months[0].Month : months[^1].Month;
         if (direction < 0 && edge.Year == 1 && edge.Month == 1 || direction >= 0 && edge.Year == 9999 && edge.Month == 12) return;
         busy = true;
+        var version = loadVersion;
         try
         {
             var next = direction < 0 ? edge.Previous() : edge.Next();
             var view = await Events.GetAgendaViewAsync(next, TimeZoneId);
-            if (disposed) return;
+            if (disposed || version != loadVersion) return;
             if (direction < 0)
             {
                 if (module is not null) await module.InvokeVoidAsync("rememberPosition", stream);
@@ -133,12 +144,19 @@
             else months.Add((next, view));
             error = null;
         }
-        catch (EventRepositoryException exception) { error = exception.Message; }
-        finally { busy = false; }
+        catch (EventRepositoryException exception) { if (version == loadVersion) { error = exception.Message; failedDirection = direction; } }
+        finally { if (version == loadVersion) busy = false; }
         if (!disposed) await InvokeAsync(StateHasChanged);
     }
 
-    private static string BannerStyle(int month) => FormattableString.Invariant($"--agenda-art-x:{(month - 1) % 3 * 50}%;--agenda-art-y:{(month - 1) / 3 * 100.0 / 3:0.###}%");
+    private async Task RetryAsync()
+    {
+        if (busy || disposed) return;
+        if (months.Count == 0) { loadedMonth = null; await OnParametersSetAsync(); }
+        else await ExtendAsync(failedDirection);
+    }
+
+    private static string BannerStyle(int month) => $"--agenda-art-column:{(month - 1) % 3};--agenda-art-row:{(month - 1) / 3}";
     private static string EventStyle(CalendarEventListItem item) => $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(item.CalendarColorIndex, 1, 8)})";
     private static string Weekday(DateOnly date) => new[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" }[(int)date.DayOfWeek];
 

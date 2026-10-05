@@ -3,7 +3,7 @@
     window.moicalendarDateTimePicker?.dispose();
     let pending = null;
     const manual = new WeakSet();
-    const supported = typeof HTMLInputElement.prototype.showPicker === 'function';
+    const supported = !!window.moicalendarFormPicker || typeof HTMLInputElement.prototype.showPicker === 'function';
     const eligible = input => input?.matches?.('input[data-date-time-picker]') &&
         ['date', 'time', 'datetime-local'].includes(input.type) && !input.disabled && !input.readOnly;
     const cancel = () => {
@@ -12,12 +12,13 @@
     };
     const enterManual = input => {
         cancel();
+        window.moicalendarFormPicker?.close(false);
         manual.add(input);
         input.focus({ preventScroll: true });
     };
     const open = input => {
         if (!eligible(input) || !input.isConnected || document.activeElement !== input) return;
-        try { input.showPicker(); }
+        try { if (window.moicalendarFormPicker) window.moicalendarFormPicker.open(input); else input.showPicker(); }
         catch {
             // 缺少用户激活、嵌入限制或平台不支持时保留原生图标与键盘输入。
             input.classList.add('picker-native-fallback');

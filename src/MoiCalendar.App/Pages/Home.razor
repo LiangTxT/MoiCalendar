@@ -286,6 +286,7 @@
                             OccurrenceStartUtc="recurrenceScope.OccurrenceStartUtc"
                             OccurrenceTimeText="@FormatSelectedEventTime(recurrenceScope.CalendarEvent)"
                             DeleteOccurrence="DeleteSelectedOccurrenceAsync"
+                            EditOccurrence="EditSelectedOccurrence"
                             Confirm="ConfirmRecurrenceScopeAsync"
                             Cancel="CloseCurrentOverlayAsync" />
 }
@@ -298,8 +299,8 @@
                  aria-labelledby="event-editor-title"
                  @onclick:stopPropagation="true">
             <header class="editor-heading">
-                <h2 id="event-editor-title">@(editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
-                <button class="icon-button" type="button" aria-label="关闭事件编辑器" @onclick="CloseEditor">×</button>
+                <h2 id="event-editor-title">@(EditingOccurrence is not null ? "仅编辑这一次" : editingEventId is null ? "新建事件" : IsEditingRecurringEvent ? "编辑重复事件" : "编辑事件")</h2>
+                <button class="icon-button" type="button" aria-label="关闭事件编辑器" disabled="@isSavingEvent" @onclick="CloseEditor">×</button>
             </header>
 
             @if (editingEventId is not null && IsEditingRecurringEvent)
@@ -309,7 +310,13 @@
                 </p>
             }
 
+            @if (EditingOccurrence is not null)
+            {
+                <p class="recurrence-series-notice" role="status">仅修改所选这一次，保存后成为独立日程。其他重复日程不变。</p>
+            }
+
             <form @onsubmit="SaveEventAsync" @onsubmit:preventDefault="true">
+                <fieldset class="editor-inputs" disabled="@isSavingEvent">
                 <section class="editor-group primary-fields" aria-label="基本信息">
                 <label class="visually-hidden" for="event-title">标题</label>
                 <input id="event-title"
@@ -362,6 +369,7 @@
                 <div class="editor-row">
                     <label for="event-repeat">重复</label>
                     <select id="event-repeat"
+                            disabled="@(EditingOccurrence is not null)"
                             value="@editor.Recurrence.RepeatOption"
                             @onchange="ChangeRepeatOption">
                         <option value="@CalendarEventRepeatOption.Never">永不</option>
@@ -425,6 +433,7 @@
                         {
                             <label for="event-recurrence-until">结束日期</label>
                             <input id="event-recurrence-until"
+                                   data-date-time-picker
                                    type="@RecurrenceDateInputType"
                                    required
                                    @bind="editor.Recurrence.UntilDateInput" />
@@ -469,17 +478,18 @@
                     <p class="editor-error" role="alert">@editorError</p>
                 }
 
+                </fieldset>
                 <footer class="editor-actions">
-                    @if (editingEventId is not null)
+                    @if (editingEventId is not null && EditingOccurrence is null)
                     {
-                        <button class="danger-button" type="button" @onclick="DeleteEventAsync">
+                        <button class="danger-button" type="button" disabled="@isSavingEvent" @onclick="DeleteEventAsync">
                             @(IsEditingRecurringEvent ? "删除整个系列" : "删除")
                         </button>
                     }
                     <span class="action-spacer"></span>
-                    <button type="button" @onclick="CloseEditor">取消</button>
-                    <button class="primary-button" type="submit">
-                        @(IsEditingRecurringEvent ? "保存整个系列" : "保存")
+                    <button type="button" disabled="@isSavingEvent" @onclick="CloseEditor">取消</button>
+                    <button class="primary-button" type="submit" disabled="@isSavingEvent">
+                        @(isSavingEvent ? "正在保存…" : EditingOccurrence is not null ? "保存这一次" : IsEditingRecurringEvent ? "保存整个系列" : "保存")
                     </button>
                 </footer>
             </form>
@@ -538,6 +548,8 @@
         }
     }
     private Guid? editingEventId;
+    private bool isSavingEvent;
+    private CalendarOccurrenceReference? EditingOccurrence => (overlayState as FullEditorOverlayState)?.Occurrence;
     private string searchQuery = string.Empty;
     private string? editorError;
     private string? quickCreateError;
@@ -1522,7 +1534,7 @@
         }
     }
 
-    private async Task OpenEventEditorAsync(Guid id)
+    private async Task OpenEventEditorAsync(CalendarOccurrenceReference occurrence)
     {
         eventClickCancellation?.Cancel();
         if (!CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
@@ -1532,7 +1544,7 @@
         var request = overlayRequests.BeginRequest();
         try
         {
-            var calendarEvent = await EventService.GetByIdAsync(id);
+            var calendarEvent = await EventService.GetByIdAsync(occurrence.Id);
             if (calendarEvent is null || !overlayRequests.IsCurrent(request))
             {
                 return;
@@ -1545,9 +1557,11 @@
             }
             if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
             {
+                selectedOccurrence = occurrence;
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     calendarEvent,
-                    CalendarRecurrenceAction.EditSeries);
+                    CalendarRecurrenceAction.EditSeries,
+                    occurrenceStartUtc: occurrence.StartUtc);
                 detailError = null;
                 return;
             }
@@ -1579,7 +1593,8 @@
         {
             overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                 selectedEvent,
-                CalendarRecurrenceAction.EditSeries);
+                CalendarRecurrenceAction.EditSeries,
+                occurrenceStartUtc: selectedOccurrence?.StartUtc);
             detailError = null;
             return;
         }
@@ -1597,6 +1612,17 @@
         detailError = null;
         detailAnchorStyle = null;
         await RestoreFocusAsync();
+    }
+
+    private void EditSelectedOccurrence()
+    {
+        if (overlayState is not RecurrenceScopeOverlayState { Action: CalendarRecurrenceAction.EditSeries, OccurrenceStartUtc: { } start } scope ||
+            selectedOccurrence is not { EndUtc: { } end }) return;
+        var draft = EventService.CreateDraft(scope.CalendarEvent with { StartUtc = start, EndUtc = end, RecurrenceRule = null });
+        editingEventId = scope.CalendarEvent.Id;
+        editorError = null;
+        detailError = null;
+        overlayState = new FullEditorOverlayState(draft, new(scope.CalendarEvent.Id, start, end));
     }
 
     private async Task DeleteSelectedEventAsync()
@@ -1811,14 +1837,19 @@
 
     private async Task SaveEventAsync()
     {
-        if (editor is null)
+        if (editor is null || isSavingEvent)
         {
             return;
         }
 
+        isSavingEvent = true;
         try
         {
-            if (editingEventId is Guid id)
+            if (EditingOccurrence is { StartUtc: { } start } occurrence)
+            {
+                await EventService.UpdateOccurrenceAsync(occurrence.Id, start, editor);
+            }
+            else if (editingEventId is Guid id)
             {
                 await EventService.UpdateAsync(id, editor);
             }
@@ -1827,6 +1858,7 @@
                 await EventService.CreateAsync(editor);
             }
 
+            isSavingEvent = false;
             await CloseEditor();
             await LoadEventsAsync();
             ShowInteractionFeedback("已保存", true);
@@ -1839,9 +1871,17 @@
         {
             editorError = exception.Message;
         }
+        catch (SyncOperationException)
+        {
+            editorError = "保存失败，本地事务未完成。你的输入已保留，请重试。";
+        }
         catch (EventRepositoryException exception)
         {
             editorError = exception.Message;
+        }
+        finally
+        {
+            isSavingEvent = false;
         }
     }
 
@@ -1915,6 +1955,7 @@
 
     private async Task CloseEditor()
     {
+        if (isSavingEvent) return;
         editor = null;
         editingEventId = null;
         editorError = null;

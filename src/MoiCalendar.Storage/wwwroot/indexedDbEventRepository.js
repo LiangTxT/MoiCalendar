@@ -566,12 +566,15 @@ export async function applyCalendarImport(changes) {
 
         for (const change of changes) {
             const importedEvent = change.calendarEvent;
-            const currentDuplicate = externalUidLookup.get(importedEvent.externalUid);
+            const hasExternalUid = typeof importedEvent.externalUid === "string" && importedEvent.externalUid.length > 0;
+            const currentDuplicate = hasExternalUid ? externalUidLookup.get(importedEvent.externalUid) : undefined;
             if (change.expectedExistingEventId) {
-                if (!currentDuplicate || currentDuplicate.id !== change.expectedExistingEventId) {
+                const current = existingEvents.find(item => item.id === change.expectedExistingEventId);
+                if (!current || current.deletedAtUtc || importedEvent.id !== current.id ||
+                    (hasExternalUid && currentDuplicate?.id !== current.id)) {
                     throw new Error("预览后本地重复事件已发生变化，请重新预览后导入。");
                 }
-                if (new Date(currentDuplicate.updatedAtUtc).getTime() !==
+                if (new Date(current.updatedAtUtc).getTime() !==
                     new Date(change.expectedExistingUpdatedAtUtc).getTime()) {
                     throw new Error("预览后本地事件已被修改，请重新预览后导入。");
                 }
@@ -579,7 +582,7 @@ export async function applyCalendarImport(changes) {
                 throw new Error("预览后出现了相同 UID 的本地事件，请重新预览后导入。");
             }
 
-            externalUidLookup.set(importedEvent.externalUid, importedEvent);
+            if (hasExternalUid) externalUidLookup.set(importedEvent.externalUid, importedEvent);
             if (change.expectedExistingEventId) {
                 eventStore.put(importedEvent);
             } else {

@@ -117,7 +117,7 @@
     public EventCallback<Guid> EventFocused { get; set; }
 
     [Parameter]
-    public EventCallback<Guid> EventEditRequested { get; set; }
+    public EventCallback<CalendarOccurrenceReference> EventEditRequested { get; set; }
 
     [Parameter]
     public EventCallback<DateOnly> DateSelected { get; set; }
@@ -448,7 +448,7 @@
         }
     }
 
-    private async Task HandleEventDoubleClickAsync(Guid eventId)
+    private async Task HandleEventDoubleClickAsync(CalendarOccurrenceReference eventId)
     {
         eventClickCancellation?.Cancel();
         if (EventEditRequested.HasDelegate)

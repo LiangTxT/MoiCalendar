@@ -46,7 +46,7 @@ public sealed record RecurrenceScopeOverlayState(
     DateTimeOffset? OccurrenceStartUtc = null) :
     CalendarOverlayState(CalendarOverlayKind.RecurrenceScope);
 
-public sealed record FullEditorOverlayState(CalendarEventDraft Draft) :
+public sealed record FullEditorOverlayState(CalendarEventDraft Draft, CalendarOccurrenceReference? Occurrence = null) :
     CalendarOverlayState(CalendarOverlayKind.FullEditor);
 
 public static class CalendarOverlayTransitions

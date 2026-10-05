@@ -137,6 +137,43 @@ public sealed class CalendarEventService(
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         repository.GetByIdAsync(id, cancellationToken);
 
+    /// <summary>将一次出现独立保存；系列排除与新事件共用现有批量事务和本地变更记录。</summary>
+    public async Task<CalendarEvent> UpdateOccurrenceAsync(Guid id, DateTimeOffset occurrenceStartUtc,
+        CalendarEventDraft draft, CancellationToken cancellationToken = default)
+    {
+        await using var lease = await operationLock.AcquireAsync(cancellationToken);
+        var existing = await repository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException("找不到此重复事件系列。");
+        var start = occurrenceStartUtc.ToUniversalTime();
+        if (existing.DeletedAtUtc is not null || string.IsNullOrWhiteSpace(existing.RecurrenceRule) ||
+            start == DateTimeOffset.MaxValue ||
+            !recurrenceExpansionService.Expand([existing], start, start.AddTicks(1)).Any(item => item.StartUtc == start))
+            throw new ArgumentException("这次重复事件已不存在，请刷新日历后重试。");
+        var values = ValidateAndConvert(draft);
+        if (values.RecurrenceRule is not null)
+            throw new ArgumentException("单次编辑不能设置重复规则。");
+        var now = timeProvider.GetUtcNow();
+        var updated = existing with
+        {
+            ExcludedOccurrenceStartsUtc = [.. (existing.ExcludedOccurrenceStartsUtc ?? []).Append(start).Order()],
+            UpdatedAtUtc = now
+        };
+        var detached = new CalendarEvent
+        {
+            Id = Guid.NewGuid(), Title = values.Title, Description = values.Description,
+            Location = values.Location, StartUtc = values.StartUtc, EndUtc = values.EndUtc,
+            TimeZoneId = draft.TimeZoneId, IsAllDay = draft.IsAllDay,
+            CreatedAtUtc = now, UpdatedAtUtc = now
+        };
+        var update = await CreateOperationAsync(updated, SyncOperationType.Update, now, cancellationToken);
+        var create = await CreateOperationAsync(detached, SyncOperationType.Create, now, cancellationToken);
+        await localEventChanges.ApplyImportAsync([
+            new(updated, update, existing.Id, existing.UpdatedAtUtc),
+            new(detached, create, null, null)
+        ], cancellationToken);
+        return detached;
+    }
+
     public async Task<CalendarMonthEventView> GetMonthViewAsync(
         CalendarMonthView monthView,
         string displayTimeZoneId,

@@ -38,6 +38,12 @@ public sealed class RecurrenceScopeRenderingTests
         Assert.DoesNotContain("Error=\"detailError\"", home);
         Assert.Contains("Busy=\"isDeletingFromDetails\"", home);
         Assert.Contains("if (isDeletingFromDetails || overlayState is not RecurrenceScopeOverlayState scope)", home);
+        Assert.Contains("private async Task OpenEventEditorAsync(CalendarOccurrenceReference occurrence)", home);
+        Assert.Contains("occurrenceStartUtc: occurrence.StartUtc", home);
+        Assert.Contains("occurrenceStartUtc: selectedOccurrence?.StartUtc", home);
+        Assert.Contains("EventService.UpdateOccurrenceAsync(occurrence.Id, start, editor)", home);
+        Assert.Contains("if (editor is null || isSavingEvent)", home);
+        Assert.Contains("if (isSavingEvent) return;", home);
     }
 
     [Theory]
@@ -52,7 +58,21 @@ public sealed class RecurrenceScopeRenderingTests
         Assert.Equal(busy ? 4 : 0, System.Text.RegularExpressions.Regex.Matches(html, "disabled").Count);
     }
 
-    private static async Task<string> RenderAsync(string? error, bool busy, DateTimeOffset? occurrenceStartUtc = null)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EditScope_OffersSingleEditOnlyForKnownOccurrence(bool known)
+    {
+        var html = System.Net.WebUtility.HtmlDecode(await RenderAsync(null, false,
+            known ? new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero) : null, CalendarRecurrenceAction.EditSeries));
+        Assert.Equal(known, html.Contains("仅编辑这一次"));
+        Assert.Contains("编辑整个系列", html);
+        Assert.Contains("aria-describedby=\"recurrence-scope-description\"", html);
+        Assert.DoesNotContain("仅删除这一次", html);
+    }
+
+    private static async Task<string> RenderAsync(string? error, bool busy, DateTimeOffset? occurrenceStartUtc = null,
+        CalendarRecurrenceAction action = CalendarRecurrenceAction.DeleteSeries)
     {
         await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
@@ -61,7 +81,7 @@ public sealed class RecurrenceScopeRenderingTests
             var component = await renderer.RenderComponentAsync<RecurrenceScopeChooser>(ParameterView.FromDictionary(new Dictionary<string, object?>
             {
                 [nameof(RecurrenceScopeChooser.CalendarEvent)] = new CalendarEvent { Id = Guid.NewGuid(), Title = "重复事件测试", RecurrenceRule = "FREQ=DAILY", UpdatedAtUtc = DateTimeOffset.UtcNow, TimeZoneId = TimeZoneInfo.Utc.Id, Description = "", Location = "", StartUtc = DateTimeOffset.UtcNow, EndUtc = DateTimeOffset.UtcNow.AddHours(1), CreatedAtUtc = DateTimeOffset.UtcNow, IsAllDay = false },
-                [nameof(RecurrenceScopeChooser.Action)] = CalendarRecurrenceAction.DeleteSeries,
+                [nameof(RecurrenceScopeChooser.Action)] = action,
                 [nameof(RecurrenceScopeChooser.Error)] = error,
                 [nameof(RecurrenceScopeChooser.Busy)] = busy,
                 [nameof(RecurrenceScopeChooser.OccurrenceStartUtc)] = occurrenceStartUtc
