@@ -37,7 +37,7 @@
                                 @foreach (var item in day.Events)
                                 {
                                     <button class="agenda-stream-event" type="button" style="@EventStyle(item)" title="@item.Title"
-                                            @onclick="() => EventSelected.InvokeAsync(item.Id)"
+                                            @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(item.Id, item.OriginalStartUtc, item.OriginalEndUtc))"
                                             @ondblclick="() => EventEdit.InvokeAsync(item.Id)" @ondblclick:stopPropagation="true">
                                         <span class="agenda-stream-title">@item.Title</span>
                                         <span class="agenda-stream-time">@(item.IsAllDay ? "全天" : item.TimeLabel)</span>
@@ -62,7 +62,7 @@
     [Parameter] public DateOnly Today { get; set; }
     [Parameter] public string TimeZoneId { get; set; } = "UTC";
     [Parameter] public bool CalendarVisible { get; set; } = true;
-    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
     [Parameter] public EventCallback<Guid> EventEdit { get; set; }
     [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }

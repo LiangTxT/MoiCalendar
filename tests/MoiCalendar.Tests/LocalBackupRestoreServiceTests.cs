@@ -6,6 +6,22 @@ namespace MoiCalendar.Tests;
 
 public sealed class LocalBackupRestoreServiceTests
 {
+    [Fact]
+    public async Task OccurrenceExclusions_ArePreservedDuringRestore()
+    {
+        var excluded = new DateTimeOffset(2026, 8, 28, 9, 0, 0, TimeSpan.Zero);
+        var calendarEvent = CreateEvent(Guid.NewGuid(), "有排除记录的系列") with
+        {
+            RecurrenceRule = "FREQ=DAILY",
+            ExcludedOccurrenceStartsUtc = [excluded]
+        };
+        var repository = new FakeRestoreRepository([], syncOperationCount: 0);
+        var service = new LocalBackupRestoreService(repository);
+        var preview = service.PrepareRestore(CreateJson([calendarEvent]));
+        await service.RestorePreparedAsync(preview.RestoreId);
+        Assert.Equal(calendarEvent, Assert.Single(repository.Events));
+    }
+
     private static readonly DateTimeOffset ExportedAtUtc =
         new(2026, 8, 28, 12, 30, 0, TimeSpan.Zero);
 

@@ -7,7 +7,7 @@
         @onpointerdown="HandlePointerDown"
         @onpointerdown:stopPropagation="true"
         @onpointerup:stopPropagation="true"
-        @onclick="() => Selected.InvokeAsync(CalendarEvent.Id)"
+        @onclick="() => Selected.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @ondblclick="() => Edit.InvokeAsync(CalendarEvent.Id)"
         @ondblclick:stopPropagation="true"
         @onclick:stopPropagation="true">
@@ -36,7 +36,7 @@
     [Parameter] public bool IsInteractionSource { get; set; }
     [Parameter] public EventCallback<Guid> Focused { get; set; }
     [Parameter] public EventCallback<MonthEventPointerArgs> PointerDown { get; set; }
-    [Parameter] public EventCallback<Guid> Selected { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> Selected { get; set; }
     [Parameter] public EventCallback<Guid> Edit { get; set; }
 
     private bool ContinuesBefore =>

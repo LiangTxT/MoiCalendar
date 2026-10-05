@@ -8,10 +8,15 @@
             <span>重复事件</span>
             <h2 id="recurrence-scope-title">@CalendarEvent.Title</h2>
         </div>
-        <button class="icon-button" type="button" aria-label="关闭重复事件范围选择" @onclick="Cancel">×</button>
+        <button class="icon-button" type="button" aria-label="关闭重复事件范围选择" disabled="@Busy" @onclick="Cancel">×</button>
     </header>
 
-    <p>这项操作涉及重复事件。请选择是否处理整个系列；系统不会静默修改整个系列。</p>
+    <p>@(Action == CalendarRecurrenceAction.DeleteSeries ? "选择删除范围。仅删除这一次不会影响系列中的其他日程。" : "这项操作涉及重复事件。确认后将编辑整个系列；保存前不会修改日历。")</p>
+
+    @if (OccurrenceStartUtc is not null && !string.IsNullOrWhiteSpace(OccurrenceTimeText))
+    {
+        <p class="v4-meta">@OccurrenceTimeText</p>
+    }
 
     @if (!string.IsNullOrWhiteSpace(Error))
     {
@@ -19,11 +24,16 @@
     }
 
     <footer>
-        <button type="button" @onclick="Cancel">取消</button>
+        <button type="button" disabled="@Busy" @onclick="Cancel">取消</button>
+        @if (Action == CalendarRecurrenceAction.DeleteSeries && OccurrenceStartUtc is not null)
+        {
+            <button class="primary-button" type="button" disabled="@Busy" @onclick="DeleteOccurrence">仅删除这一次</button>
+        }
         <button class="@(Action == CalendarRecurrenceAction.DeleteSeries ? "danger-button" : "primary-button")"
                 type="button"
+                disabled="@Busy"
                 @onclick="Confirm">
-            @(Action == CalendarRecurrenceAction.DeleteSeries ? "删除整个系列" : "编辑整个系列")
+            @(Busy ? "正在删除…" : Action == CalendarRecurrenceAction.DeleteSeries ? "删除整个系列" : "编辑整个系列")
         </button>
     </footer>
 </section>
@@ -32,6 +42,10 @@
     [Parameter, EditorRequired] public CalendarEvent CalendarEvent { get; set; } = null!;
     [Parameter] public CalendarRecurrenceAction Action { get; set; }
     [Parameter] public string? Error { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public DateTimeOffset? OccurrenceStartUtc { get; set; }
+    [Parameter] public string? OccurrenceTimeText { get; set; }
+    [Parameter] public EventCallback DeleteOccurrence { get; set; }
     [Parameter] public EventCallback Confirm { get; set; }
     [Parameter] public EventCallback Cancel { get; set; }
 }

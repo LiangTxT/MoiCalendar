@@ -161,7 +161,7 @@
     @if (selectedEvent is not null)
     {
         <MoiCalendar.App.Components.EventDetailPopover CalendarEvent="selectedEvent"
-                                                        TimeText="@FormatEventTime(selectedEvent)"
+                                                        TimeText="@FormatSelectedEventTime(selectedEvent)"
                                                         Error="@detailError"
                                                         IsDeleting="isDeletingFromDetails"
                                                         Edit="EditSelectedEvent"
@@ -206,7 +206,7 @@
                             style="@GetCalendarColorStyle(calendarEvent)"
                             type="button"
                             @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
-                            @onclick="() => OpenEventDetailsFromOverflowAsync(calendarEvent.Id)">
+                            @onclick="() => OpenEventDetailsFromOverflowAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
                         <span class="agenda-event-title">@calendarEvent.Title</span>
                     </button>
@@ -219,7 +219,7 @@
                             style="@GetCalendarColorStyle(calendarEvent)"
                             type="button"
                             @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
-                            @onclick="() => OpenEventDetailsFromOverflowAsync(calendarEvent.Id)">
+                            @onclick="() => OpenEventDetailsFromOverflowAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
                         <span class="agenda-event-title">@calendarEvent.Title</span>
                     </button>
@@ -281,7 +281,11 @@
 {
     <RecurrenceScopeChooser CalendarEvent="recurrenceScope.CalendarEvent"
                             Action="recurrenceScope.Action"
-                            Error="detailError"
+                            Error="@detailError"
+                            Busy="isDeletingFromDetails"
+                            OccurrenceStartUtc="recurrenceScope.OccurrenceStartUtc"
+                            OccurrenceTimeText="@FormatSelectedEventTime(recurrenceScope.CalendarEvent)"
+                            DeleteOccurrence="DeleteSelectedOccurrenceAsync"
                             Confirm="ConfirmRecurrenceScopeAsync"
                             Cancel="CloseCurrentOverlayAsync" />
 }
@@ -538,6 +542,7 @@
     private string? editorError;
     private string? quickCreateError;
     private string? detailError;
+    private CalendarOccurrenceReference? selectedOccurrence;
     private string? detailAnchorStyle;
     private string? storageError;
     private string? preferenceError;
@@ -851,6 +856,7 @@
 
     private async Task CloseCurrentOverlayAsync()
     {
+        if (isDeletingFromDetails && overlayState is RecurrenceScopeOverlayState) return;
         // 即使详情仍在读取、尚无可见弹层，Escape 也撤销待完成请求。
         overlayRequests.Invalidate();
         eventClickCancellation?.Cancel();
@@ -1427,7 +1433,7 @@
         monthPreview = null;
     }
 
-    private async Task HandleMonthEventClickAsync(Guid eventId)
+    private async Task HandleMonthEventClickAsync(CalendarOccurrenceReference eventId)
     {
         if (suppressNextMonthClick)
         {
@@ -1474,7 +1480,10 @@
     private Task OpenEventDetailsAsync(Guid id) =>
         OpenEventDetailsCoreAsync(id, rememberFocus: true);
 
-    private async Task OpenEventDetailsCoreAsync(Guid id, bool rememberFocus)
+    private Task OpenEventDetailsAsync(CalendarOccurrenceReference occurrence) =>
+        OpenEventDetailsCoreAsync(occurrence.Id, rememberFocus: true, occurrence);
+
+    private async Task OpenEventDetailsCoreAsync(Guid id, bool rememberFocus, CalendarOccurrenceReference? occurrence = null)
     {
         if (rememberFocus && !CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
         {
@@ -1500,6 +1509,7 @@
                 return;
             }
             selectedEvent = calendarEvent;
+            selectedOccurrence = occurrence;
             quickCreateDraft = null;
             detailError = null;
         }
@@ -1600,7 +1610,8 @@
         {
             overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                 selectedEvent,
-                CalendarRecurrenceAction.DeleteSeries);
+                CalendarRecurrenceAction.DeleteSeries,
+                occurrenceStartUtc: selectedOccurrence?.StartUtc);
             detailError = null;
             return;
         }
@@ -1638,7 +1649,7 @@
         await RestoreFocusAsync();
     }
 
-    private async Task OpenEventDetailsFromOverflowAsync(Guid id)
+    private async Task OpenEventDetailsFromOverflowAsync(CalendarOccurrenceReference occurrence)
     {
         if (overlayState is not MoreEventsOverlayState)
         {
@@ -1647,12 +1658,13 @@
         var request = overlayRequests.BeginRequest();
         try
         {
-            var calendarEvent = await EventService.GetByIdAsync(id);
+            var calendarEvent = await EventService.GetByIdAsync(occurrence.Id);
             if (calendarEvent is not null && overlayRequests.IsCurrent(request))
             {
                 overlayState = CalendarOverlayTransitions.OpenEventFromMore(
                     overlayState,
                     calendarEvent);
+                selectedOccurrence = occurrence;
                 detailError = null;
             }
         }
@@ -1671,9 +1683,30 @@
         await OpenQuickCreateCore(date, rememberFocus: false);
     }
 
+    private async Task DeleteSelectedOccurrenceAsync()
+    {
+        if (isDeletingFromDetails || overlayState is not RecurrenceScopeOverlayState { Action: CalendarRecurrenceAction.DeleteSeries, OccurrenceStartUtc: { } start } scope) return;
+        isDeletingFromDetails = true;
+        detailError = null;
+        try
+        {
+            await EventService.DeleteOccurrenceAsync(scope.CalendarEvent.Id, start);
+            overlayState = CalendarOverlayState.None;
+            selectedOccurrence = null;
+            ShowInteractionFeedback("已删除这一次", true);
+            await LoadEventsAsync();
+            await RestoreFocusAsync();
+        }
+        catch (Exception exception) when (exception is ArgumentException or KeyNotFoundException or EventRepositoryException)
+        {
+            detailError = exception.Message;
+        }
+        finally { isDeletingFromDetails = false; }
+    }
+
     private async Task ConfirmRecurrenceScopeAsync()
     {
-        if (overlayState is not RecurrenceScopeOverlayState scope)
+        if (isDeletingFromDetails || overlayState is not RecurrenceScopeOverlayState scope)
         {
             return;
         }
@@ -1701,11 +1734,20 @@
             return;
         }
 
-        editingEventId = scope.CalendarEvent.Id;
-        editorError = scope.Action == CalendarRecurrenceAction.ApplyInteractionToSeries
-            ? "请确认整个系列的新日期和时间后保存。"
-            : null;
-        editor = EventService.CreateDraft(scope.CalendarEvent);
+        try
+        {
+            var draft = scope.PendingIntent is { } pending
+                ? InteractionService.PrepareSeriesInteractionDraft(scope.CalendarEvent, pending)
+                : EventService.CreateDraft(scope.CalendarEvent);
+            editingEventId = scope.CalendarEvent.Id;
+            editorError = null;
+            detailError = null;
+            editor = draft;
+        }
+        catch (ArgumentException exception)
+        {
+            detailError = exception.Message;
+        }
     }
 
     private void ChangeAllDay(ChangeEventArgs args)
@@ -1812,6 +1854,13 @@
 
         try
         {
+            var existing = await EventService.GetByIdAsync(id);
+            if (existing is not null && !string.IsNullOrWhiteSpace(existing.RecurrenceRule))
+            {
+                detailError = null;
+                overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(existing, CalendarRecurrenceAction.DeleteSeries);
+                return;
+            }
             await EventService.DeleteAsync(id);
             await CloseEditor();
             await LoadEventsAsync();
@@ -1879,6 +1928,11 @@
 
     private static string GetCalendarColorStyle(CalendarEventListItem calendarEvent) =>
         $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(calendarEvent.CalendarColorIndex, 1, 8)});";
+
+    private string FormatSelectedEventTime(CalendarEvent calendarEvent) =>
+        selectedOccurrence is { StartUtc: { } start, EndUtc: { } end } occurrence && occurrence.Id == calendarEvent.Id
+            ? FormatEventTime(calendarEvent with { StartUtc = start, EndUtc = end })
+            : FormatEventTime(calendarEvent);
 
     private string FormatEventTime(CalendarEvent calendarEvent)
     {

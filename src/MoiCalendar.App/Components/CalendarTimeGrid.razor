@@ -5,9 +5,9 @@
          aria-label="@AriaLabel"
          style="@GridStyle"
          @ref="interactionSurface">
-    @if (!VisibleDays.Any(day => day.AllDayEvents.Count > 0 || day.TimedEvents.Count > 0))
+    @if (!IsDayView && !VisibleDays.Any(day => day.AllDayEvents.Count > 0 || day.TimedEvents.Count > 0))
     {
-        <p class="week-empty" role="status">@EmptyMessage</p>
+        <p class="week-empty" role="status">本周暂无事件，选择日期可新建事件。</p>
     }
 
     <div class="week-horizontal-scroll app-scrollable">
@@ -111,7 +111,7 @@
     public string InteractionTimeZoneId { get; set; } = TimeZoneInfo.Utc.Id;
 
     [Parameter]
-    public EventCallback<Guid> EventSelected { get; set; }
+    public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
 
     [Parameter]
     public EventCallback<Guid> EventFocused { get; set; }
@@ -161,10 +161,6 @@
 
     private string GridStyle => FormattableString.Invariant(
         $"--visible-days:{Math.Max(1, VisibleDays.Count)};--time-grid-hours:{GridMetrics.VisibleDurationMinutes / 60d:0.####}");
-
-    private string EmptyMessage => IsDayView
-        ? "当天暂无事件，选择时间区域可新建事件。"
-        : "本周暂无事件，选择日期可新建事件。";
 
     protected override void OnParametersSet()
     {
@@ -422,7 +418,7 @@
                 calendarEvent.InteractionTimeZoneId);
     }
 
-    private async Task HandleEventClickAsync(Guid eventId)
+    private async Task HandleEventClickAsync(CalendarOccurrenceReference eventId)
     {
         if (ConsumeSuppressedClick())
         {
