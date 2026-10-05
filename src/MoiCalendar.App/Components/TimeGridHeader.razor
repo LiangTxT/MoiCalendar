@@ -1,19 +1,31 @@
-<div class="week-day-headings time-grid-sticky-header" role="row">
+@inject ICalendarObservanceProvider Observances
+
+<div class="week-day-headings time-grid-sticky-header @(IsDayNavigation ? "day-date-navigation" : null)" role="row">
     <span class="week-corner" aria-hidden="true"></span>
     @foreach (var day in Days)
     {
         <button class="@GetDayHeadingClass(day)"
                 type="button"
                 aria-current="@(day.Date.Date == Today ? "date" : null)"
+                aria-pressed="@(day.Date.Date == SelectedDate ? "true" : "false")"
                 aria-label="@($"选择 {day.Date.Date:yyyy-MM-dd}")"
                 @onclick="() => DateSelected.InvokeAsync(day.Date.Date)">
-            <span>@day.Date.WeekdayLabel</span>
-            <strong>@day.Date.Date.ToString("M月d日")</strong>
+            @if (IsDayNavigation)
+            {
+                <span class="day-date-main"><strong>@day.Date.Date.Day</strong><span>@day.Date.WeekdayLabel</span></span>
+                <span class="day-lunar-label">@Observances.GetLunarLabel(day.Date.Date)</span>
+            }
+            else
+            {
+                <span>@day.Date.WeekdayLabel</span>
+                <strong>@day.Date.Date.ToString("M月d日")</strong>
+            }
         </button>
     }
 </div>
 
 @code {
+    [Parameter] public bool IsDayNavigation { get; set; }
     [Parameter, EditorRequired]
     public IReadOnlyList<CalendarWeekDayEvents> Days { get; set; } = Array.Empty<CalendarWeekDayEvents>();
 
@@ -30,6 +42,8 @@
     {
         "week-day-heading",
         day.Date.Date == Today ? "today" : null,
-        day.Date.Date == SelectedDate ? "selected" : null
+        day.Date.Date == SelectedDate ? "selected" : null,
+        day.Date.Date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? "weekend" : null,
+        day.Date.Date.Month != SelectedDate.Month ? "adjacent-month" : null
     }.Where(value => value is not null));
 }

@@ -19,7 +19,7 @@
         }
         @CalendarEvent.Title
     </strong>
-    @if (ShowExtendedMetadata)
+    @if (ShowExtendedMetadata && CalendarEvent.DurationMinutes >= 60)
     {
         <span class="timed-event-metadata">
             <span class="calendar-color" aria-hidden="true"></span>本地日历
@@ -52,6 +52,7 @@
     [Parameter, EditorRequired] public TimeGridLayoutItem Layout { get; set; } = null!;
     [Parameter, EditorRequired] public DateOnly Date { get; set; }
     [Parameter] public bool ShowExtendedMetadata { get; set; }
+    [Parameter] public DayEventStackLayout? Stack { get; set; }
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public bool IsInteractionSource { get; set; }
     [Parameter] public EventCallback<Guid> Focused { get; set; }
@@ -61,7 +62,7 @@
     [Parameter] public EventCallback<TimedEventPointerArgs> ResizePointerDown { get; set; }
 
     private string EventStyle => FormattableString.Invariant(
-        $"--event-top:{Layout.Position.TopPercentage:0.####}%;--event-height:{Layout.Position.HeightPercentage:0.####}%;--event-left:{Layout.Overlap.LeftPercentage:0.####}%;--event-width:{Layout.Overlap.WidthPercentage:0.####}%;--calendar-entity-color:var(--calendar-color-{Math.Clamp(CalendarEvent.CalendarColorIndex, 1, 8)});");
+        $"--event-top:{Layout.Position.TopPercentage:0.####}%;--event-height:{Layout.Position.HeightPercentage:0.####}%;--event-left:{Stack?.LeftPercentage ?? Layout.Overlap.LeftPercentage:0.####}%;--event-width:{Stack?.WidthPercentage ?? Layout.Overlap.WidthPercentage:0.####}%;--event-layer:{Stack?.Layer ?? 1};--calendar-entity-color:var(--calendar-color-{Math.Clamp(CalendarEvent.CalendarColorIndex, 1, 8)});");
 
     private string EventClass => string.Join(' ', new[]
     {

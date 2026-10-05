@@ -5,13 +5,14 @@
     --v4-elevated: #fff;
     --v4-ink: #171a1c;
     --v4-ink-secondary: #62676a;
-    --v4-ink-tertiary: #929796;
+    --v4-ink-tertiary: #676d6a;
     --v4-line: #d9dbd7;
     --v4-line-strong: #bfc3bf;
     --v4-primary: #283033;
     --v4-on-primary: #fff;
     --v4-signal: #e1c443;
     --v4-information: #4aaab6;
+    --v4-focus: #277680;
     --v4-success: #3f8b67;
     --v4-warning: #cf9138;
     --v4-danger: #ca5454;
@@ -40,6 +41,15 @@
     --motion-normal: 180ms;
     --motion-panel: 240ms;
     --motion-major: 320ms;
+    --scrollbar-size: 8px;
+    --scrollbar-rgb: 60 60 67;
+    --scrollbar-thumb-idle: rgb(var(--scrollbar-rgb) / 8%);
+    --scrollbar-thumb-visible: rgb(var(--scrollbar-rgb) / 18%);
+    --scrollbar-thumb-hover: rgb(var(--scrollbar-rgb) / 32%);
+    --scrollbar-thumb-active: rgb(var(--scrollbar-rgb) / 44%);
+    --scrollbar-radius: 999px;
+    --scrollbar-reveal: 120ms;
+    --scrollbar-fade: 220ms;
     --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
     --font-display: var(--font-system);
     --font-ui: var(--font-system);
@@ -61,19 +71,92 @@
     box-sizing: border-box;
 }
 
+/* 仅显式标记的区域使用统一样式；滚动、拖动、键盘仍由浏览器负责。 */
+@media (forced-colors: none) {
+    .app-scrollable {
+        --scrollbar-current: var(--scrollbar-thumb-idle);
+        scrollbar-gutter: stable;
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-current) transparent;
+        transition: scrollbar-color var(--scrollbar-fade) cubic-bezier(0.2, 0, 0, 1);
+    }
+    .app-scrollable.scrollbar-subtle { --scrollbar-current: transparent; }
+    .app-scrollable.is-scrolling,
+    .app-scrollable:focus-visible {
+        --scrollbar-current: var(--scrollbar-thumb-visible);
+        transition-duration: var(--scrollbar-reveal);
+    }
+    @media (hover: hover) {
+        .app-scrollable:hover { --scrollbar-current: var(--scrollbar-thumb-visible); }
+    }
+    /* 标准非 auto 值会覆盖 Chromium 伪元素，支持时只使用后者。 */
+    @supports selector(::-webkit-scrollbar) {
+        .app-scrollable {
+            scrollbar-width: auto;
+            scrollbar-color: auto;
+        }
+        .app-scrollable::-webkit-scrollbar {
+            width: var(--scrollbar-size);
+            height: var(--scrollbar-size);
+        }
+        .app-scrollable::-webkit-scrollbar-track,
+        .app-scrollable::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+        .app-scrollable::-webkit-scrollbar-thumb {
+            min-height: 24px;
+            min-width: 24px;
+            border: 2px solid transparent;
+            border-radius: var(--scrollbar-radius);
+            background-color: var(--scrollbar-current);
+            background-clip: content-box;
+            transition: background-color var(--scrollbar-fade) cubic-bezier(0.2, 0, 0, 1);
+        }
+        .app-scrollable.is-scrolling::-webkit-scrollbar-thumb {
+            transition-duration: var(--scrollbar-reveal);
+        }
+        .app-scrollable::-webkit-scrollbar-thumb:hover {
+            background-color: var(--scrollbar-thumb-hover);
+            transition-duration: var(--scrollbar-reveal);
+        }
+        .app-scrollable::-webkit-scrollbar-thumb:active {
+            background-color: var(--scrollbar-thumb-active);
+            transition-duration: 80ms;
+        }
+        .app-scrollable::-webkit-scrollbar-button {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+    }
+}
+
+.app-scrollable.scrollbar-hidden { scrollbar-width: none; scrollbar-gutter: auto; }
+.app-scrollable.scrollbar-hidden::-webkit-scrollbar { display: none; width: 0; height: 0; }
+@media (prefers-reduced-motion: reduce) {
+    .app-scrollable, .app-scrollable::-webkit-scrollbar-thumb { transition: none; }
+}
+
 @media (prefers-color-scheme: dark) {
     :root:not([data-appearance="light"]) {
+        color-scheme: dark;
         --v4-canvas: #141719;
+        --scrollbar-rgb: 255 255 255;
+        --scrollbar-thumb-idle: rgb(var(--scrollbar-rgb) / 6%);
+        --scrollbar-thumb-visible: rgb(var(--scrollbar-rgb) / 16%);
+        --scrollbar-thumb-hover: rgb(var(--scrollbar-rgb) / 28%);
+        --scrollbar-thumb-active: rgb(var(--scrollbar-rgb) / 40%);
         --v4-surface: #1a1e20;
         --v4-elevated: #222729;
         --v4-ink: #f1f2ee;
         --v4-ink-secondary: #abb0b1;
-        --v4-ink-tertiary: #747a7b;
+        --v4-ink-tertiary: #969e9f;
         --v4-line: #343a3c;
         --v4-line-strong: #51595b;
         --v4-primary: #dde2e2;
         --v4-on-primary: #171a1c;
         --v4-information: #65bec7;
+        --v4-focus: #65bec7;
         --v4-success: #67b28b;
         --v4-warning: #d9a558;
         --v4-danger: #e07474;
@@ -83,20 +166,31 @@
 }
 
 :root[data-appearance="dark"] {
+    --scrollbar-rgb: 255 255 255;
+    --scrollbar-thumb-idle: rgb(var(--scrollbar-rgb) / 6%);
+    --scrollbar-thumb-visible: rgb(var(--scrollbar-rgb) / 16%);
+    --scrollbar-thumb-hover: rgb(var(--scrollbar-rgb) / 28%);
+    --scrollbar-thumb-active: rgb(var(--scrollbar-rgb) / 40%);
+    color-scheme: dark;
     --v4-canvas: #141719;
     --v4-surface: #1a1e20;
     --v4-elevated: #222729;
     --v4-ink: #f1f2ee;
     --v4-ink-secondary: #abb0b1;
-    --v4-ink-tertiary: #747a7b;
+    --v4-ink-tertiary: #969e9f;
     --v4-line: #343a3c;
     --v4-line-strong: #51595b;
     --v4-primary: #dde2e2;
     --v4-on-primary: #171a1c;
     --v4-information: #65bec7;
+    --v4-focus: #65bec7;
     --v4-success: #67b28b;
     --v4-warning: #d9a558;
     --v4-danger: #e07474;
+}
+
+:root[data-appearance="light"] {
+    color-scheme: light;
 }
 
 html,
@@ -105,6 +199,16 @@ body {
     color: var(--v4-ink);
     font-family: var(--font-system);
     font-size: 14px;
+}
+
+/* 原生图标仍展示；支持 showPicker 时它不再是唯一入口。 */
+.date-time-picker-supported input[data-date-time-picker]:not(.picker-native-fallback)::-webkit-calendar-picker-indicator {
+    pointer-events: none;
+}
+.date-time-input-hint {
+    margin: var(--space-2) 0;
+    color: var(--v4-ink-secondary);
+    font-size: 11px;
 }
 
 body,
@@ -127,7 +231,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
-    outline: 2px solid var(--v4-information);
+    outline: 2px solid var(--v4-focus);
     outline-offset: 2px;
 }
 
@@ -179,7 +283,7 @@ button:disabled {
 }
 
 a {
-    color: var(--v4-information);
+    color: var(--v4-focus);
 }
 
 .visually-hidden {
@@ -339,6 +443,10 @@ a {
 
 .command-brand b {
     color: var(--v4-ink);
+}
+
+.period-title-compact {
+    display: none;
 }
 
 .command-period-title {
@@ -661,6 +769,90 @@ a {
     overflow: auto;
 }
 
+.agenda-stream {
+    height: 100%;
+    min-height: 0;
+    background: var(--v4-surface);
+    overflow-anchor: none;
+    scroll-behavior: auto;
+}
+.agenda-month-banner {
+    position: relative;
+    height: clamp(144px, 17vw, 208px);
+    background-image: url('../images/agenda-seasons-v1.png');
+    background-size: 300% 400%;
+    background-position: var(--agenda-art-x) var(--agenda-art-y);
+    background-color: var(--v4-canvas);
+    isolation: isolate;
+}
+.agenda-month-banner h2 {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    margin: 16px 0 0 24px;
+    padding: 4px 8px;
+    background: #f3f3ef;
+    color: #283033;
+    font-size: clamp(24px, 2.4vw, 36px);
+    font-weight: 400;
+    line-height: 1.3;
+}
+.agenda-month-banner h2 small { font-size: .65em; }
+.agenda-stream-day {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 16px;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 24px;
+}
+.agenda-date {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: start;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--v4-ink-secondary);
+    cursor: pointer;
+}
+.agenda-date span { font-size: 11px; }
+.agenda-date time { display: grid; place-items: center; width: 36px; height: 36px; font-size: 28px; line-height: 1; font-weight: 400; color: var(--v4-ink); }
+.agenda-date.today time { border-radius: 50%; background: var(--v4-primary); color: var(--v4-elevated); }
+.agenda-stream-events { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.agenda-stream-event {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--calendar-entity-color) 30%, var(--v4-line));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--calendar-entity-color) 18%, var(--v4-surface));
+    color: var(--v4-ink);
+    text-align: left;
+    cursor: pointer;
+}
+.agenda-stream-event:hover { background: color-mix(in srgb, var(--calendar-entity-color) 26%, var(--v4-surface)); }
+.agenda-stream-title { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.agenda-stream-time { flex-shrink: 0; font-size: 11px; color: var(--v4-ink-secondary); }
+.agenda-free-day { border: 0; padding: 12px 0; background: transparent; color: var(--v4-ink-secondary); text-align: left; font-size: 12px; cursor: pointer; }
+.agenda-empty-week { display: flex; gap: 8px; max-width: 960px; margin: 0 auto; padding: 24px 24px 24px 104px; font-size: 12px; color: var(--v4-ink-secondary); }
+.agenda-load { display: block; width: 100%; min-height: 44px; padding: 12px; border: 0; background: transparent; color: var(--v4-ink-secondary); font-size: 12px; cursor: pointer; }
+.agenda-load:hover { color: var(--v4-ink); background: var(--v4-canvas); }
+.agenda-stream button:focus-visible { outline: 2px solid var(--v4-information); outline-offset: 2px; }
+@media (max-width: 720px) {
+    .agenda-month-banner { height: 152px; }
+    .agenda-month-banner h2 { margin: 12px 0 0 12px; font-size: 27px; }
+    .agenda-stream-day { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px; }
+    .agenda-empty-week { padding: 20px 12px 20px 68px; }
+    .agenda-stream-event { flex-wrap: wrap; gap: 4px 8px; }
+    .agenda-stream-title { flex-basis: 100%; }
+}
+
 .agenda-day {
     display: grid;
     grid-template-columns: 140px minmax(0, 1fr);
@@ -749,6 +941,11 @@ a {
 .month-view .weekday-grid {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
+    column-gap: 1px;
+    /* 与 month-stream 使用同一原生 gutter，避免星期列逐列偏离日期列。
+       overlay 滚动条不占空间；高对比/浏览器默认宽度也无需写死。 */
+    overflow: hidden;
+    scrollbar-gutter: stable;
     border-bottom: 1px solid var(--v4-line-strong);
     background: var(--v4-surface);
 }
@@ -762,6 +959,91 @@ a {
     font-size: 12px;
     font-weight: 600;
     letter-spacing: .12em;
+}
+
+/* 无限月份窗口的 scrollTop 会回收；导航轨道只表示一年中的月份，
+   不将这个临时像素位置伪装成有限文档的原生滑块。 */
+.continuous-month-view {
+    grid-template-columns: minmax(0, 1fr) 44px;
+}
+
+.continuous-month-view > .weekday-grid {
+    grid-column: 1;
+    grid-row: 1;
+    scrollbar-gutter: auto;
+}
+
+.continuous-month-view > .month-stream {
+    grid-column: 1;
+    grid-row: 2;
+    scrollbar-gutter: auto;
+}
+
+.month-navigation-rail {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+    border-inline-start: 1px solid var(--v4-line);
+    background: var(--v4-surface);
+}
+
+.month-rail-year {
+    display: grid;
+    flex: 0 0 42px;
+    place-items: center;
+    color: var(--v4-ink-secondary);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--v4-line-strong);
+}
+
+.month-rail-months {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+}
+
+.month-rail-stop {
+    position: relative;
+    flex: 1 0 32px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--v4-ink-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.month-rail-stop:hover {
+    background: color-mix(in srgb, var(--v4-information) 10%, var(--v4-surface));
+    color: var(--v4-ink);
+}
+
+.month-rail-stop[aria-current="date"] {
+    background: color-mix(in srgb, var(--v4-information) 14%, var(--v4-surface));
+    color: var(--v4-ink);
+    font-weight: 700;
+    box-shadow: inset 2px 0 var(--v4-focus);
+}
+
+.month-rail-stop:focus-visible {
+    outline: 2px solid var(--v4-focus);
+    outline-offset: -3px;
+}
+
+.month-rail-stop:active {
+    background: color-mix(in srgb, var(--v4-information) 24%, var(--v4-surface));
+}
+
+@media (pointer: coarse) {
+    .month-rail-stop {
+        flex-basis: 44px;
+    }
 }
 
 .month-stream {
@@ -1026,6 +1308,14 @@ a {
     border-right: 1px solid var(--v4-line);
 }
 
+.week-corner,
+.week-section-label {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    background: var(--v4-surface);
+}
+
 .week-day-heading {
     display: grid;
     min-width: 0;
@@ -1158,6 +1448,9 @@ a {
 .week-time-labels {
     border-right: 1px solid var(--v4-line);
     background: var(--v4-surface);
+    z-index: 3;
+    /* 纵向滚动容器隔断 sticky 的横向祖先，用共享滚动度量固定时间标尺。 */
+    transform: translateX(var(--time-grid-horizontal-offset, 0px));
 }
 
 .week-time-labels span {
@@ -1224,7 +1517,7 @@ a {
     line-height: 1.25;
     text-align: left;
     box-shadow: none;
-    touch-action: none;
+    touch-action: auto;
 }
 
 .week-timed-event:hover {
@@ -1263,14 +1556,89 @@ a {
 
 .week-calendar.day-mode .week-grid-frame {
     min-width: 0;
+    grid-template-rows: 70px auto minmax(0, 1fr);
 }
 
 .week-calendar.day-mode .week-timed-event {
-    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 4px 8px;
+    z-index: var(--event-layer, 1);
 }
 
 .week-calendar.day-mode .week-timed-event strong {
     font-size: 13px;
+    order: -1;
+    flex-shrink: 0;
+}
+
+.week-calendar.day-mode .week-timed-event.selected,
+.week-calendar.day-mode .week-timed-event:focus-visible {
+    z-index: var(--event-layer, 1);
+}
+
+.day-date-navigation {
+    grid-template-columns: 52px repeat(7, minmax(0, 1fr));
+    min-height: 70px;
+}
+
+.day-date-navigation .week-day-heading {
+    gap: 3px;
+    border-right: 0;
+}
+
+.day-date-navigation .week-day-heading.selected {
+    background: transparent;
+}
+
+.day-date-navigation .day-date-main {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--v4-ink);
+    font-size: 12px;
+    letter-spacing: normal;
+    font-weight: 400;
+}
+
+.day-date-navigation strong {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    border-radius: 50%;
+}
+
+.day-date-navigation .selected strong {
+    background: var(--v4-ink);
+    color: var(--v4-surface);
+    text-decoration: none;
+}
+
+.day-date-navigation .weekend:not(.selected) .day-date-main,
+.day-date-navigation .adjacent-month:not(.selected) .day-date-main {
+    color: var(--v4-ink-secondary);
+}
+
+.day-date-navigation .day-lunar-label {
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+@media (max-width: 600px) {
+    .day-date-navigation {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+    .day-date-navigation .week-corner { display: none; }
+    .day-date-navigation .day-date-main { flex-direction: column-reverse; gap: 0; font-size: 10px; }
+    .day-date-navigation strong { width: 27px; height: 27px; font-size: 15px; }
+    .day-date-navigation .day-lunar-label { font-size: 9px; }
 }
 
 .week-calendar.day-mode .timed-event-metadata {
@@ -1494,6 +1862,62 @@ a {
     gap: var(--space-3);
 }
 
+.quick-create-popover .quick-create-field {
+    grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.quick-create-all-day .toggle-control {
+    justify-self: end;
+}
+
+.quick-create-popover .toggle-control input {
+    width: 20px;
+    min-height: 20px;
+    margin: 0;
+}
+
+.quick-create-time-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+}
+
+.quick-create-time-pair > div {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.quick-create-time-pair input {
+    width: 100%;
+    min-width: 0;
+}
+
+.quick-create-time-pair label {
+    color: var(--v4-ink-secondary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.quick-create-summary,
+.field-hint {
+    color: var(--v4-ink-secondary);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.quick-create-summary {
+    margin: 0;
+    padding-block: var(--space-2);
+    border-bottom: 1px solid var(--v4-line);
+    font-variant-numeric: tabular-nums;
+}
+
+.quick-create-title::placeholder {
+    color: var(--v4-ink-secondary);
+    opacity: 1;
+}
+
 .date-time-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1613,6 +2037,70 @@ a {
     font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.calendar-status-anchor {
+    position: fixed;
+    right: 24px;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    z-index: 40;
+    max-width: min(360px, calc(100vw - 32px));
+    pointer-events: none;
+}
+
+.calendar-status-capsule {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--v4-line);
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--v4-elevated) 96%, transparent);
+    color: var(--v4-ink-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    animation: calendar-status-enter 140ms ease-out;
+}
+
+.calendar-status-icon { flex: 0 0 auto; }
+.calendar-status-capsule.success .calendar-status-icon { color: var(--v4-success); }
+.calendar-status-capsule.failure { pointer-events: auto; }
+.calendar-status-capsule.failure .calendar-status-icon { color: var(--v4-danger); }
+.calendar-status-capsule span { overflow-wrap: anywhere; }
+.calendar-status-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    margin: -6px -8px -6px 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--v4-ink-secondary);
+    cursor: pointer;
+}
+.calendar-status-dismiss:hover { color: var(--v4-ink); }
+.calendar-status-dismiss:focus-visible { outline: 2px solid var(--v4-information); outline-offset: 1px; }
+
+@keyframes calendar-status-enter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 720px) {
+    .calendar-status-anchor {
+        left: 16px;
+        right: 16px;
+        max-width: none;
+        display: flex;
+        justify-content: center;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .calendar-status-capsule { animation: none; }
 }
 
 .editor-error,
@@ -1857,6 +2345,17 @@ a {
     border-bottom: 1px solid var(--v4-line-strong);
 }
 
+.context-inspector header > div {
+    min-width: 0;
+}
+
+.context-inspector header,
+.context-inspector footer,
+.context-inspector .icon-button,
+.event-detail-list {
+    flex-shrink: 0;
+}
+
 .context-inspector h2 {
     margin: var(--space-2) 0 0;
     font-size: 22px;
@@ -1897,8 +2396,14 @@ a {
 }
 
 .event-detail-list dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--v4-ink-secondary);
     font-size: 12px;
+}
+
+.event-notes-preview {
+    white-space: pre-wrap;
 }
 
 .context-inspector footer {
@@ -1923,7 +2428,9 @@ a {
 
 @media (max-width: 1180px) {
     .calendar-workspace,
-    .calendar-workspace.inspector-open {
+    .calendar-workspace.inspector-open,
+    .calendar-workspace.sidebar-collapsed,
+    .calendar-workspace.sidebar-collapsed.inspector-open {
         grid-template-columns: minmax(0, 1fr);
     }
 
@@ -1952,6 +2459,11 @@ a {
         width: min(320px, 88vw);
         box-shadow: var(--shadow-overlay);
     }
+
+    .context-inspector button {
+        min-width: 44px;
+        min-height: 44px;
+    }
 }
 
 @media (max-width: 720px) {
@@ -1963,13 +2475,20 @@ a {
     .command-brand,
     .header-search,
     .toolbar-today,
-    .add-event-label,
-    .view-switcher button:last-child {
+    .add-event-label {
         display: none;
     }
 
     .command-period-title {
         font-size: 13px;
+    }
+
+    .period-title-full {
+        display: none;
+    }
+
+    .period-title-compact {
+        display: inline;
     }
 
     .toolbar-actions {
@@ -2046,6 +2565,7 @@ a {
         inset: auto 0 0;
         width: 100%;
         max-height: min(78dvh, 640px);
+        padding-bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
         border-top: 1px solid var(--v4-line-strong);
         border-left: 0;
         border-radius: var(--radius-overlay) var(--radius-overlay) 0 0;
@@ -2071,6 +2591,15 @@ a {
 
     .date-time-fields {
         grid-template-columns: 1fr;
+    }
+
+    .quick-create-popover input,
+    .quick-create-popover footer button {
+        min-height: 44px;
+    }
+
+    .quick-create-popover form {
+        padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
     }
 
     .settings-shell {

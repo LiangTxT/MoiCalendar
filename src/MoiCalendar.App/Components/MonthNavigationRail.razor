@@ -1,0 +1,21 @@
+<nav class="month-navigation-rail app-scrollable scrollbar-subtle" aria-label="@($"{DisplayedMonth.Year}年月份导航")">
+    <div class="month-rail-year" aria-hidden="true">@DisplayedMonth.Year</div>
+    <div class="month-rail-months">
+        @for (var number = 1; number <= 12; number++)
+        {
+            var target = new CalendarMonth(DisplayedMonth.Year, number);
+            <button @key="number" type="button" class="month-rail-stop"
+                    aria-label="@($"跳转到{target.Year}年{number}月")"
+                    title="@($"{target.Year}年{number}月")"
+                    aria-current="@(number == DisplayedMonth.Month ? "date" : null)"
+                    @onclick="() => Navigate.InvokeAsync(target)">
+                <span>@number</span>
+            </button>
+        }
+    </div>
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public CalendarMonth DisplayedMonth { get; set; }
+    [Parameter] public EventCallback<CalendarMonth> Navigate { get; set; }
+}

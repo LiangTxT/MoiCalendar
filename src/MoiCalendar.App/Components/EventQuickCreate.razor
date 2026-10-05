@@ -1,6 +1,4 @@
-@using System.Globalization
-
-<section class="quick-create-popover"
+<section class="quick-create-popover app-scrollable scrollbar-subtle"
              role="dialog"
              aria-modal="true"
              aria-labelledby="quick-create-title"
@@ -33,9 +31,10 @@
             <div class="quick-create-field">
                 <label for="quick-event-date">日期</label>
                 <input id="quick-event-date"
+                       data-date-time-picker aria-describedby="quick-date-time-hint"
                        type="date"
                        value="@DateInput"
-                       @onchange="args => DateInput = args.Value?.ToString() ?? DateInput" />
+                       @oninput="args => DateInput = args.Value?.ToString() ?? DateInput" />
             </div>
 
             <div class="quick-create-field quick-create-all-day">
@@ -52,31 +51,50 @@
 
             @if (Draft.IsAllDay)
             {
-                <div class="quick-create-time-row">
-                    <label for="quick-event-end-date">结束日期</label>
+                <div class="quick-create-field">
+                    <label for="quick-event-end-date">结束日期<br /><span class="field-hint">包含当天</span></label>
                     <input id="quick-event-end-date"
+                           data-date-time-picker aria-describedby="quick-date-time-hint"
                            type="date"
+                           min="@DateInput"
                            value="@EndDateInput"
-                           @onchange="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
+                           @oninput="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
                 </div>
             }
             else
             {
-                <div class="quick-create-time-row">
+                <div class="quick-create-time-pair">
+                    <div>
                     <label for="quick-event-start">开始</label>
                     <input id="quick-event-start"
+                           data-date-time-picker aria-describedby="quick-date-time-hint"
                            type="time"
-                           step="900"
+                           step="60"
                            value="@StartTimeInput"
-                           @onchange="args => StartTimeInput = args.Value?.ToString() ?? StartTimeInput" />
+                           @oninput="args => StartTimeInput = args.Value?.ToString() ?? StartTimeInput" />
+                    </div>
+                    <div>
                     <label for="quick-event-end">结束</label>
                     <input id="quick-event-end"
+                           data-date-time-picker aria-describedby="quick-date-time-hint"
                            type="time"
-                           step="900"
+                           step="60"
                            value="@EndTimeInput"
-                           @onchange="args => EndTimeInput = args.Value?.ToString() ?? EndTimeInput" />
+                           @oninput="args => EndTimeInput = args.Value?.ToString() ?? EndTimeInput" />
+                    </div>
                 </div>
+                @if (schedule.CrossesMidnight)
+                {
+                    <div class="quick-create-field">
+                        <label for="quick-event-end-date">结束日期</label>
+                        <input id="quick-event-end-date" data-date-time-picker aria-describedby="quick-date-time-hint" type="date" min="@DateInput" value="@EndDateInput"
+                               @oninput="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
+                    </div>
+                }
             }
+
+            <p id="quick-date-time-hint" class="date-time-input-hint">单击选择日期或时间，双击直接输入</p>
+            <p class="quick-create-summary" aria-live="polite">@schedule.Summary</p>
 
             @if (!string.IsNullOrWhiteSpace(Error))
             {
@@ -84,7 +102,8 @@
             }
 
             <footer>
-                <button type="button" @onclick="MoreDetails">更多详情</button>
+                <button type="button" disabled="@IsSaving" @onclick="MoreDetails">更多详情</button>
+                <span class="action-spacer"></span>
                 <button class="primary-button" type="submit" disabled="@IsSaving">
                     @(IsSaving ? "正在创建…" : "创建")
                 </button>
@@ -94,6 +113,8 @@
 
 @code {
     private ElementReference titleInput;
+    private QuickCreateSchedule schedule = null!;
+    private CalendarEventDraft? boundDraft;
 
     [Parameter, EditorRequired]
     public CalendarEventDraft Draft { get; set; } = null!;
@@ -113,62 +134,17 @@
     [Parameter]
     public EventCallback Close { get; set; }
 
-    private string DateInput
+    private string DateInput { get => schedule.DateInput; set => schedule.DateInput = value; }
+    private string EndDateInput { get => schedule.EndDateInput; set => schedule.EndDateInput = value; }
+    private string StartTimeInput { get => schedule.StartTimeInput; set => schedule.StartTimeInput = value; }
+    private string EndTimeInput { get => schedule.EndTimeInput; set => schedule.EndTimeInput = value; }
+
+    protected override void OnParametersSet()
     {
-        get => Draft.StartLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        set
+        if (!ReferenceEquals(boundDraft, Draft))
         {
-            if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
-            {
-                return;
-            }
-
-            var duration = Draft.EndLocal - Draft.StartLocal;
-            Draft.StartLocal = date.ToDateTime(TimeOnly.FromDateTime(Draft.StartLocal));
-            Draft.EndLocal = Draft.StartLocal + duration;
-        }
-    }
-
-    private string EndDateInput
-    {
-        get => Draft.EndLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        set
-        {
-            if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
-            {
-                Draft.EndLocal = date.ToDateTime(TimeOnly.MinValue);
-            }
-        }
-    }
-
-    private string StartTimeInput
-    {
-        get => Draft.StartLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
-        set
-        {
-            if (!TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
-            {
-                return;
-            }
-
-            var duration = Draft.EndLocal - Draft.StartLocal;
-            Draft.StartLocal = DateOnly.FromDateTime(Draft.StartLocal).ToDateTime(time);
-            Draft.EndLocal = Draft.StartLocal + duration;
-        }
-    }
-
-    private string EndTimeInput
-    {
-        get => Draft.EndLocal.ToString("HH:mm", CultureInfo.InvariantCulture);
-        set
-        {
-            if (!TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
-            {
-                return;
-            }
-
-            var end = DateOnly.FromDateTime(Draft.StartLocal).ToDateTime(time);
-            Draft.EndLocal = end <= Draft.StartLocal ? end.AddDays(1) : end;
+            boundDraft = Draft;
+            schedule = new QuickCreateSchedule(Draft);
         }
     }
 
@@ -184,7 +160,7 @@
     {
         if (args.Value is bool isAllDay)
         {
-            Draft.SetAllDay(isAllDay);
+            schedule.SetAllDay(isAllDay);
         }
     }
 

@@ -9,7 +9,7 @@
 
 <PageTitle>MoiCalendar</PageTitle>
 
-<main id="main-content" class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed") @(selectedEvent is not null ? "inspector-open" : null)">
+<main id="main-content" tabindex="-1" class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed") @(selectedEvent is not null ? "inspector-open" : null)">
     @if (isSidebarOpen)
     {
         <MoiCalendar.App.Components.CalendarSidebar MainMonth="monthView.Month"
@@ -26,6 +26,7 @@
     <div class="calendar-main">
         <MoiCalendar.App.Components.CalendarToolbar SidebarOpen="isSidebarOpen"
                                                      PeriodTitle="@PeriodTitle"
+                                                     CompactPeriodTitle="@CompactPeriodTitle"
                                                      MonthYear="displayedMonth.Year"
                                                      MonthNumber="displayedMonth.Month"
                                                      PreviousAriaLabel="@PreviousPeriodAriaLabel"
@@ -39,7 +40,7 @@
                                                      SearchRequested="OpenSearch"
                                                      ViewChanged="ShowDisplayMode" />
 
-        <div class="calendar-content">
+        <div class="calendar-content app-scrollable">
             @if (!string.IsNullOrWhiteSpace(LocalError))
             {
                 <p class="storage-error" role="alert">@LocalError</p>
@@ -47,15 +48,35 @@
 
             @if (!string.IsNullOrWhiteSpace(interactionMessage))
             {
-                <p class="interaction-feedback @(interactionSucceeded ? "success" : "failure")" role="status">@interactionMessage</p>
+                <div class="calendar-status-anchor">
+                    <div @key="feedbackVersion" class="calendar-status-capsule @(interactionSucceeded ? "success" : "failure")"
+                         role="@(interactionSucceeded ? "status" : "alert")" aria-atomic="true">
+                        <svg class="calendar-status-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                            @if (interactionSucceeded)
+                            {
+                                <path d="m5 12 4 4L19 6" />
+                            }
+                            else
+                            {
+                                <circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 3v1" />
+                            }
+                        </svg>
+                        <span>@interactionMessage</span>
+                        @if (!interactionSucceeded)
+                        {
+                            <button type="button" class="calendar-status-dismiss" aria-label="关闭提示" @onclick="DismissInteractionFeedback">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                            </button>
+                        }
+                    </div>
+                </div>
             }
 
             @if (isLoadingEvents)
             {
                 <div class="calendar-loading" role="status">正在读取本地日历…</div>
             }
-            else if (displayMode == CalendarViewMode.Month ||
-                     displayMode == CalendarViewMode.Agenda && agendaEvents.Days.Count == 0)
+            else if (displayMode == CalendarViewMode.Month)
             {
         <section class="calendar" aria-label="@($"{MonthTitle}日历")">
             @if (displayMode == CalendarViewMode.Agenda)
@@ -73,13 +94,15 @@
                                                    NextLayout="nextMonthLayout"
                                                    NextNextLayout="nextNextMonthLayout"
                                                    NavigationVersion="monthStreamNavigationVersion"
+                                                   DisplayedMonth="displayedMonth"
+                                                   NavigateToMonth="month => ShowMonthAsync(month, showLoading: false)"
                                                    SelectedDate="selectedDate"
                                                    ActiveEventId="@(monthGesture?.IsActive == true ? monthGesture.CalendarEvent.Id : null)"
                                                    DragTargetDate="monthPreview?.TargetDate"
                                                    DragPreview="monthPreview"
                                                    IsDirectManipulation="@(monthGesture?.IsActive == true)"
                                                    SelectDateRange="HandleCalendarInteractionAsync"
-                                                   CreateEvent="OpenQuickCreate"
+                                                   OpenDay="OpenMonthDay"
                                                    DatePointerUp="HandleMonthDatePointerUp"
                                                    DateKeyDown="HandleMonthDateKeyDown"
                                                    EventFocused="SetFocusedEvent"
@@ -96,43 +119,10 @@
             }
             else if (displayMode == CalendarViewMode.Agenda)
             {
-        <section class="agenda" aria-label="@($"{MonthTitle}日程")">
-            @foreach (var day in agendaEvents.Days)
-            {
-                <article class="agenda-day">
-                    <h2>
-                        <time datetime="@day.Date.ToString("yyyy-MM-dd")">@FormatAgendaDate(day.Date)</time>
-                    </h2>
-                    <div class="agenda-events">
-                        @foreach (var calendarEvent in GetVisibleAgendaEvents(day))
-                        {
-                            <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
-                                     type="button"
-                                     title="@calendarEvent.Title"
-                                     @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
-                                     @onclick="() => HandleMonthEventClickAsync(calendarEvent.Id)"
-                                     @ondblclick="() => OpenEventEditorAsync(calendarEvent.Id)">
-                                <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
-                                @if (calendarEvent.IsRecurring)
-                                {
-                                    <span class="recurrence-indicator" title="重复事件" aria-label="重复事件">↻</span>
-                                }
-                                <span class="agenda-event-title">@calendarEvent.Title</span>
-                            </button>
-                        }
-
-                        @if (GetRemainingAgendaEventCount(day) > 0)
-                        {
-                            <button class="agenda-show-more"
-                                    type="button"
-                                    @onclick="() => ShowMoreAgendaEvents(day)">
-                                显示更多（剩余 @GetRemainingAgendaEventCount(day) 项）
-                            </button>
-                        }
-                    </div>
-                </article>
-            }
-        </section>
+        <AgendaStream Month="monthView.Month" Today="today" TimeZoneId="@displayTimeZoneId"
+                      CalendarVisible="calendarVisible" EventSelected="HandleMonthEventClickAsync"
+                      EventEdit="OpenEventEditorAsync" OpenDay="OpenMonthDay" CreateEvent="OpenQuickCreate"
+                      VisibleMonthChanged="SetDisplayedMonth" />
             }
             else if (displayMode == CalendarViewMode.Week)
             {
@@ -142,6 +132,7 @@
                                                       SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{WeekTitle}周视图")"
+                                                      OverlayRequests="overlayRequests"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
                                                       EventEditRequested="OpenEventEditorAsync"
@@ -157,6 +148,7 @@
                                                       SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{DayTitle}日视图")"
+                                                      OverlayRequests="overlayRequests"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
                                                       EventEditRequested="OpenEventEditorAsync"
@@ -195,7 +187,7 @@
 
 @if (overflowDate is DateOnly overflowDay)
 {
-        <section class="day-overflow-popover"
+        <section class="day-overflow-popover app-scrollable scrollbar-subtle"
                  role="dialog"
                  aria-modal="true"
                  aria-labelledby="day-overflow-title"
@@ -241,7 +233,7 @@
 
 @if (overlayState is SearchOverlayState)
 {
-        <section class="calendar-search-popover"
+        <section class="calendar-search-popover app-scrollable scrollbar-subtle"
                  role="dialog"
                  aria-modal="true"
                  aria-labelledby="calendar-search-title"
@@ -296,7 +288,7 @@
 
 @if (editor is not null)
 {
-        <section class="event-editor"
+        <section class="event-editor app-scrollable"
                  role="dialog"
                  aria-modal="true"
                  aria-labelledby="event-editor-title"
@@ -341,7 +333,9 @@
                     <div>
                         <label for="event-start">@(editor.IsAllDay ? "开始日期" : "开始日期/时间")</label>
                         <input id="event-start"
+                               data-date-time-picker aria-describedby="editor-date-time-hint"
                                type="@EditorInputType"
+                               step="@(editor.IsAllDay ? "1" : "60")"
                                required
                                @bind="editor.StartInput"
                                @bind:event="oninput" />
@@ -349,12 +343,15 @@
                     <div>
                         <label for="event-end">@(editor.IsAllDay ? "结束日期（不含）" : "结束日期/时间")</label>
                         <input id="event-end"
+                               data-date-time-picker aria-describedby="editor-date-time-hint"
                                type="@EditorInputType"
+                               step="@(editor.IsAllDay ? "1" : "60")"
                                required
                                @bind="editor.EndInput"
                                @bind:event="oninput" />
                     </div>
                 </div>
+                <p id="editor-date-time-hint" class="date-time-input-hint">单击选择日期或时间，双击直接输入</p>
                 </section>
 
                 <section class="editor-group" aria-label="更多信息">
@@ -454,7 +451,7 @@
 
                 <div class="editor-row text-row notes-row">
                     <label for="event-description">备注</label>
-                    <textarea id="event-description"
+                    <textarea id="event-description" class="app-scrollable scrollbar-subtle"
                               rows="3"
                               maxlength="4000"
                               placeholder="添加备注"
@@ -524,7 +521,18 @@
     private CalendarViewMode displayMode;
     private readonly Dictionary<DateOnly, int> visibleAgendaEventCounts = new();
     private bool isInitialized;
-    private CalendarOverlayState overlayState = CalendarOverlayState.None;
+    private readonly CalendarOverlayRequestGate overlayRequests = new();
+    private CalendarOverlayState currentOverlayState = CalendarOverlayState.None;
+    private CalendarOverlayState overlayState
+    {
+        get => currentOverlayState;
+        set
+        {
+            overlayRequests.Invalidate();
+            eventClickCancellation?.Cancel();
+            currentOverlayState = value;
+        }
+    }
     private Guid? editingEventId;
     private string searchQuery = string.Empty;
     private string? editorError;
@@ -541,6 +549,8 @@
     private bool viewportInitialized;
     private string? interactionMessage;
     private bool interactionSucceeded;
+    private int feedbackVersion;
+    private CancellationTokenSource? feedbackCancellation;
     private MoiCalendar.App.Components.ContinuousMonthView? monthViewComponent;
     private MonthPointerGesture? monthGesture;
     private MoiCalendar.App.Components.MonthDragPreviewModel? monthPreview;
@@ -620,6 +630,13 @@
     private string WeekTitle => FormatWeekTitle(weekView.Week);
 
     private string DayTitle => $"{selectedDate:yyyy年M月d日} {FormatWeekday(selectedDate.DayOfWeek)}";
+
+    private string CompactPeriodTitle => displayMode switch
+    {
+        CalendarViewMode.Week => $"{weekView.Week.StartDate:M/d}–{weekView.Week.EndDate:M/d}",
+        CalendarViewMode.Day => $"{selectedDate:M/d} {FormatWeekday(selectedDate.DayOfWeek)}",
+        _ => MonthTitle
+    };
 
     private string PeriodTitle => displayMode switch
     {
@@ -721,6 +738,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        feedbackCancellation?.Cancel();
+        feedbackCancellation?.Dispose();
+        overlayRequests.Invalidate();
         eventClickCancellation?.Cancel();
         eventClickCancellation?.Dispose();
         try
@@ -804,6 +824,8 @@
                 await OpenSearch();
                 break;
         }
+        // JSInvokable 不经过 Razor EventCallback，快捷键变更后需主动刷新。
+        await InvokeAsync(StateHasChanged);
     }
 
     private bool HasOpenOverlay => overlayState.Kind is not (
@@ -829,6 +851,9 @@
 
     private async Task CloseCurrentOverlayAsync()
     {
+        // 即使详情仍在读取、尚无可见弹层，Escape 也撤销待完成请求。
+        overlayRequests.Invalidate();
+        eventClickCancellation?.Cancel();
         if (editor is not null)
         {
             await CloseEditor();
@@ -920,7 +945,7 @@
         };
     }
 
-    private async Task ShowMonthAsync(CalendarMonth month, bool seamless = false)
+    private async Task ShowMonthAsync(CalendarMonth month, bool seamless = false, bool showLoading = true)
     {
         if (!seamless)
         {
@@ -930,7 +955,7 @@
         {
             monthView = month.CreateView(today);
         }
-        await LoadEventsAsync(showLoading: !seamless, requestedMonth: month, preserveMonthCache: true);
+        await LoadEventsAsync(showLoading: showLoading && !seamless, requestedMonth: month, preserveMonthCache: true);
         if (!seamless && displayMode == CalendarViewMode.Month)
         {
             monthStreamNavigationVersion++;
@@ -948,6 +973,14 @@
     {
         weekView = week.CreateView(today);
         await LoadEventsAsync();
+    }
+
+    private void OpenMonthDay(DateOnly date)
+    {
+        selectedDate = date;
+        weekView = CalendarWeek.FromDate(date).CreateView(today);
+        monthView = CalendarMonth.FromDate(date).CreateView(today);
+        ShowDisplayMode(CalendarViewMode.Day);
     }
 
     private async Task ShowDayAsync(DateOnly date)
@@ -1196,8 +1229,7 @@
         {
             await EventService.CreateAsync(quickCreateDraft);
             quickCreateDraft = null;
-            interactionMessage = "事件已创建。";
-            interactionSucceeded = true;
+            ShowInteractionFeedback("已保存", true);
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
@@ -1234,8 +1266,14 @@
     private async Task HandleCalendarInteractionAsync(CalendarInteractionIntent intent)
     {
         var result = await InteractionService.ExecuteAsync(intent);
-        interactionMessage = result.Message;
-        interactionSucceeded = result.Succeeded || result.Status == CalendarInteractionStatus.NoChange;
+        if (result.Status == CalendarInteractionStatus.Committed)
+        {
+            ShowInteractionFeedback("已保存", true);
+        }
+        else if (result.Status is CalendarInteractionStatus.Failed or CalendarInteractionStatus.Rejected)
+        {
+            ShowInteractionFeedback(result.Message, false);
+        }
 
         if (result.Status == CalendarInteractionStatus.SelectionReady &&
             result.Intent is SelectTimeRangeIntent timeRange)
@@ -1403,8 +1441,9 @@
         eventClickCancellation = cancellation;
         try
         {
-            await Task.Delay(180, cancellation.Token);
-            await OpenEventDetailsAsync(eventId);
+            await overlayRequests.DispatchAfterAsync(
+                Task.Delay(180, cancellation.Token),
+                () => OpenEventDetailsAsync(eventId));
         }
         catch (OperationCanceledException)
         {
@@ -1437,10 +1476,16 @@
 
     private async Task OpenEventDetailsCoreAsync(Guid id, bool rememberFocus)
     {
+        if (rememberFocus && !CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
+        {
+            return;
+        }
+        var request = overlayRequests.BeginRequest();
         try
         {
             var calendarEvent = await EventService.GetByIdAsync(id);
-            if (calendarEvent is null)
+            if (calendarEvent is null || !overlayRequests.IsCurrent(request) ||
+                rememberFocus && !CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
             {
                 return;
             }
@@ -1449,28 +1494,45 @@
             {
                 await RememberFocusAsync(captureAnchor: true);
             }
+            if (!overlayRequests.IsCurrent(request) ||
+                rememberFocus && !CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
+            {
+                return;
+            }
             selectedEvent = calendarEvent;
             quickCreateDraft = null;
             detailError = null;
         }
         catch (EventRepositoryException exception)
         {
-            storageError = exception.Message;
+            if (overlayRequests.IsCurrent(request))
+            {
+                storageError = exception.Message;
+            }
         }
     }
 
     private async Task OpenEventEditorAsync(Guid id)
     {
         eventClickCancellation?.Cancel();
+        if (!CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
+        {
+            return;
+        }
+        var request = overlayRequests.BeginRequest();
         try
         {
             var calendarEvent = await EventService.GetByIdAsync(id);
-            if (calendarEvent is null)
+            if (calendarEvent is null || !overlayRequests.IsCurrent(request))
             {
                 return;
             }
 
             await RememberFocusAsync();
+            if (!overlayRequests.IsCurrent(request))
+            {
+                return;
+            }
             if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
             {
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
@@ -1489,7 +1551,10 @@
         }
         catch (EventRepositoryException exception)
         {
-            storageError = exception.Message;
+            if (overlayRequests.IsCurrent(request))
+            {
+                storageError = exception.Message;
+            }
         }
     }
 
@@ -1546,8 +1611,7 @@
         {
             await EventService.DeleteAsync(selectedEvent.Id);
             selectedEvent = null;
-            interactionMessage = "事件已删除。";
-            interactionSucceeded = true;
+            ShowInteractionFeedback("已删除", true);
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
@@ -1576,10 +1640,15 @@
 
     private async Task OpenEventDetailsFromOverflowAsync(Guid id)
     {
+        if (overlayState is not MoreEventsOverlayState)
+        {
+            return;
+        }
+        var request = overlayRequests.BeginRequest();
         try
         {
             var calendarEvent = await EventService.GetByIdAsync(id);
-            if (calendarEvent is not null)
+            if (calendarEvent is not null && overlayRequests.IsCurrent(request))
             {
                 overlayState = CalendarOverlayTransitions.OpenEventFromMore(
                     overlayState,
@@ -1589,7 +1658,10 @@
         }
         catch (EventRepositoryException exception)
         {
-            storageError = exception.Message;
+            if (overlayRequests.IsCurrent(request))
+            {
+                storageError = exception.Message;
+            }
         }
     }
 
@@ -1614,8 +1686,7 @@
             {
                 await EventService.DeleteAsync(scope.CalendarEvent.Id);
                 overlayState = CalendarOverlayState.None;
-                interactionMessage = "重复事件系列已删除。";
-                interactionSucceeded = true;
+                ShowInteractionFeedback("已删除系列", true);
                 await LoadEventsAsync();
                 await RestoreFocusAsync();
             }
@@ -1716,6 +1787,7 @@
 
             await CloseEditor();
             await LoadEventsAsync();
+            ShowInteractionFeedback("已保存", true);
         }
         catch (ArgumentException exception)
         {
@@ -1743,10 +1815,52 @@
             await EventService.DeleteAsync(id);
             await CloseEditor();
             await LoadEventsAsync();
+            ShowInteractionFeedback("已删除", true);
         }
         catch (EventRepositoryException exception)
         {
             editorError = exception.Message;
+        }
+    }
+
+    private void DismissInteractionFeedback()
+    {
+        feedbackCancellation?.Cancel();
+        feedbackCancellation?.Dispose();
+        feedbackCancellation = null;
+        interactionMessage = null;
+    }
+
+    private void ShowInteractionFeedback(string message, bool succeeded)
+    {
+        DismissInteractionFeedback();
+        interactionMessage = message;
+        interactionSucceeded = succeeded;
+        feedbackVersion++;
+        if (succeeded)
+        {
+            feedbackCancellation = new CancellationTokenSource();
+            _ = HideInteractionFeedbackAsync(feedbackCancellation.Token);
+        }
+    }
+
+    private async Task HideInteractionFeedbackAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(2200, cancellationToken);
+            await InvokeAsync(() =>
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    interactionMessage = null;
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // 新反馈或页面卸载会取消旧计时，避免清除后来的提示。
         }
     }
 
@@ -1759,20 +1873,9 @@
     }
 
     private IReadOnlyList<CalendarEventListItem> GetOverflowEvents(DateOnly date, bool compact)
-    {
-        var day = monthLayout.Weeks
-            .SelectMany(week => week.Days)
-            .SingleOrDefault(item => item.Date.Date == date);
-        if (day is null)
-        {
-            return Array.Empty<CalendarEventListItem>();
-        }
-
-        var visibleCount = compact
-            ? day.Compact.VisibleEvents.Count
-            : day.Regular.VisibleEvents.Count;
-        return day.AllEvents.Skip(visibleCount).ToArray();
-    }
+        => MonthOverflowProjection.GetHiddenEvents(
+            [previousPreviousMonthLayout, previousMonthLayout, monthLayout, nextMonthLayout, nextNextMonthLayout],
+            date, compact);
 
     private static string GetCalendarColorStyle(CalendarEventListItem calendarEvent) =>
         $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(calendarEvent.CalendarColorIndex, 1, 8)});";

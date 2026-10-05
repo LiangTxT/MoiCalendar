@@ -101,6 +101,61 @@ public sealed class CalendarOverlayStateTests
         Assert.Equal("写入失败后不能丢失", quickCreate.Draft.Title);
     }
 
+    [Fact]
+    public async Task MoreEvents_ReadFromPreviousDateCannotReplaceNewDatePopup()
+    {
+        var gate = new CalendarOverlayRequestGate();
+        CalendarOverlayState state = CalendarOverlayTransitions.OpenMoreEvents(new DateOnly(2026, 9, 28));
+        var request = gate.BeginRequest();
+        var read = new TaskCompletionSource<CalendarEvent>();
+        var pending = CompleteAsync();
+
+        state = CalendarOverlayTransitions.OpenMoreEvents(new DateOnly(2026, 9, 29));
+        gate.Invalidate();
+        read.SetResult(Event());
+        await pending;
+
+        Assert.Equal(new DateOnly(2026, 9, 29), Assert.IsType<MoreEventsOverlayState>(state).Date);
+
+        async Task CompleteAsync()
+        {
+            var calendarEvent = await read.Task;
+            if (gate.IsCurrent(request))
+            {
+                state = CalendarOverlayTransitions.OpenEventFromMore(state, calendarEvent);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task PendingEditor_FocusWaitCannotOverwriteQuickCreateDraft()
+    {
+        var gate = new CalendarOverlayRequestGate();
+        var request = gate.BeginRequest();
+        var focus = new TaskCompletionSource<bool>();
+        CalendarOverlayState state = CalendarOverlayState.None;
+        var pending = CompleteAsync();
+
+        var draft = Draft(new DateTime(2026, 9, 28, 9, 0, 0));
+        draft.Title = "新输入的草稿";
+        state = CalendarOverlayTransitions.OpenQuickCreate(draft);
+        gate.Invalidate();
+        focus.SetResult(true);
+        await pending;
+
+        Assert.Same(draft, Assert.IsType<QuickCreateOverlayState>(state).Draft);
+        Assert.Equal("新输入的草稿", draft.Title);
+
+        async Task CompleteAsync()
+        {
+            await focus.Task;
+            if (gate.IsCurrent(request))
+            {
+                state = new FullEditorOverlayState(Draft(new DateTime(2026, 9, 28, 10, 0, 0)));
+            }
+        }
+    }
+
     private static CalendarEventDraft Draft(DateTime start) => new()
     {
         Title = string.Empty,

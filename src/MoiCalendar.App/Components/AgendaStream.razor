@@ -1,0 +1,155 @@
+@implements IAsyncDisposable
+@inject CalendarEventService Events
+@inject IJSRuntime JS
+
+<section class="agenda agenda-stream app-scrollable" aria-label="日程列表" @ref="stream">
+    <button class="agenda-load" type="button" disabled="@busy" @onclick="() => ExtendAsync(-1)">@(busy ? "正在读取…" : "查看更早的月份")</button>
+    @if (error is not null)
+    {
+        <p class="storage-error" role="alert">@error</p>
+    }
+    @foreach (var entry in months)
+    {
+        var month = entry.Month;
+        <section class="agenda-month" @key="month" data-agenda-month="@($"{month.Year:D4}-{month.Month:D2}")" aria-label="@($"{month.Year}年{month.Month}月")">
+            <header class="agenda-month-banner" style="@BannerStyle(month.Month)">
+                <h2><span>@month.Year</span><small>年</small><span>@month.Month</span><small>月</small></h2>
+            </header>
+            @foreach (var week in AgendaWeekProjection.Create(month, entry.View, CalendarVisible, Today))
+            {
+                @if (week.Days.Count == 0)
+                {
+                    <p class="agenda-empty-week"><time datetime="@week.Start.ToString("yyyy-MM-dd")">@($"{week.Start.Month}月{week.Start.Day}日")</time><span>至</span><time datetime="@week.End.ToString("yyyy-MM-dd")">@($"{week.End.Month}月{week.End.Day}日")</time></p>
+                }
+                else
+                {
+                    @foreach (var day in week.Days)
+                    {
+                        <article class="agenda-stream-day">
+                            <button class="agenda-date @(day.Date == Today ? "today" : null)" type="button" aria-label="@($"查看{day.Date:yyyy年M月d日}")" @onclick="() => OpenDay.InvokeAsync(day.Date)">
+                                <span>@Weekday(day.Date)</span><time datetime="@day.Date.ToString("yyyy-MM-dd")">@day.Date.Day</time>
+                            </button>
+                            <div class="agenda-stream-events">
+                                @if (day.Events.Count == 0)
+                                {
+                                    <button class="agenda-free-day" type="button" @onclick="() => CreateEvent.InvokeAsync(day.Date)">今天暂无日程，留一点时间给自己。</button>
+                                }
+                                @foreach (var item in day.Events)
+                                {
+                                    <button class="agenda-stream-event" type="button" style="@EventStyle(item)" title="@item.Title"
+                                            @onclick="() => EventSelected.InvokeAsync(item.Id)"
+                                            @ondblclick="() => EventEdit.InvokeAsync(item.Id)" @ondblclick:stopPropagation="true">
+                                        <span class="agenda-stream-title">@item.Title</span>
+                                        <span class="agenda-stream-time">@(item.IsAllDay ? "全天" : item.TimeLabel)</span>
+                                        @if (item.IsRecurring)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="重复事件"><path d="M20 7H8a5 5 0 0 0 0 10m-4 0h12a5 5 0 0 0 0-10M17 4l3 3-3 3M7 14l-3 3 3 3" /></svg>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        </article>
+                    }
+                }
+            }
+        </section>
+    }
+    <button class="agenda-load" type="button" disabled="@busy" @onclick="() => ExtendAsync(1)" data-agenda-next>@(busy ? "正在读取…" : "查看之后的月份")</button>
+</section>
+
+@code {
+    [Parameter] public CalendarMonth Month { get; set; }
+    [Parameter] public DateOnly Today { get; set; }
+    [Parameter] public string TimeZoneId { get; set; } = "UTC";
+    [Parameter] public bool CalendarVisible { get; set; } = true;
+    [Parameter] public EventCallback<Guid> EventSelected { get; set; }
+    [Parameter] public EventCallback<Guid> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<CalendarMonth> VisibleMonthChanged { get; set; }
+    private readonly List<(CalendarMonth Month, CalendarAgendaView View)> months = [];
+    private CalendarMonth? loadedMonth;
+    private ElementReference stream;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<AgendaStream>? reference;
+    private bool busy;
+    private bool disposed;
+    private string? error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedMonth == Month) return;
+        loadedMonth = Month;
+        months.Clear();
+        busy = true;
+        try
+        {
+            // 保留本月在顶部，预读后两个月；向上扩展时不替换已呈现的内容。
+            var next = Month;
+            for (var index = 0; index < 3; index++)
+            {
+                months.Add((next, await Events.GetAgendaViewAsync(next, TimeZoneId)));
+                if (next.Year == 9999 && next.Month == 12) break;
+                next = next.Next();
+            }
+            error = null;
+        }
+        catch (EventRepositoryException exception) { error = exception.Message; }
+        finally { busy = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (disposed) return;
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./agendaStream.js");
+            reference ??= DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("connect", stream, reference, error is null);
+        }
+        catch (JSException) { /* 无脚本时仍可通过按钮读取相邻月份。 */ }
+    }
+
+    [JSInvokable]
+    public Task ReportVisibleMonth(int year, int month) => VisibleMonthChanged.InvokeAsync(new CalendarMonth(year, month));
+
+    [JSInvokable]
+    public async Task ExtendAsync(int direction)
+    {
+        if (busy || disposed || months.Count == 0) return;
+        var edge = direction < 0 ? months[0].Month : months[^1].Month;
+        if (direction < 0 && edge.Year == 1 && edge.Month == 1 || direction >= 0 && edge.Year == 9999 && edge.Month == 12) return;
+        busy = true;
+        try
+        {
+            var next = direction < 0 ? edge.Previous() : edge.Next();
+            var view = await Events.GetAgendaViewAsync(next, TimeZoneId);
+            if (disposed) return;
+            if (direction < 0)
+            {
+                if (module is not null) await module.InvokeVoidAsync("rememberPosition", stream);
+                months.Insert(0, (next, view));
+            }
+            else months.Add((next, view));
+            error = null;
+        }
+        catch (EventRepositoryException exception) { error = exception.Message; }
+        finally { busy = false; }
+        if (!disposed) await InvokeAsync(StateHasChanged);
+    }
+
+    private static string BannerStyle(int month) => FormattableString.Invariant($"--agenda-art-x:{(month - 1) % 3 * 50}%;--agenda-art-y:{(month - 1) / 3 * 100.0 / 3:0.###}%");
+    private static string EventStyle(CalendarEventListItem item) => $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(item.CalendarColorIndex, 1, 8)})";
+    private static string Weekday(DateOnly date) => new[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" }[(int)date.DayOfWeek];
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("disconnect", stream); await module.DisposeAsync(); }
+            catch (JSException) { }
+        }
+        reference?.Dispose();
+    }
+}

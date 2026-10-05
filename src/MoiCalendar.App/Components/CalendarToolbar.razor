@@ -23,7 +23,10 @@
         }
         else
         {
-            <strong @key="PeriodTitle" class="command-period-title" aria-live="polite">@PeriodTitle</strong>
+            <strong @key="PeriodTitle" class="command-period-title" aria-live="polite" aria-label="@PeriodTitle" title="@PeriodTitle">
+                <span class="period-title-full" aria-hidden="true">@PeriodTitle</span>
+                <span class="period-title-compact" aria-hidden="true">@(CompactPeriodTitle ?? PeriodTitle)</span>
+            </strong>
         }
     </nav>
 
@@ -57,6 +60,7 @@
 
     [Parameter] public bool SidebarOpen { get; set; }
     [Parameter, EditorRequired] public string PeriodTitle { get; set; } = string.Empty;
+    [Parameter] public string? CompactPeriodTitle { get; set; }
     [Parameter] public int MonthYear { get; set; }
     [Parameter] public int MonthNumber { get; set; }
     [Parameter, EditorRequired] public string PreviousAriaLabel { get; set; } = string.Empty;

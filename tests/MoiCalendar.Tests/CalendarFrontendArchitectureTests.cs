@@ -5,6 +5,18 @@ namespace MoiCalendar.Tests;
 public sealed class CalendarFrontendArchitectureTests
 {
     [Fact]
+    public void MonthDateDoubleClick_OpensDayInsteadOfCreatingEvent()
+    {
+        var root = FindRepositoryRoot();
+        var cell = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "Components", "MonthDayCell.razor"));
+        var home = File.ReadAllText(Path.Combine(root, "src", "MoiCalendar.App", "Pages", "Home.razor"));
+        Assert.Contains("@ondblclick=\"() => OpenDay.InvokeAsync(Day.Date.Date)\"", cell);
+        Assert.DoesNotContain("CreateEvent", cell);
+        Assert.Contains("OpenDay=\"OpenMonthDay\"", home);
+        Assert.Contains("ShowDisplayMode(CalendarViewMode.Day);", home);
+    }
+
+    [Fact]
     public void ProjectReferences_PreserveCoreAndInfrastructureBoundaries()
     {
         var root = FindRepositoryRoot();
@@ -232,7 +244,9 @@ public sealed class CalendarFrontendArchitectureTests
         Assert.DoesNotContain("distances.indexOf", script, StringComparison.Ordinal);
         Assert.Contains("monthEventCache", home, StringComparison.Ordinal);
         Assert.Contains("monthStreamNavigationVersion++", home, StringComparison.Ordinal);
-        Assert.Contains("showLoading: !seamless", home, StringComparison.Ordinal);
+        Assert.Contains("showLoading: showLoading && !seamless", home, StringComparison.Ordinal);
+        Assert.Contains("NavigateToMonth=\"month => ShowMonthAsync(month, showLoading: false)\"", home, StringComparison.Ordinal);
+        Assert.Contains("<MonthNavigationRail", component, StringComparison.Ordinal);
         Assert.Contains("ChineseCalendarObservanceProvider", program, StringComparison.Ordinal);
     }
 

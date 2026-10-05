@@ -10,34 +10,36 @@
         }
     </div>
 
-    <div class="month-stream" @ref="streamElement">
+    <div class="month-stream app-scrollable scrollbar-hidden" @ref="streamElement">
         <MonthPanel @key="PreviousPreviousLayout.Month.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
         <MonthPanel @key="PreviousLayout.Month.Month" Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
         <MonthPanel @key="Layout.Month.Month" @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
-                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested"
                     PointerMove="PointerMove" PointerUp="PointerUp" PointerCancel="PointerCancel" />
 
         <MonthPanel @key="NextLayout.Month.Month" Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
         <MonthPanel @key="NextNextLayout.Month.Month" Layout="NextNextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    SelectDateRange="SelectDateRange" CreateEvent="CreateEvent" DatePointerUp="DatePointerUp"
+                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
     </div>
+
+    <MonthNavigationRail DisplayedMonth="DisplayedMonth" Navigate="NavigateToMonth" />
 </div>
 
 @code {
@@ -52,13 +54,15 @@
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextLayout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextNextLayout { get; set; } = null!;
     [Parameter] public int NavigationVersion { get; set; }
+    [Parameter] public CalendarMonth DisplayedMonth { get; set; }
+    [Parameter] public EventCallback<CalendarMonth> NavigateToMonth { get; set; }
     [Parameter] public DateOnly SelectedDate { get; set; }
     [Parameter] public Guid? ActiveEventId { get; set; }
     [Parameter] public DateOnly? DragTargetDate { get; set; }
     [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
     [Parameter] public bool IsDirectManipulation { get; set; }
     [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
-    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
     [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
     [Parameter] public EventCallback<Guid> EventFocused { get; set; }

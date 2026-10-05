@@ -50,6 +50,10 @@ public sealed record FullEditorOverlayState(CalendarEventDraft Draft) :
 
 public static class CalendarOverlayTransitions
 {
+    /// <summary>延迟的日历单击不能覆盖正在使用的任务弹层。</summary>
+    public static bool CanOpenEventFromCalendar(CalendarOverlayKind kind) =>
+        kind is CalendarOverlayKind.None or CalendarOverlayKind.EventDetails;
+
     public static CalendarOverlayState OpenQuickCreate(CalendarEventDraft draft) =>
         new QuickCreateOverlayState(draft);
 

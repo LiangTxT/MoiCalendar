@@ -17,7 +17,7 @@
                           DragTargetDate="DragTargetDate"
                           DragPreview="DragPreview"
                           SelectDateRange="SelectDateRange"
-                          CreateEvent="CreateEvent"
+                          OpenDay="OpenDay"
                           DatePointerUp="DatePointerUp"
                           DateKeyDown="DateKeyDown"
                           EventFocused="EventFocused"
@@ -43,7 +43,7 @@
     [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
     [Parameter] public bool IsDirectManipulation { get; set; }
     [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
-    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
     [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
     [Parameter] public EventCallback<Guid> EventFocused { get; set; }

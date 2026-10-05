@@ -10,9 +10,10 @@
         <p class="week-empty" role="status">@EmptyMessage</p>
     }
 
-    <div class="week-horizontal-scroll">
+    <div class="week-horizontal-scroll app-scrollable">
         <div class="week-grid-frame">
-            <TimeGridHeader Days="VisibleDays"
+            <TimeGridHeader Days="@(IsDayView ? WeekEvents.Days : VisibleDays)"
+                            IsDayNavigation="IsDayView"
                             SelectedDate="SelectedDate"
                             Today="Today"
                             DateSelected="DateSelected" />
@@ -23,7 +24,7 @@
                          EventSelected="EventSelected"
                          EventFocused="EventFocused" />
 
-            <div class="week-timed-scroll" @ref="timedScrollElement">
+            <div class="week-timed-scroll app-scrollable" @ref="timedScrollElement">
                 <div class="week-timed-layout">
                     <div class="week-time-labels" aria-hidden="true">
                         @foreach (var hour in TimeLabelHours)
@@ -36,6 +37,9 @@
                         @foreach (var day in VisibleDays)
                         {
                             var eventLayouts = GetTimedEventLayouts(day);
+                            var dayStacks = IsDayView ? DayEventStackLayoutEngine.Layout(
+                                day.TimedEvents.Select(item => new TimedLayoutInput(item.Id, item.StartMinute,
+                                    item.StartMinute + item.DurationMinutes)).ToArray(), GridMetrics) : null;
                             <div class="week-timed-day @(day.Date.Date == Today ? "today" : null) @(day.Date.Date == SelectedDate ? "selected" : null)"
                                  @onpointerdown="args => BeginSelection(day.Date.Date, args)"
                                  @onclick="args => HandleDateClickAsync(day.Date.Date, args)"
@@ -52,6 +56,7 @@
                                 {
                                     <TimedEventBlock CalendarEvent="calendarEvent"
                                                      Layout="eventLayouts[calendarEvent.Id]"
+                                                     Stack="@(dayStacks?.GetValueOrDefault(calendarEvent.Id))"
                                                      Date="day.Date.Date"
                                                      ShowExtendedMetadata="IsDayView"
                                                      IsSelected="@(SelectedEventId == calendarEvent.Id)"
@@ -83,6 +88,9 @@
     private string lastPointerType = string.Empty;
     private CancellationTokenSource? eventClickCancellation;
     private DotNetObjectReference<CalendarTimeGrid>? dotNetReference;
+
+    [Parameter]
+    public CalendarOverlayRequestGate? OverlayRequests { get; set; }
 
     [Parameter, EditorRequired]
     public CalendarWeekEventView WeekEvents { get; set; } = CalendarWeekEventView.Empty;
@@ -187,10 +195,11 @@
             await JS.InvokeVoidAsync(
                 "moicalendarUi.initializeCalendarScroll",
                 timedScrollElement,
-                ScrollContextKey,
+                initializedScrollContext,
                 GetInitialScrollMinute(),
                 GridMetrics.VisibleStartMinute,
-                GridMetrics.VisibleEndMinute);
+                GridMetrics.VisibleEndMinute,
+                GetSelectedDayIndex());
         }
         catch (JSException)
         {
@@ -204,6 +213,7 @@
         eventClickCancellation?.Dispose();
         try
         {
+            await JS.InvokeVoidAsync("moicalendarUi.disposeCalendarScroll", timedScrollElement);
             await JS.InvokeVoidAsync("moicalendarInteraction.cancelActiveInteraction", interactionSurface);
         }
         catch (JSDisconnectedException)
@@ -211,6 +221,16 @@
             // 页面卸载时浏览器会清理临时监听器和镜像。
         }
         dotNetReference?.Dispose();
+    }
+
+    private int GetSelectedDayIndex()
+    {
+        var days = VisibleDays;
+        for (var index = 0; index < days.Count; index++)
+        {
+            if (days[index].Date.Date == SelectedDate) return index;
+        }
+        return 0;
     }
 
     private string GetTimeLabelStyle(int hour) =>
@@ -350,6 +370,7 @@
         if (gesture is not { } current || result.Cancelled)
         {
             gesture = null;
+            StateHasChanged();
             return;
         }
 
@@ -414,8 +435,16 @@
         eventClickCancellation = cancellation;
         try
         {
-            await Task.Delay(180, cancellation.Token);
-            await EventSelected.InvokeAsync(eventId);
+            var delay = Task.Delay(180, cancellation.Token);
+            if (OverlayRequests is not null)
+            {
+                await OverlayRequests.DispatchAfterAsync(delay, () => EventSelected.InvokeAsync(eventId));
+            }
+            else
+            {
+                await delay;
+                await EventSelected.InvokeAsync(eventId);
+            }
         }
         catch (OperationCanceledException)
         {

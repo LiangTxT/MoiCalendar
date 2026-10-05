@@ -28,7 +28,7 @@ window.moicalendarUi = {
             themeColor.content = isDark ? "#1c1c1e" : "#f5f5f7";
         }
     },
-    initializeCalendarScroll: (timeline, contextKey, initialMinute, visibleStartMinute, visibleEndMinute) => {
+    initializeCalendarScroll: (timeline, contextKey, initialMinute, visibleStartMinute, visibleEndMinute, selectedDayIndex = 0) => {
         if (!timeline || visibleEndMinute <= visibleStartMinute) {
             return;
         }
@@ -39,14 +39,12 @@ window.moicalendarUi = {
             frame.style.setProperty("--time-grid-scrollbar-width", `${scrollbarWidth}px`);
         }
 
-        if (timeline._moicalendarScrollHandler) {
-            timeline.removeEventListener("scroll", timeline._moicalendarScrollHandler);
-        }
+        window.moicalendarUi.disposeCalendarScroll(timeline);
 
         const positions = window.moicalendarUi.calendarScrollPositions;
         const remembered = positions[contextKey];
-        if (Number.isFinite(remembered)) {
-            timeline.scrollTop = remembered;
+        if (Number.isFinite(remembered?.top)) {
+            timeline.scrollTop = remembered.top;
         } else {
             const relative = Math.max(
                 0,
@@ -54,19 +52,57 @@ window.moicalendarUi = {
             timeline.scrollTop = Math.max(0, relative * timeline.scrollHeight - timeline.clientHeight * 0.25);
         }
 
-        const handler = () => {
-            positions[contextKey] = timeline.scrollTop;
+        const horizontal = timeline.closest(".week-horizontal-scroll");
+        if (horizontal) {
+            if (Number.isFinite(remembered?.left)) {
+                horizontal.scrollLeft = remembered.left;
+            } else {
+                // 日期选择由 .NET 决定；这里只测量目标列，首次进入时让它出现在窄屏内。
+                const heading = frame?.querySelectorAll(".week-day-heading")[selectedDayIndex];
+                if (heading && horizontal.scrollWidth > horizontal.clientWidth) {
+                    const target = heading.getBoundingClientRect();
+                    const viewport = horizontal.getBoundingClientRect();
+                    horizontal.scrollLeft = Math.max(0, horizontal.scrollLeft + target.left - viewport.left
+                        - (horizontal.clientWidth - target.width) / 2);
+                }
+            }
+        }
+        const remember = () => {
+            positions[contextKey] = { top: timeline.scrollTop, left: horizontal?.scrollLeft ?? 0 };
+            frame?.style.setProperty("--time-grid-horizontal-offset", `${horizontal?.scrollLeft ?? 0}px`);
         };
-        timeline._moicalendarScrollHandler = handler;
-        timeline.addEventListener("scroll", handler, { passive: true });
+        remember();
+        timeline._moicalendarScrollDispose = () => {
+            remember();
+            timeline.removeEventListener("scroll", remember);
+            horizontal?.removeEventListener("scroll", remember);
+        };
+        timeline.addEventListener("scroll", remember, { passive: true });
+        horizontal?.addEventListener("scroll", remember, { passive: true });
+    },
+    disposeCalendarScroll: timeline => {
+        timeline?._moicalendarScrollDispose?.();
+        if (timeline) delete timeline._moicalendarScrollDispose;
     },
     rememberCalendarFocus: () => {
         window.moicalendarUi.rememberedFocus.push(document.activeElement);
     },
     restoreCalendarFocus: () => {
-        const element = window.moicalendarUi.rememberedFocus.pop();
-        if (element?.isConnected && element.focus) {
-            element.focus({ preventScroll: true });
+        const canRestore = element => element?.isConnected && typeof element.focus === "function"
+            && !element.disabled && element.getClientRects().length > 0
+            && getComputedStyle(element).visibility !== "hidden";
+        const remembered = window.moicalendarUi.rememberedFocus;
+        while (remembered.length > 0) {
+            const element = remembered.pop();
+            if (canRestore(element)) {
+                element.focus({ preventScroll: true });
+                return;
+            }
+        }
+        // 月份虚拟窗口或视图切换可能移除原入口，不把键盘用户留在 body。
+        const main = document.getElementById("main-content");
+        if (canRestore(main)) {
+            main.focus({ preventScroll: true });
         }
     },
     rememberCalendarFocusAndGetAnchor: () => {
@@ -91,7 +127,7 @@ window.moicalendarUi = {
             const isTextEntry = tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
             const key = event.key.toLowerCase();
             const isSearchShortcut = key === "k" && !event.altKey && event.ctrlKey !== event.metaKey;
-            if (isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
+            if (target?.closest?.(".month-navigation-rail") || isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
                 return;
             }
 
@@ -125,7 +161,10 @@ window.moicalendarUi = {
         let pendingAnchor = null;
         let disposed = false;
         let reportedMonth = panels[2].dataset.month;
-        requestAnimationFrame(() => {
+        let reportVersion = 0;
+        frame = requestAnimationFrame(() => {
+            frame = 0;
+            if (disposed) return;
             stream.scrollTop = panelTop(panels[2]);
             changing = false;
         });
@@ -136,6 +175,7 @@ window.moicalendarUi = {
             if (frame || changing) return;
             frame = requestAnimationFrame(async () => {
                 frame = 0;
+                if (disposed) return;
                 const currentPanels = getPanels();
                 if (currentPanels.length !== 5) return;
                 const top = stream.scrollTop;
@@ -148,8 +188,13 @@ window.moicalendarUi = {
                         : nearest).panel;
                 if (displayedPanel.dataset.month !== reportedMonth) {
                     reportedMonth = displayedPanel.dataset.month;
-                    const [year, month] = reportedMonth.split("-").map(Number);
-                    void dotnetReference.invokeMethodAsync("SetDisplayedMonth", year, month);
+                    const requestedMonth = reportedMonth;
+                    const requestVersion = ++reportVersion;
+                    const [year, month] = requestedMonth.split("-").map(Number);
+                    void dotnetReference.invokeMethodAsync("SetDisplayedMonth", year, month).catch(() => {
+                        // 下次用户滚动时重试，不创建自动重试循环；旧失败不能撤销新报告。
+                        if (!disposed && reportVersion === requestVersion) reportedMonth = null;
+                    });
                 }
                 const previousBoundary = panelTop(currentPanels[1]);
                 const nextBoundary = panelTop(currentPanels[3]);

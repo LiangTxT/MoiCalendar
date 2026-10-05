@@ -12,6 +12,7 @@
         window.removeEventListener("pointermove", session.move, true);
         window.removeEventListener("pointerup", session.up, true);
         window.removeEventListener("pointercancel", session.cancel, true);
+        window.removeEventListener("touchmove", session.touchMove, true);
         if (session.frame) cancelAnimationFrame(session.frame);
         session.mirror?.remove();
         session.preview?.remove();
@@ -138,7 +139,11 @@
                 const dy = event.clientY - config.startY;
                 if (!session.active) {
                     if (dx * dx + dy * dy < movementThreshold * movementThreshold) return;
-                    if (config.pointerType === "touch" && performance.now() - session.startedAt < touchHoldMilliseconds) return;
+                    if (config.pointerType === "touch" && performance.now() - session.startedAt < touchHoldMilliseconds) {
+                        // 一旦用户开始滑动就放弃长按识别，不能在同一次滚动中途突然拖动事件。
+                        void session.finish(event, true);
+                        return;
+                    }
                     session.active = true;
                     const created = createMirror(config);
                     session.mirror = created.mirror;
@@ -156,14 +161,25 @@
             };
 
             session.finish = async (event, cancelled) => {
-                if (event.pointerId !== session.pointerId) return;
+                if (event.pointerId !== session.pointerId || session.finished) return;
+                session.finished = true;
                 if (!session.active) {
                     cleanup(surface, session);
+                    await dotNet.invokeMethodAsync("CompleteBrowserInteraction", {
+                        cancelled: true,
+                        targetDate: config.originalDate,
+                        startMinute: config.eventStartMinute,
+                        endMinute: config.eventStartMinute + config.durationMinutes
+                    });
                     return;
                 }
                 if (session.frame) {
                     cancelAnimationFrame(session.frame);
                     session.frame = 0;
+                }
+                // 松手位置可能晚于最后一个 pointermove/动画帧；只提交最终位置一次。
+                if (!cancelled) {
+                    session.latest = { x: event.clientX, y: event.clientY };
                     update();
                 }
                 const result = session.result
@@ -174,10 +190,19 @@
             };
             session.up = event => session.finish(event, false);
             session.cancel = event => session.finish(event, true);
+            // touch-action 允许正常滑动；仅已识别的单指长按拖拽拦截原生触摸滚动。
+            session.touchMove = event => {
+                if (config.pointerType === "touch" && session.active && event.touches.length === 1) {
+                    event.preventDefault();
+                }
+            };
             active.set(surface, session);
             window.addEventListener("pointermove", session.move, { capture: true, passive: false });
             window.addEventListener("pointerup", session.up, true);
             window.addEventListener("pointercancel", session.cancel, true);
+            if (config.pointerType === "touch") {
+                window.addEventListener("touchmove", session.touchMove, { capture: true, passive: false });
+            }
         }
     };
 })();

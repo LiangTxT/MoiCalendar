@@ -6,7 +6,7 @@
      aria-label="@Day.Date.Date.ToString("yyyy-MM-dd")"
      aria-current="@(Day.Date.IsToday ? "date" : null)"
      @onclick="() => SelectDateRange.InvokeAsync(SelectDateRangeIntent.SingleDay(Day.Date.Date))"
-     @ondblclick="() => CreateEvent.InvokeAsync(Day.Date.Date)"
+     @ondblclick="() => OpenDay.InvokeAsync(Day.Date.Date)"
      @onpointerup="args => DatePointerUp.InvokeAsync(new MonthDatePointerArgs(Day.Date.Date, args))"
      @onkeydown="args => DateKeyDown.InvokeAsync(new MonthDateKeyboardArgs(Day.Date.Date, args))">
     <header class="month-day-header">
@@ -52,7 +52,7 @@
     [Parameter] public Guid? ActiveEventId { get; set; }
     [Parameter] public MonthDragPreviewModel? DragPreview { get; set; }
     [Parameter] public EventCallback<SelectDateRangeIntent> SelectDateRange { get; set; }
-    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
     [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
     [Parameter] public EventCallback<Guid> EventFocused { get; set; }
