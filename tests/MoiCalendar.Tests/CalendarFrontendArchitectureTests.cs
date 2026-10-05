@@ -372,6 +372,8 @@ public sealed class CalendarFrontendArchitectureTests
         Assert.Contains("<TimedEventBlock", timeGrid, StringComparison.Ordinal);
         Assert.Contains("<CurrentTimeIndicator", timeGrid, StringComparison.Ordinal);
         Assert.Contains("time-grid-line", timeGrid, StringComparison.Ordinal);
+        Assert.DoesNotContain("当天暂无事件", timeGrid, StringComparison.Ordinal);
+        Assert.Contains("!IsDayView && !VisibleDays.Any", timeGrid, StringComparison.Ordinal);
     }
 
     [Fact]

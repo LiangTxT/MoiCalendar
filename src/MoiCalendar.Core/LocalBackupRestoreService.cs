@@ -72,6 +72,7 @@ public sealed class LocalBackupRestoreService(
         "timeZoneId",
         "isAllDay",
         "recurrenceRule",
+        "excludedOccurrenceStartsUtc",
         "externalUid",
         "createdAtUtc",
         "updatedAtUtc",

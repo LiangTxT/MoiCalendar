@@ -359,6 +359,76 @@ public sealed class CalendarInteractionTests
         Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
     }
 
+    [Fact]
+    public async Task SeriesMove_FromLaterOccurrence_PreservesSeriesAnchorAndDoesNotWrite()
+    {
+        var context = CreateContext();
+        var master = CreateEvent(new(2026, 9, 11, 10, 0, 0, TimeSpan.Zero), new(2026, 9, 11, 11, 0, 0, TimeSpan.Zero)) with { RecurrenceRule = "FREQ=DAILY;COUNT=5" };
+        await context.Repository.CreateAsync(master);
+        var intent = MoveEventIntent.ToTime(master.Id, master.StartUtc.AddDays(2), master.EndUtc.AddDays(2),
+            new(2026, 9, 13, 12, 0, 0), new(2026, 9, 13, 13, 0, 0), TimeZoneInfo.Utc.Id);
+        var draft = context.Interactions.PrepareSeriesInteractionDraft(master, intent);
+        Assert.Equal(new DateTime(2026, 9, 11, 12, 0, 0), draft.StartLocal);
+        Assert.Equal(new DateTime(2026, 9, 11, 13, 0, 0), draft.EndLocal);
+        Assert.Equal(master.StartUtc, (await context.Repository.GetByIdAsync(master.Id))!.StartUtc);
+        Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+        await context.Service.UpdateAsync(master.Id, draft);
+        var view = await context.Service.GetAgendaViewAsync(new(2026, 9), TimeZoneInfo.Utc.Id);
+        Assert.Equal(5, view.Days.Sum(day => day.Events.Count));
+        Assert.All(view.Days.SelectMany(day => day.Events), item => Assert.Equal("12:00", item.TimeLabel));
+        await context.Service.DeleteAsync(master.Id);
+        Assert.Empty((await context.Service.GetAgendaViewAsync(new(2026, 9), TimeZoneInfo.Utc.Id)).Days);
+        Assert.Single(await context.Repository.GetAllIncludingDeletedAsync());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SeriesResize_LaterOccurrence_MapsBothEdgesToMaster(bool topEdge)
+    {
+        var context = CreateContext();
+        var master = CreateEvent(new(2026, 9, 11, 10, 0, 0, TimeSpan.Zero), new(2026, 9, 11, 11, 0, 0, TimeSpan.Zero)) with { RecurrenceRule = "FREQ=DAILY" };
+        var intent = new ResizeEventIntent(master.Id, master.StartUtc.AddDays(2), master.EndUtc.AddDays(2),
+            new(2026, 9, 13, topEdge ? 11 : 12, 0, 0), TimeZoneInfo.Utc.Id,
+            NewStartLocal: topEdge ? new DateTime(2026, 9, 13, 9, 0, 0) : null);
+        var draft = context.Interactions.PrepareSeriesInteractionDraft(master, intent);
+        Assert.Equal(new DateTime(2026, 9, 11, topEdge ? 9 : 10, 0, 0), draft.StartLocal);
+        Assert.Equal(new DateTime(2026, 9, 11, topEdge ? 11 : 12, 0, 0), draft.EndLocal);
+    }
+
+    [Fact]
+    public void SeriesDateMove_AllDay_PreservesDuration()
+    {
+        var context = CreateContext();
+        var master = CreateEvent(new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero), new(2026, 9, 13, 0, 0, 0, TimeSpan.Zero), true) with { RecurrenceRule = "FREQ=WEEKLY" };
+        var draft = context.Interactions.PrepareSeriesInteractionDraft(master,
+            MoveEventIntent.ToDate(master.Id, master.StartUtc.AddDays(7), master.EndUtc.AddDays(7), new(2026, 9, 18), new(2026, 9, 20), TimeZoneInfo.Utc.Id));
+        Assert.True(draft.IsAllDay);
+        Assert.Equal(new DateTime(2026, 9, 13), draft.StartLocal);
+        Assert.Equal(new DateTime(2026, 9, 15), draft.EndLocal);
+    }
+
+    [Fact]
+    public void SeriesPreview_RejectsInvalidDurationAndWrongEvent()
+    {
+        var context = CreateContext();
+        var master = CreateEvent(new(2026, 9, 11, 10, 0, 0, TimeSpan.Zero), new(2026, 9, 11, 11, 0, 0, TimeSpan.Zero)) with { RecurrenceRule = "FREQ=DAILY" };
+        var invalid = new ResizeEventIntent(master.Id, master.StartUtc, master.EndUtc, new(2026, 9, 11, 9, 0, 0), TimeZoneInfo.Utc.Id);
+        Assert.Throws<ArgumentException>(() => context.Interactions.PrepareSeriesInteractionDraft(master, invalid));
+        Assert.Throws<ArgumentException>(() => context.Interactions.PrepareSeriesInteractionDraft(master, invalid with { EventId = Guid.NewGuid() }));
+    }
+
+    [Fact]
+    public void SeriesMove_ShiftsExplicitWeeklyDaysWithoutLosingCount()
+    {
+        var context = CreateContext();
+        var master = CreateEvent(new(2026, 9, 7, 10, 0, 0, TimeSpan.Zero), new(2026, 9, 7, 11, 0, 0, TimeSpan.Zero)) with { RecurrenceRule = "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=5" };
+        var draft = context.Interactions.PrepareSeriesInteractionDraft(master,
+            MoveEventIntent.ToDate(master.Id, master.StartUtc.AddDays(7), master.EndUtc.AddDays(7), new(2026, 9, 14), new(2026, 9, 15), TimeZoneInfo.Utc.Id));
+        Assert.Equal("FREQ=WEEKLY;BYDAY=TU,TH;COUNT=5", draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
+        Assert.Equal(new DateTime(2026, 9, 8, 10, 0, 0), draft.StartLocal);
+    }
+
     private static TestContext CreateContext()
     {
         var repository = new InMemoryEventRepository();
@@ -368,7 +438,7 @@ public sealed class CalendarInteractionTests
             new InMemoryDeviceService("interaction-device"),
             new InMemoryEventChangeRepository(repository, operations),
             TimeProvider.System);
-        return new TestContext(repository, operations, new CalendarInteractionService(service));
+        return new TestContext(repository, operations, new CalendarInteractionService(service), service);
     }
 
     private static CalendarEvent CreateEvent(
@@ -394,7 +464,8 @@ public sealed class CalendarInteractionTests
     private sealed record TestContext(
         InMemoryEventRepository Repository,
         InMemoryOperationRepository Operations,
-        CalendarInteractionService Interactions);
+        CalendarInteractionService Interactions,
+        CalendarEventService Service);
 
     private sealed class FailingEventChanges : ILocalEventChangeRepository
     {

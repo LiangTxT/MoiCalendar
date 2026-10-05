@@ -18,7 +18,7 @@
                             title="@calendarEvent.Title"
                             aria-disabled="@calendarEvent.IsReadOnly"
                             @onfocus="() => EventFocused.InvokeAsync(calendarEvent.Id)"
-                            @onclick="() => EventSelected.InvokeAsync(calendarEvent.Id)">
+                            @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         @if (ContinuesBefore(calendarEvent.SegmentPosition))
                         {
                             <span class="event-continuation" aria-hidden="true">‹</span>
@@ -67,7 +67,7 @@
     public int MaxVisibleRows { get; set; } = 3;
 
     [Parameter]
-    public EventCallback<Guid> EventSelected { get; set; }
+    public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
 
     [Parameter]
     public EventCallback<Guid> EventFocused { get; set; }

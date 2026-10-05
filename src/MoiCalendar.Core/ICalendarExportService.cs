@@ -95,6 +95,12 @@ public sealed class CalendarExportService(
             }
 
             lines.Add("RRULE:" + rule);
+            foreach (var excluded in calendarEvent.ExcludedOccurrenceStartsUtc ?? [])
+            {
+                lines.Add(calendarEvent.IsAllDay
+                    ? $"EXDATE;VALUE=DATE:{TimeZoneInfo.ConvertTime(excluded, timeZone):yyyyMMdd}"
+                    : "EXDATE:" + FormatUtc(excluded));
+            }
         }
 
         lines.Add("CREATED:" + FormatUtc(calendarEvent.CreatedAtUtc));

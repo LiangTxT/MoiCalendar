@@ -212,6 +212,53 @@ public static class CalendarInteractionGeometry
 
 public sealed class CalendarInteractionService(CalendarEventService eventService)
 {
+    /// <summary>把单次出现的拖动差值映射到系列起点；只生成草稿，不写入数据。</summary>
+    public CalendarEventDraft PrepareSeriesInteractionDraft(CalendarEvent series, CalendarInteractionIntent intent)
+    {
+        if (intent is not ICalendarEventInteractionIntent eventIntent || eventIntent.EventId != series.Id || eventIntent.IsReadOnly)
+            throw new ArgumentException("无法调整此重复事件系列。");
+        var zoneId = intent switch
+        {
+            MoveEventIntent move => move.InteractionTimeZoneId,
+            ResizeEventIntent resize => resize.InteractionTimeZoneId,
+            _ => throw new ArgumentException("不支持此重复事件操作。")
+        };
+        var zone = ResolveTimeZone(zoneId);
+        var seriesStart = TimeZoneInfo.ConvertTime(series.StartUtc, zone).DateTime;
+        var seriesEnd = TimeZoneInfo.ConvertTime(series.EndUtc, zone).DateTime;
+        CalendarInteractionIntent mapped = intent switch
+        {
+            MoveEventIntent { SourceDate: not null, TargetDate: not null } => intent,
+            MoveEventIntent { NewStartLocal: { } start, NewEndLocal: { } end } move => move with
+            {
+                NewStartLocal = seriesStart + (start - TimeZoneInfo.ConvertTime(move.OriginalStartUtc, zone).DateTime),
+                NewEndLocal = seriesEnd + (end - TimeZoneInfo.ConvertTime(move.OriginalEndUtc, zone).DateTime)
+            },
+            ResizeEventIntent resize => resize.Snapped() with
+            {
+                NewStartLocal = resize.NewStartLocal is { } start
+                    ? seriesStart + (CalendarInteractionGeometry.SnapLocalDateTime(start) - TimeZoneInfo.ConvertTime(resize.OriginalStartUtc, zone).DateTime)
+                    : seriesStart,
+                NewEndLocal = seriesEnd + (CalendarInteractionGeometry.SnapLocalDateTime(resize.NewEndLocal) - TimeZoneInfo.ConvertTime(resize.OriginalEndUtc, zone).DateTime)
+            },
+            _ => throw new ArgumentException("重复事件缺少目标日期或时间。")
+        };
+        var draft = eventService.CreateDraft(series);
+        var originalDraftStart = draft.StartLocal;
+        var invalid = ApplyInteraction(mapped, series, draft);
+        if (invalid is not null) throw new ArgumentException(invalid.Message);
+        var offset = (draft.StartLocal.Date - originalDraftStart.Date).Days;
+        if (intent is MoveEventIntent && offset != 0 &&
+            (draft.Recurrence.RepeatOption == CalendarEventRepeatOption.Weekly ||
+             draft.Recurrence.RepeatOption == CalendarEventRepeatOption.Custom && draft.Recurrence.CustomFrequency == RecurrenceFrequency.Weekly))
+        {
+            var weekdays = draft.Recurrence.SelectedWeekdays.ToArray();
+            foreach (var weekday in weekdays) draft.Recurrence.SetWeekdaySelected(weekday, false);
+            foreach (var weekday in weekdays) draft.Recurrence.SetWeekdaySelected((DayOfWeek)(((int)weekday + offset % 7 + 7) % 7), true);
+        }
+        return draft;
+    }
+
     public async Task<CalendarInteractionResult> ExecuteAsync(
         CalendarInteractionIntent intent,
         CancellationToken cancellationToken = default)

@@ -1636,6 +1636,11 @@ function validateEvent(calendarEvent) {
         throw new Error("事件字段 recurrenceRule 无法序列化。");
     }
 
+    if (calendarEvent.excludedOccurrenceStartsUtc !== undefined && calendarEvent.excludedOccurrenceStartsUtc !== null) {
+        if (!Array.isArray(calendarEvent.excludedOccurrenceStartsUtc)) throw new Error("重复事件排除记录格式无效。");
+        for (const start of calendarEvent.excludedOccurrenceStartsUtc) validateDateValue(start, "excludedOccurrenceStartsUtc");
+    }
+
     if (calendarEvent.externalUid !== null &&
         calendarEvent.externalUid !== undefined &&
         (typeof calendarEvent.externalUid !== "string" ||

@@ -7,7 +7,7 @@
         @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
         @onpointerdown="args => PointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args))"
         @onpointerdown:stopPropagation="true"
-        @onclick="() => Selected.InvokeAsync(CalendarEvent.Id)"
+        @onclick="() => Selected.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @onclick:stopPropagation="true"
         @ondblclick="() => Edit.InvokeAsync(CalendarEvent.Id)"
         @ondblclick:stopPropagation="true">
@@ -56,7 +56,7 @@
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public bool IsInteractionSource { get; set; }
     [Parameter] public EventCallback<Guid> Focused { get; set; }
-    [Parameter] public EventCallback<Guid> Selected { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> Selected { get; set; }
     [Parameter] public EventCallback<Guid> Edit { get; set; }
     [Parameter] public EventCallback<TimedEventPointerArgs> PointerDown { get; set; }
     [Parameter] public EventCallback<TimedEventPointerArgs> ResizePointerDown { get; set; }

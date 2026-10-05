@@ -35,7 +35,13 @@ window.moicalendarUi = {
 
         const frame = timeline.closest(".week-grid-frame");
         if (frame) {
-            const scrollbarWidth = Math.max(0, timeline.offsetWidth - timeline.clientWidth);
+            // offsetWidth/clientWidth 会取整，缩放时累积到最后一列；使用真实内容边界。
+            const contentWidth = timeline.querySelector?.(".week-timed-layout")?.getBoundingClientRect().width;
+            const viewportWidth = timeline.getBoundingClientRect?.().width;
+            const scrollbarWidth = Math.max(0,
+                Number.isFinite(contentWidth) && Number.isFinite(viewportWidth)
+                    ? viewportWidth - contentWidth
+                    : timeline.offsetWidth - timeline.clientWidth);
             frame.style.setProperty("--time-grid-scrollbar-width", `${scrollbarWidth}px`);
         }
 
@@ -49,7 +55,14 @@ window.moicalendarUi = {
             const relative = Math.max(
                 0,
                 Math.min(1, (initialMinute - visibleStartMinute) / (visibleEndMinute - visibleStartMinute)));
-            timeline.scrollTop = Math.max(0, relative * timeline.scrollHeight - timeline.clientHeight * 0.25);
+            // 顶部留白不是时间；以真实日期网格测量初始时刻，不能把它摊进 24 小时。
+            const timeGrid = timeline.querySelector?.(".week-timed-days");
+            const gridHeight = timeGrid?.clientHeight ?? timeline.scrollHeight;
+            const gridTop = timeGrid
+                ? timeGrid.getBoundingClientRect().top - timeline.getBoundingClientRect().top
+                    + timeline.scrollTop - (timeline.clientTop ?? 0)
+                : 0;
+            timeline.scrollTop = Math.max(0, gridTop + relative * gridHeight - timeline.clientHeight * 0.25);
         }
 
         const horizontal = timeline.closest(".week-horizontal-scroll");

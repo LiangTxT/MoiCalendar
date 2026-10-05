@@ -96,6 +96,8 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
             {
                 break;
             }
+            // 排除不补足 COUNT，否则删除一次会意外新增系列末尾的一次。
+            if (master.ExcludedOccurrenceStartsUtc?.Contains(occurrenceStartUtc) == true) continue;
 
             var localEnd = AddClamped(localStart, wallClockDuration);
             if (!TryConvertLocalToUtc(localEnd, timeZone, out var occurrenceEndUtc))

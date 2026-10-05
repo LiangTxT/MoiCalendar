@@ -40,6 +40,37 @@ test('窄屏首次进入定位选中日期和初始时刻', () => {
     assert.equal(horizontal.scrollLeft, 314.5);
 });
 
+test('顶部留白不改变时间比例，首次定位按真实网格原点计算', () => {
+    const { timeline, initialize } = setup();
+    timeline.scrollHeight = 1460;
+    timeline.getBoundingClientRect = () => ({ top: 100 });
+    timeline.querySelector = () => ({
+        clientHeight: 1440,
+        getBoundingClientRect: () => ({ top: 120 - timeline.scrollTop })
+    });
+    initialize();
+    assert.equal(timeline.scrollTop, 440);
+});
+
+test('午夜及自定义小时范围的顶部留白保留，恢复用户滚动时不重复加留白', () => {
+    const { timeline, ui } = setup();
+    timeline.scrollHeight = 620;
+    timeline.getBoundingClientRect = () => ({ top: 100 });
+    timeline.querySelector = () => ({
+        clientHeight: 600,
+        getBoundingClientRect: () => ({ top: 120 - timeline.scrollTop })
+    });
+    ui.initializeCalendarScroll(timeline, 'day:8-18', 480, 480, 1080);
+    assert.equal(timeline.scrollTop, 0);
+    ui.disposeCalendarScroll(timeline);
+    ui.initializeCalendarScroll(timeline, 'day:8-18-new', 780, 480, 1080);
+    assert.equal(timeline.scrollTop, 200);
+    timeline.scrollTop = 157;
+    ui.disposeCalendarScroll(timeline);
+    ui.initializeCalendarScroll(timeline, 'day:8-18-new', 780, 480, 1080);
+    assert.equal(timeline.scrollTop, 157);
+});
+
 test('周 → 日 → 周恢复两轴位置，不按选中日期再次吸附', () => {
     const { ui, timeline, horizontal, initialize } = setup();
     initialize();
@@ -105,3 +136,14 @@ for (const gutter of [0, 8, 10]) {
         assert.equal(properties['--time-grid-scrollbar-width'], `${gutter}px`);
     });
 }
+
+test('缩放产生半像素滚动条时按真实内容宽度对齐，不使用整数舍入', () => {
+    const { timeline, initialize, properties } = setup();
+    timeline.offsetWidth = 1003;
+    timeline.clientWidth = 996;
+    timeline.getBoundingClientRect = () => ({ top: 100, width: 1003.359375 });
+    timeline.querySelector = selector => selector === '.week-timed-layout'
+        ? { getBoundingClientRect: () => ({ width: 995.859375 }) } : null;
+    initialize();
+    assert.equal(properties['--time-grid-scrollbar-width'], '7.5px');
+});

@@ -42,7 +42,8 @@ public sealed record SearchOverlayState() :
 public sealed record RecurrenceScopeOverlayState(
     CalendarEvent CalendarEvent,
     CalendarRecurrenceAction Action,
-    CalendarInteractionIntent? PendingIntent = null) :
+    CalendarInteractionIntent? PendingIntent = null,
+    DateTimeOffset? OccurrenceStartUtc = null) :
     CalendarOverlayState(CalendarOverlayKind.RecurrenceScope);
 
 public sealed record FullEditorOverlayState(CalendarEventDraft Draft) :
@@ -80,6 +81,7 @@ public static class CalendarOverlayTransitions
     public static CalendarOverlayState OpenRecurrenceScope(
         CalendarEvent calendarEvent,
         CalendarRecurrenceAction action,
-        CalendarInteractionIntent? pendingIntent = null) =>
-        new RecurrenceScopeOverlayState(calendarEvent, action, pendingIntent);
+        CalendarInteractionIntent? pendingIntent = null,
+        DateTimeOffset? occurrenceStartUtc = null) =>
+        new RecurrenceScopeOverlayState(calendarEvent, action, pendingIntent, occurrenceStartUtc);
 }

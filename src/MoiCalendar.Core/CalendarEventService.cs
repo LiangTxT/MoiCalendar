@@ -114,6 +114,26 @@ public sealed class CalendarEventService(
         return await localEventChanges.DeleteEventAsync(deleted, operation, cancellationToken);
     }
 
+    public async Task<CalendarEvent> DeleteOccurrenceAsync(Guid id, DateTimeOffset occurrenceStartUtc, CancellationToken cancellationToken = default)
+    {
+        await using var lease = await operationLock.AcquireAsync(cancellationToken);
+        var existing = await repository.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException("找不到此重复事件系列。");
+        if (string.IsNullOrWhiteSpace(existing.RecurrenceRule)) throw new ArgumentException("此事件不是重复事件。");
+        var start = occurrenceStartUtc.ToUniversalTime();
+        var excluded = existing.ExcludedOccurrenceStartsUtc ?? [];
+        if (excluded.Contains(start)) return existing;
+        if (start == DateTimeOffset.MaxValue || !recurrenceExpansionService.Expand([existing], start, start.AddTicks(1)).Any(item => item.StartUtc == start))
+            throw new ArgumentException("这次重复事件已不存在，请刷新日历后重试。");
+        var updated = existing with
+        {
+            ExcludedOccurrenceStartsUtc = [.. excluded.Append(start).Order()],
+            UpdatedAtUtc = timeProvider.GetUtcNow()
+        };
+        var operation = await CreateOperationAsync(updated, SyncOperationType.Update, updated.UpdatedAtUtc, cancellationToken);
+        return await localEventChanges.UpdateEventAsync(updated, operation, cancellationToken);
+    }
+
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         repository.GetByIdAsync(id, cancellationToken);
 
