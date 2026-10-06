@@ -17,7 +17,7 @@ function setup({ reduce = false } = {}) {
     } };
     const timeline = { scrollTop: 640 };
     let removed = 0;
-    const ghost = { classList: classes(), setAttribute() {}, querySelectorAll: () => [],
+    const ghost = { style: {}, classList: classes(), setAttribute() {}, querySelectorAll: () => [],
         querySelector: selector => selector === '.week-grid-frame' ? { style: {} } : { scrollTop: 0 },
         remove() { removed++; }, animate: frame.animate };
     const horizontal = { scrollLeft: 0, cloneNode: () => ghost };
@@ -44,7 +44,7 @@ function setup({ reduce = false } = {}) {
         for (const [, callback] of scheduled) callback();
         for (let i = 0; i < 12; i++) await Promise.resolve();
     };
-    return { ui, surface, window, timeline, motions, calls, target, event, flush,
+    return { ui, surface, window, timeline, ghost, dotNet, motions, calls, target, event, flush,
         tick: n => clock += n, removed: () => removed,
         navigation: () => calls.filter(x => x.name === 'NavigateTimeGridPeriod') };
 }
@@ -61,6 +61,29 @@ test('顶部左拖下一周，右拖上一周；保留时间轴位置', async ()
         assert.equal(f.removed(), 1);
         assert.equal(f.surface.classList.contains('is-period-paging'), false);
     }
+});
+
+test('足量横滑立即提交，不等待滚轮结束计时器', async () => {
+    const f = setup();
+    f.surface.fire('wheel', f.event({ deltaX: 80, deltaY: 0 }));
+    assert.equal(f.navigation().length, 1);
+    await f.flush();
+});
+
+test('等待日程加载时，旧页面保持松手位置，不跳回原点', async () => {
+    const f = setup();
+    let finish;
+    f.dotNet.invokeMethodAsync = name => name === 'NavigateTimeGridPeriod'
+        ? new Promise(resolve => { finish = resolve; }) : Promise.resolve();
+    f.surface.fire('pointerdown', f.event());
+    f.window.fire('pointermove', f.event({ clientX: 350 }));
+    f.tick(500);
+    const pending = f.window.fire('pointerup', f.event({ clientX: 350 }));
+    for (let i = 0; i < 8 && !finish; i++) await Promise.resolve();
+    assert.equal(f.ghost.style.transform, 'translate3d(-250px,0,0)');
+    f.ui.rendered(f.surface, 'next', true);
+    finish();
+    await pending;
 });
 test('短拖动回弹，取消手势不翻页', async () => {
     for (const type of ['pointerup', 'pointercancel']) {

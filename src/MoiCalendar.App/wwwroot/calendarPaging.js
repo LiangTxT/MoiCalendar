@@ -19,7 +19,8 @@
     }
 
     function paint(s, offset) {
-        s.offset = clamp(offset, -s.surface.clientWidth, s.surface.clientWidth);
+        const width = s.gestureWidth || s.surface.clientWidth;
+        s.offset = clamp(offset, -width, width);
         s.surface.classList.add("is-period-paging");
         if (!s.raf) s.raf = requestAnimationFrame(() => {
             s.raf = 0;
@@ -68,6 +69,8 @@
         const top = s.timeline.scrollTop;
         const width = s.surface.clientWidth;
         s.ghost = snapshot(s);
+        // 加载期间保持松手时的位移，不先跳回原点再开始离场。
+        s.ghost.style.transform = reduced() ? "" : `translate3d(${offset}px,0,0)`;
         s.surface.classList.add("is-period-paging");
         s.frame.style.transform = `translate3d(${direction * width}px,0,0)`;
         const oldKey = s.key;
@@ -113,6 +116,7 @@
                 if (!header && !event.target.closest(".week-timed-days,.week-all-day-row")) return;
                 s.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
                     time: performance.now(), type: event.pointerType, header: !!header, axis: null };
+                s.gestureWidth = surface.clientWidth;
             };
             s.move = event => {
                 const p = s.pointer;
@@ -166,9 +170,19 @@
                 const delta = (dx || (header ? event.deltaY : 0)) * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? surface.clientWidth : 1);
                 if (!delta) return;
                 s.wheelAmount += delta;
+                if (!s.wheelTimer) s.gestureWidth = surface.clientWidth;
                 paint(s, -s.wheelAmount);
                 clearTimeout(s.wheelTimer);
+                if (Math.abs(s.wheelAmount) >= 64) {
+                    const amount = s.wheelAmount;
+                    s.wheelAmount = 0;
+                    s.wheelTimer = 0;
+                    s.wheelLocked = true;
+                    void settle(s, amount > 0 ? 1 : -1);
+                    return;
+                }
                 s.wheelTimer = setTimeout(() => {
+                    s.wheelTimer = 0;
                     const amount = s.wheelAmount;
                     s.wheelAmount = 0;
                     s.wheelLocked = true;

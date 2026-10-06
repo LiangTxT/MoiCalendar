@@ -527,6 +527,11 @@
     private CalendarMonthView monthView = null!;
     private CalendarMonth displayedMonth;
     private readonly Dictionary<CalendarMonth, CalendarMonthEventView> monthEventCache = new();
+    private readonly TimelineViewCache timelineViewCache = new();
+    private CancellationTokenSource? timelinePrefetch;
+    private int timelineNavigationVersion;
+    private CalendarWeekView? pendingTimelineWeek;
+    private DateOnly? pendingTimelineDate;
     private readonly Dictionary<(CalendarMonth Month, bool Visible), CalendarMonthLayoutView> monthLayoutCache = new();
     private int monthStreamNavigationVersion;
     private CalendarMonthEventView previousPreviousMonthEvents = CalendarMonthEventView.Empty;
@@ -765,6 +770,10 @@
 
     public async ValueTask DisposeAsync()
     {
+        ++timelineNavigationVersion;
+        timelinePrefetch?.Cancel();
+        timelinePrefetch?.Dispose();
+        timelineViewCache.Clear();
         feedbackCancellation?.Cancel();
         feedbackCancellation?.Dispose();
         overlayRequests.Invalidate();
@@ -949,15 +958,15 @@
 
     private Task ShowPreviousPeriodAsync() => displayMode switch
     {
-        CalendarViewMode.Week => ShowWeekAsync(weekView.Week.Previous()),
-        CalendarViewMode.Day => ShowDayAsync(selectedDate.AddDays(-1)),
+        CalendarViewMode.Week => ShowWeekAsync((pendingTimelineWeek ?? weekView).Week.Previous()),
+        CalendarViewMode.Day => ShowDayAsync((pendingTimelineDate ?? selectedDate).AddDays(-1)),
         _ => ShowMonthAsync(displayedMonth.Previous())
     };
 
     private Task ShowNextPeriodAsync() => displayMode switch
     {
-        CalendarViewMode.Week => ShowWeekAsync(weekView.Week.Next()),
-        CalendarViewMode.Day => ShowDayAsync(selectedDate.AddDays(1)),
+        CalendarViewMode.Week => ShowWeekAsync((pendingTimelineWeek ?? weekView).Week.Next()),
+        CalendarViewMode.Day => ShowDayAsync((pendingTimelineDate ?? selectedDate).AddDays(1)),
         _ => ShowMonthAsync(displayedMonth.Next())
     };
 
@@ -999,9 +1008,8 @@
 
     private async Task ShowWeekAsync(CalendarWeek week)
     {
-        selectedDate = week.StartDate.AddDays(((int)selectedDate.DayOfWeek + 6) % 7);
-        weekView = week.CreateView(today);
-        await LoadEventsAsync(showLoading: false);
+        await LoadEventsAsync(showLoading: false, requestedWeek: week.CreateView(today),
+            requestedDate: week.StartDate.AddDays(((int)selectedDate.DayOfWeek + 6) % 7));
     }
 
     private void OpenMonthDay(DateOnly date)
@@ -1014,10 +1022,8 @@
 
     private async Task ShowDayAsync(DateOnly date)
     {
-        selectedDate = date;
-        weekView = CalendarWeek.FromDate(date).CreateView(today);
-        monthView = CalendarMonth.FromDate(date).CreateView(today);
-        await LoadEventsAsync(showLoading: false);
+        await LoadEventsAsync(showLoading: false,
+            requestedWeek: CalendarWeek.FromDate(date).CreateView(today), requestedDate: date);
     }
 
     private Task NavigateTimelinePeriodAsync(int direction) => HasOpenOverlay
@@ -1082,8 +1088,15 @@
     private async Task LoadEventsAsync(
         bool showLoading = true,
         CalendarMonth? requestedMonth = null,
-        bool preserveMonthCache = false)
+        bool preserveMonthCache = false,
+        CalendarWeekView? requestedWeek = null,
+        DateOnly? requestedDate = null)
     {
+        var timelineVersion = ++timelineNavigationVersion;
+        pendingTimelineWeek = requestedWeek;
+        pendingTimelineDate = requestedDate;
+        timelinePrefetch?.Cancel();
+        if (showLoading) timelineViewCache.Clear();
         if (showLoading)
         {
             isLoadingEvents = true;
@@ -1136,13 +1149,31 @@
             }
             else
             {
-                weekEvents = await EventService.GetWeekViewAsync(weekView, displayTimeZoneId);
+                var targetWeek = requestedWeek ?? weekView;
+                var events = await timelineViewCache.GetAsync(targetWeek, displayTimeZoneId,
+                    (view, zone) => EventService.GetWeekViewAsync(view, zone));
+                // 连续点击时，只提交最后一次导航；不让旧加载覆盖新日期。
+                if (timelineVersion != timelineNavigationVersion) return;
+                weekEvents = events;
+                weekView = targetWeek;
+                if (requestedDate is { } date)
+                {
+                    selectedDate = date;
+                    if (displayMode == CalendarViewMode.Day)
+                        monthView = CalendarMonth.FromDate(date).CreateView(today);
+                }
+                timelineViewCache.Trim(targetWeek.Week, displayTimeZoneId);
+                timelinePrefetch?.Dispose();
+                timelinePrefetch = new CancellationTokenSource();
+                _ = PrefetchTimelineAsync(targetWeek.Week, displayTimeZoneId, timelinePrefetch.Token);
             }
 
             storageError = null;
         }
         catch (EventRepositoryException exception)
         {
+            if (timelineVersion != timelineNavigationVersion) return;
+            timelineViewCache.Clear();
             monthEventCache.Clear();
             monthLayoutCache.Clear();
             if (requestedMonth is { } failedMonth)
@@ -1165,11 +1196,34 @@
         }
         finally
         {
+            if (timelineVersion == timelineNavigationVersion)
+            {
+                pendingTimelineWeek = null;
+                pendingTimelineDate = null;
+            }
             if (showLoading)
             {
                 isLoadingEvents = false;
             }
         }
+    }
+
+    private async Task PrefetchTimelineAsync(CalendarWeek center, string zone, CancellationToken cancellation)
+    {
+        try
+        {
+            // 先让当前画面完成渲染，再预热前后周；不占用翻页首帧。
+            await Task.Delay(400, cancellation);
+            foreach (var week in new[] { center.Previous(), center.Next() })
+            {
+                cancellation.ThrowIfCancellationRequested();
+                await timelineViewCache.GetAsync(week.CreateView(today), zone,
+                    (view, timeZone) => EventService.GetWeekViewAsync(view, timeZone));
+            }
+            if (!cancellation.IsCancellationRequested) timelineViewCache.Trim(center, zone);
+        }
+        catch (OperationCanceledException) { }
+        catch (EventRepositoryException) { /* 预热失败留待真实导航重试，并由前台显示错误。 */ }
     }
 
     private CalendarMonthLayoutView GetCachedMonthLayout(CalendarMonthView view, CalendarMonthEventView events)
