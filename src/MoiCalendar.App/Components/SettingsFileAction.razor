@@ -1,0 +1,24 @@
+<div class="file-action-group">
+    <div class="settings-file-action settings-data-button @(Disabled ? "disabled" : null)">
+        <label for="@Id">@Label</label>
+        <InputFile id="@Id" accept="@Accept" disabled="@Disabled"
+                   aria-describedby="@(Id + "-status")" OnChange="HandleFileChangedAsync" />
+    </div>
+    <span class="selected-file-name" id="@(Id + "-status")" role="status" title="@selectedFileName">@(selectedFileName ?? "未选择文件")</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Accept { get; set; } = string.Empty;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<InputFileChangeEventArgs> OnChange { get; set; }
+    private string? selectedFileName;
+
+    private async Task HandleFileChangedAsync(InputFileChangeEventArgs args)
+    {
+        if (args.FileCount == 0) return;
+        selectedFileName = args.File.Name;
+        await OnChange.InvokeAsync(args);
+    }
+}

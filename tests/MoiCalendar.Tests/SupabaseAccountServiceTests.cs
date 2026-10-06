@@ -41,7 +41,7 @@ public sealed class SupabaseAccountServiceTests
         Assert.Equal("refresh-1", store.Session?.RefreshToken);
         Assert.DoesNotContain("password-123", store.Session?.ToString() ?? string.Empty, StringComparison.Ordinal);
         var request = Assert.Single(handler.Requests);
-        Assert.Equal("https://example.supabase.co/auth/v1/token?grant_type=password", request.Uri);
+        Assert.Equal("https://example.supabase.co/functions/v1/account-login", request.Uri);
         Assert.Equal("public-test-key", request.ApiKey);
         using var body = JsonDocument.Parse(request.Body!);
         Assert.Equal("user@example.com", body.RootElement.GetProperty("email").GetString());
@@ -266,10 +266,62 @@ public sealed class SupabaseAccountServiceTests
             store,
             new FixedTimeProvider(Now));
 
+    [Theory]
+    [InlineData("email_not_registered", "该邮箱尚未注册")]
+    [InlineData("wrong_password", "密码不正确")]
+    [InlineData("email_not_confirmed", "邮箱尚未验证")]
+    [InlineData("login_rate_limited", "15 分钟")]
+    [InlineData("password_not_set", "尚未设置密码")]
+    [InlineData("login_unavailable", "暂不可用")]
+    [InlineData("email_address_invalid", "邮箱格式不正确")]
+    public async Task Login_ShowsSpecificBackendReasonWithoutSavingSession(string code, string text)
+    {
+        var store = new FakeSessionStore();
+        var handler = new QueueHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { code }), Encoding.UTF8, "application/json")
+        });
+        using var service = CreateService(handler, store);
+        var error = await Assert.ThrowsAnyAsync<AccountServiceException>(() => service.LoginAsync("user@example.com", "p"));
+        Assert.Contains(text, error.Message);
+        Assert.Null(store.Session);
+        Assert.EndsWith("/functions/v1/account-login", handler.Requests.Single().Uri);
+    }
+
+    [Theory]
+    [InlineData("not-an-email", "p", "有效的电子邮箱")]
+    [InlineData("user@example.com", "", "请输入密码")]
+    public async Task Login_ValidatesFieldsBeforeSendingRequest(string email, string password, string text)
+    {
+        var handler = new QueueHttpMessageHandler();
+        using var service = CreateService(handler, new FakeSessionStore());
+        var error = await Assert.ThrowsAsync<AccountServiceException>(() => service.LoginAsync(email, password));
+        Assert.Contains(text, error.Message);
+        Assert.Empty(handler.Requests);
+    }
+
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")
     };
+
+    [Theory]
+    [InlineData(false, "无法连接云账户服务")]
+    [InlineData(true, "请求超时")]
+    public async Task Login_SeparatesNetworkFailureFromTimeout(bool timeout, string text)
+    {
+        using var service = new SupabaseAccountService(
+            new HttpClient(new FailingHttpHandler(timeout)) { BaseAddress = new Uri("https://example.supabase.co/auth/v1/") },
+            "public-test-key", new FakeSessionStore());
+        var error = await Assert.ThrowsAsync<AccountServiceException>(() => service.LoginAsync("user@example.com", "password123"));
+        Assert.Contains(text, error.Message);
+    }
+
+    private sealed class FailingHttpHandler(bool timeout) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(timeout ? new TaskCanceledException() : new HttpRequestException());
+    }
 
     private static string UserJson(bool emailConfirmed) => $$"""
         {

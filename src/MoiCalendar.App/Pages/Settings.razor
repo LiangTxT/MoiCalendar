@@ -37,28 +37,27 @@
 
     <nav class="settings-index" aria-label="设置分类">
         <section>
-            <h2>账户</h2>
-            <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault><span>账户登录</span><span>›</span></a>
-            <a href="settings#cloud-devices-heading" @onclick='() => NavigateSectionAsync("cloud-devices-heading")' @onclick:preventDefault><span>我的设备</span><span>›</span></a>
+            <h2>账户与外观</h2>
+            <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault><span>云账户</span><span aria-hidden="true">›</span></a>
+            <a href="settings#cloud-devices-heading" @onclick='() => NavigateSectionAsync("cloud-devices-heading")' @onclick:preventDefault><span>我的设备</span><span aria-hidden="true">›</span></a>
+            <a href="settings#appearance-heading" @onclick='() => NavigateSectionAsync("appearance-heading")' @onclick:preventDefault><span>外观</span><span aria-hidden="true">›</span></a>
         </section>
         <section>
-            <h2>同步</h2>
-            <a href="settings#sync-settings" @onclick='() => NavigateSectionAsync("sync-settings")' @onclick:preventDefault><span>同步管理</span><span>›</span></a>
-            <a href="settings#external-backup" @onclick='() => NavigateSectionAsync("external-backup")' @onclick:preventDefault><span>外部备份</span><span>›</span></a>
+            <h2>备份与文件</h2>
+            <a href="settings#backup-heading" @onclick='() => NavigateSectionAsync("backup-heading")' @onclick:preventDefault><span>本地备份与恢复</span><span aria-hidden="true">›</span></a>
+            <a href="settings#calendar-transfer-heading" @onclick='() => NavigateSectionAsync("calendar-transfer-heading")' @onclick:preventDefault><span>日历导入 / 导出</span><span aria-hidden="true">›</span></a>
+            <a href="settings#external-backup" @onclick='() => NavigateSectionAsync("external-backup")' @onclick:preventDefault><span>外部备份</span><span aria-hidden="true">›</span></a>
         </section>
         <section>
-            <h2>偏好与数据</h2>
-            <a href="settings#appearance-heading" @onclick='() => NavigateSectionAsync("appearance-heading")' @onclick:preventDefault><span>外观</span><span>›</span></a>
-            <a href="settings#backup-heading" @onclick='() => NavigateSectionAsync("backup-heading")' @onclick:preventDefault><span>本地备份与恢复</span><span>›</span></a>
-            <a href="settings#calendar-transfer-heading" @onclick='() => NavigateSectionAsync("calendar-transfer-heading")' @onclick:preventDefault><span>导入 / 导出</span><span>›</span></a>
+            <h2>同步与诊断</h2>
+            <a href="sync-status"><span>同步状态</span><span class="settings-index-trailing"><SyncIndicator /><span aria-hidden="true">›</span></span></a>
+            <a href="sync-status#diagnostics-heading"><span>运行诊断</span><span aria-hidden="true">›</span></a>
+            <a href="sync-status#backup-log-heading"><span>备份同步日志</span><span aria-hidden="true">›</span></a>
         </section>
         <section>
-            <h2>状态与帮助</h2>
-            <a href="sync-status"><span>同步状态</span><SyncIndicator /></a>
-            <a href="sync-status#diagnostics-heading"><span>运行诊断</span><span>›</span></a>
-            <a href="sync-status#backup-log-heading"><span>同步日志</span><span>›</span></a>
-            <a href="privacy"><span>隐私</span><span>›</span></a>
-            <a href="help"><span>关于与帮助</span><span>›</span></a>
+            <h2>帮助与隐私</h2>
+            <a href="help"><span>关于与帮助</span><span aria-hidden="true">›</span></a>
+            <a href="privacy"><span>隐私</span><span aria-hidden="true">›</span></a>
         </section>
     </nav>
 
@@ -94,27 +93,30 @@
 
             @if (CloudAccountService.IsPasswordRecovery)
             {
-                <div class="account-form" aria-labelledby="new-password-heading">
+                <form class="account-form" aria-labelledby="new-password-heading" @onsubmit="CompletePasswordResetAsync" @onsubmit:preventDefault>
                     <h3 id="new-password-heading">设置新密码</h3>
                     <label for="cloud-new-password">新密码</label>
                     <input id="cloud-new-password"
                            type="password"
                            minlength="6"
                            autocomplete="new-password"
+                           required
+                           disabled="@isCloudAccountBusy"
                            @bind="cloudNewPassword" />
                     <label for="cloud-confirm-new-password">确认新密码</label>
                     <input id="cloud-confirm-new-password"
                            type="password"
                            minlength="6"
                            autocomplete="new-password"
+                           required
+                           disabled="@isCloudAccountBusy"
                            @bind="cloudConfirmPassword" />
-                    <button type="button"
+                    <button type="submit"
                             class="primary-button"
-                            disabled="@(isCloudAccountBusy || isCloudSyncBusy)"
-                            @onclick="CompletePasswordResetAsync">
+                            disabled="@(isCloudAccountBusy || isCloudSyncBusy)">
                         @(isCloudAccountBusy ? "正在更新…" : "更新密码")
                     </button>
-                </div>
+                </form>
             }
 
             <div class="settings-actions">
@@ -136,27 +138,35 @@
             <div class="account-mode-selector" aria-label="云账户操作">
                 <button type="button"
                         class="@(cloudAccountMode == CloudAccountMode.Login ? "active" : null)"
+                        aria-pressed="@(cloudAccountMode == CloudAccountMode.Login ? "true" : "false")"
+                        disabled="@isCloudAccountBusy"
                         @onclick="() => SetCloudAccountMode(CloudAccountMode.Login)">
                     登录
                 </button>
                 <button type="button"
                         class="@(cloudAccountMode == CloudAccountMode.Register ? "active" : null)"
+                        aria-pressed="@(cloudAccountMode == CloudAccountMode.Register ? "true" : "false")"
+                        disabled="@isCloudAccountBusy"
                         @onclick="() => SetCloudAccountMode(CloudAccountMode.Register)">
                     注册
                 </button>
                 <button type="button"
                         class="@(cloudAccountMode == CloudAccountMode.ResetPassword ? "active" : null)"
+                        aria-pressed="@(cloudAccountMode == CloudAccountMode.ResetPassword ? "true" : "false")"
+                        disabled="@isCloudAccountBusy"
                         @onclick="() => SetCloudAccountMode(CloudAccountMode.ResetPassword)">
                     忘记密码
                 </button>
             </div>
 
-            <div class="account-form">
+            <form class="account-form" aria-label="@CloudAccountActionLabel" @onsubmit="SubmitCloudAccountAsync" @onsubmit:preventDefault>
                 <label for="cloud-email">电子邮箱</label>
                 <input id="cloud-email"
                        type="email"
                        inputmode="email"
                        autocomplete="email"
+                       required
+                       disabled="@isCloudAccountBusy"
                        @bind="cloudEmailAddress" />
 
                 @if (cloudAccountMode is CloudAccountMode.Login or CloudAccountMode.Register)
@@ -164,8 +174,10 @@
                     <label for="cloud-password">密码</label>
                     <input id="cloud-password"
                            type="password"
-                           minlength="6"
+                           minlength="@(cloudAccountMode == CloudAccountMode.Register ? "6" : null)"
                            autocomplete="@(cloudAccountMode == CloudAccountMode.Login ? "current-password" : "new-password")"
+                           required
+                           disabled="@isCloudAccountBusy"
                            @bind="cloudPassword" />
                 }
 
@@ -176,16 +188,17 @@
                            type="password"
                            minlength="6"
                            autocomplete="new-password"
+                           required
+                           disabled="@isCloudAccountBusy"
                            @bind="cloudConfirmPassword" />
                 }
 
-                <button type="button"
+                <button type="submit"
                         class="primary-button"
-                        disabled="@isCloudAccountBusy"
-                        @onclick="SubmitCloudAccountAsync">
+                        disabled="@isCloudAccountBusy">
                     @(isCloudAccountBusy ? "正在处理…" : CloudAccountActionLabel)
                 </button>
-            </div>
+            </form>
         }
 
         @if (!string.IsNullOrWhiteSpace(cloudAccountMessage))
@@ -362,10 +375,6 @@
     }
     </div>
 
-    <div id="sync-settings" tabindex="-1">
-        <SyncSettings @key="cloudAccount?.Id" />
-    </div>
-
     <section class="settings-card appearance-settings" aria-labelledby="appearance-heading">
         <div class="settings-heading-row">
             <div>
@@ -376,15 +385,16 @@
 
         <fieldset class="appearance-mode-group">
             <legend>显示模式</legend>
-            <div class="appearance-segmented" role="radiogroup" aria-label="显示模式">
+            <div class="appearance-segmented">
                 @foreach (var option in AppearanceModes)
                 {
-                    <button type="button"
-                            role="radio"
-                            aria-checked="@(appearancePreference.Mode == option.Mode ? "true" : "false")"
-                            class="@(appearancePreference.Mode == option.Mode ? "selected" : null)"
-                            disabled="@isAppearanceBusy"
-                            @onclick="() => SelectAppearanceModeAsync(option.Mode)">@option.Label</button>
+                    <label class="appearance-option">
+                        <input type="radio" name="appearance-mode" value="@option.Mode"
+                               checked="@(appearancePreference.Mode == option.Mode)"
+                               disabled="@isAppearanceBusy"
+                               @onchange="() => SelectAppearanceModeAsync(option.Mode)" />
+                        <span>@option.Label</span>
+                    </label>
                 }
             </div>
         </fieldset>
@@ -427,6 +437,8 @@
         </label>
     </fieldset>
 
+    @if (selectedProvider == SyncProviderType.OneDrive)
+    {
     <section class="settings-card" aria-labelledby="onedrive-heading">
         <h2 id="onedrive-heading">OneDrive</h2>
 
@@ -482,36 +494,41 @@
     </section>
 
     <p class="settings-note">
-        OneDrive 登录和连接成功后，可在上方“同步管理”中运行备份同步。WebDAV 需要先完成服务器连接配置。外部备份可能合并远端记录，不替代 MoiCalendar 云同步。
+        OneDrive 登录和连接成功后，可在下方运行备份同步。外部备份可能合并远端记录，不替代 MoiCalendar 云同步。
     </p>
+
+    <SyncSettings @key="cloudAccount?.Id" ShowCloudManagement="false" ShowBackupSync="true" />
+    }
+    else if (selectedProvider == SyncProviderType.WebDav)
+    {
+        <p class="settings-note" role="status">WebDAV：开发中。</p>
+    }
 
     @if (!string.IsNullOrWhiteSpace(providerStatusMessage))
     {
         <p class="settings-status" role="status">@providerStatusMessage</p>
     }
 
-    <section class="settings-card" aria-labelledby="backup-heading">
-        <h2 id="backup-heading" tabindex="-1">本地 JSON 手动备份</h2>
-        <p>
-            将本机日历数据导出为版本化 JSON 文件。备份只在浏览器本地生成，不会上传到同步提供商。
-        </p>
+    <section class="settings-card data-files" aria-labelledby="data-files-heading">
+        <h2 id="data-files-heading">备份与导入导出</h2>
+        <p class="settings-note">文件在本机处理，不会自动上传。选择文件后先检查预览，再确认写入。</p>
+    <section class="data-file-group" aria-labelledby="backup-heading">
+        <div class="data-file-row">
+        <div class="data-file-description">
+            <h3 id="backup-heading" tabindex="-1">本地备份 <span>JSON</span></h3>
+            <p>保存本机日历的备份。恢复会替换全部本地数据，确认前不会修改日历。</p>
+        </div>
         <div class="settings-actions">
             <button type="button"
-                    class="primary-button"
                     disabled="@(isExportingBackup || isRestoringBackup)"
+                    class="settings-data-button"
                     @onclick="ExportBackupAsync">
                 @(isExportingBackup ? "正在导出…" : "导出备份")
             </button>
-            <label class="file-button @(isExportingBackup || isRestoringBackup ? "disabled" : null)"
-                   for="restore-backup-file">
-                恢复备份
-            </label>
-            <InputFile @key="restoreFileInputKey"
-                       id="restore-backup-file"
-                       class="visually-hidden-file"
-                       accept=".json,application/json"
-                       disabled="@(isExportingBackup || isRestoringBackup)"
-                       OnChange="SelectRestoreFileAsync" />
+            <SettingsFileAction @key="restoreFileInputKey" Id="restore-backup-file"
+                                Label="恢复备份" Accept=".json,application/json"
+                                Disabled="@(isExportingBackup || isRestoringBackup)"
+                                OnChange="SelectRestoreFileAsync" />
             @if (safetySnapshot is not null)
             {
                 <button type="button"
@@ -520,6 +537,8 @@
                     撤销最近恢复
                 </button>
             }
+        </div>
+
         </div>
 
         @if (isUndoConfirmationVisible && safetySnapshot is not null)
@@ -577,6 +596,8 @@
             <section class="restore-confirmation" aria-labelledby="restore-confirmation-heading">
                 <h3 id="restore-confirmation-heading">确认恢复备份</h3>
                 <dl class="account-information">
+                    <dt>文件</dt>
+                    <dd>@restoreSourceName</dd>
                     <dt>备份日期</dt>
                     <dd>@restorePreview.ExportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
                     <dt>Schema 版本</dt>
@@ -610,26 +631,24 @@
         }
     </section>
 
-    <section class="settings-card" aria-labelledby="calendar-transfer-heading">
-        <h2 id="calendar-transfer-heading" tabindex="-1">导入 / 导出</h2>
-        <p>导出或预览通用 iCalendar（.ics）文件。选择文件和预览不会修改本地日历。</p>
+    <section class="data-file-group" aria-labelledby="calendar-transfer-heading">
+        <div class="data-file-row">
+        <div class="data-file-description">
+            <h3 id="calendar-transfer-heading" tabindex="-1">日历交换 <span>ICS</span></h3>
+            <p>与其他日历应用交换日程。导入前可预览，并选择重复项的处理方式。</p>
+        </div>
         <div class="settings-actions">
             <button type="button"
-                    class="primary-button"
                     disabled="@(isExportingICalendar || isImportingICalendar)"
+                    class="settings-data-button"
                     @onclick="ExportICalendarAsync">
-                @(isExportingICalendar ? "正在导出…" : "导出日历（.ics）")
+                @(isExportingICalendar ? "正在导出…" : "导出日历")
             </button>
-            <label class="file-button @(isExportingICalendar || isImportingICalendar ? "disabled" : null)"
-                   for="import-calendar-file">
-                导入日历（.ics）
-            </label>
-            <InputFile @key="calendarImportFileInputKey"
-                       id="import-calendar-file"
-                       class="visually-hidden-file"
-                       accept=".ics,text/calendar"
-                       disabled="@(isExportingICalendar || isImportingICalendar)"
-                       OnChange="SelectCalendarImportFileAsync" />
+            <SettingsFileAction @key="calendarImportFileInputKey" Id="import-calendar-file"
+                                Label="导入日历" Accept=".ics,text/calendar"
+                                Disabled="@(isExportingICalendar || isImportingICalendar)"
+                                OnChange="SelectCalendarImportFileAsync" />
+        </div>
         </div>
 
         @if (calendarImportPreview is not null)
@@ -723,6 +742,7 @@
             </p>
         }
     </section>
+    </section>
 </main>
 <SectionNavigation />
 
@@ -777,6 +797,7 @@
     private bool backupSucceeded;
     private string? backupMessage;
     private BackupRestorePreview? restorePreview;
+    private string? restoreSourceName;
     private bool isRestoringBackup;
     private bool isSyncBlockedAfterRestore;
     private BackupRestoreSafetySnapshot? safetySnapshot;
@@ -911,7 +932,7 @@
         cloudAccountMessage = null;
     }
 
-    private Task SubmitCloudAccountAsync() => cloudAccountMode switch
+    private Task SubmitCloudAccountAsync() => isCloudAccountBusy ? Task.CompletedTask : cloudAccountMode switch
     {
         CloudAccountMode.Login => LoginCloudAccountAsync(),
         CloudAccountMode.Register => RegisterCloudAccountAsync(),
@@ -1015,7 +1036,7 @@
             {
                 CloudSyncDisplayState.Synced => "云同步已完成。",
                 CloudSyncDisplayState.Conflict =>
-                    $"检测到 {status.ConflictCount} 个同步冲突；请在下方“同步管理”区域选择保留的版本。",
+                    $"检测到 {status.ConflictCount} 个同步冲突；请前往“同步状态”页面选择保留的版本。",
                 CloudSyncDisplayState.PendingChanges =>
                     $"仍有 {status.PendingChangeCount} 项本地变更等待同步。",
                 CloudSyncDisplayState.RetryScheduled when status.NextRetryAtUtc is not null =>
@@ -1249,8 +1270,8 @@
         providerStatusMessage = providerType switch
         {
             SyncProviderType.None => "已选择不使用同步。",
-            SyncProviderType.OneDrive => "已选择 OneDrive。连接成功后可在日历首页同步。",
-            SyncProviderType.WebDav => "已选择 WebDAV；请先完成 WebDAV 连接配置。",
+            SyncProviderType.OneDrive => "已选择 OneDrive。连接成功后可在下方运行备份同步。",
+            SyncProviderType.WebDav => "已选择 WebDAV。",
             _ => null
         };
     }
@@ -1429,6 +1450,7 @@
 
     private async Task SelectRestoreFileAsync(InputFileChangeEventArgs args)
     {
+        restoreSourceName = null;
         if (restorePreview is not null)
         {
             LocalBackupRestoreService.CancelPreparedRestore(restorePreview.RestoreId);
@@ -1448,6 +1470,7 @@
             using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
             var json = await reader.ReadToEndAsync();
             restorePreview = LocalBackupRestoreService.PrepareRestore(json);
+            restoreSourceName = file.Name;
             backupSucceeded = true;
             backupMessage = "备份验证通过。请检查摘要并确认是否替换本地数据。";
         }

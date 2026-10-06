@@ -4,11 +4,11 @@
 @inject ISyncService BackupSyncService
 @inject ISyncDiagnosticsService BackupSyncDiagnostics
 
-@if (status is null)
+@if (isBusy && status is null && backupStatus is null)
 {
     <p class="settings-note" role="status">正在读取同步设置…</p>
 }
-    @if (status is not null)
+    @if (ShowCloudManagement && status is not null)
     {
         <section class="settings-card sync-status-card" aria-labelledby="sync-status-heading">
             <div class="sync-heading-row">
@@ -65,7 +65,7 @@
         <p class="settings-status @(actionSucceeded ? "success" : "failure")" role="status">@actionMessage</p>
     }
 
-    @if (conflicts.Count > 0)
+    @if (ShowCloudManagement && conflicts.Count > 0)
     {
         <section class="settings-card" aria-labelledby="conflict-heading">
             <h2 id="conflict-heading">需要你处理的冲突</h2>
@@ -117,7 +117,7 @@
         </section>
     }
 
-    @if (backupStatus is not null)
+    @if (ShowBackupSync && backupStatus is not null)
     {
         <section class="settings-card" aria-labelledby="backup-sync-heading">
             <h2 id="backup-sync-heading">可选备份提供商同步</h2>
@@ -148,6 +148,9 @@
 
 
 @code {
+    [Parameter] public bool ShowCloudManagement { get; set; } = true;
+    [Parameter] public bool ShowBackupSync { get; set; }
+
     private CloudSyncSnapshot? status;
     private IReadOnlyList<CloudSyncConflictDetails> conflicts = [];
     private SyncStatus? backupStatus;
@@ -258,9 +261,15 @@
         isBusy = true;
         try
         {
-            status = await SyncStatusService.GetStatusAsync();
-            conflicts = await SyncStatusService.GetConflictsAsync();
-            backupStatus = await BackupSyncDiagnostics.GetStatusAsync();
+            if (ShowCloudManagement)
+            {
+                status = await SyncStatusService.GetStatusAsync();
+                conflicts = await SyncStatusService.GetConflictsAsync();
+            }
+            if (ShowBackupSync)
+            {
+                backupStatus = await BackupSyncDiagnostics.GetStatusAsync();
+            }
         }
         catch (OperationCanceledException) { throw; }
         catch

@@ -1,10 +1,26 @@
 .settings-index {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5) var(--space-6);
     padding: var(--space-5) 0;
 }
+.settings-index h2 {
+    margin: 0 0 var(--space-2);
+    color: var(--v4-ink-secondary);
+    font-size: 12px;
+    line-height: 20px;
+    letter-spacing: .04em;
+}
 .settings-index a {
+    box-sizing: border-box;
     min-height: 44px;
+    padding: var(--space-2) 0;
+    line-height: 20px;
+}
+.settings-index-trailing {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-shrink: 0;
 }
 .settings-index a:hover {
     color: var(--v4-information);
@@ -16,7 +32,10 @@
 .settings-shell :deep([tabindex="-1"]) {
     scroll-margin-top: var(--space-5);
 }
-@media (min-width: 800px) {
+@media (min-width: 560px) {
+    .settings-index { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1000px) {
     .settings-index { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
@@ -26,4 +45,198 @@
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-3);
+}
+
+/* 保留页首分类入口和纵向顺序；用行对齐而不是新增卡片建立层级。 */
+.settings-shell :deep(.settings-card p) {
+    max-width: 72ch;
+}
+
+.account-mode-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-5) 0 var(--space-4);
+}
+
+.account-mode-selector button.active {
+    border-color: var(--v4-primary);
+    background: var(--v4-primary);
+    color: var(--v4-on-primary);
+}
+
+.account-form {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-3) var(--space-4);
+    max-width: 600px;
+    margin: var(--space-5) 0;
+}
+
+.account-form label {
+    grid-column: 1;
+    color: var(--v4-ink-secondary);
+    font-size: 13px;
+}
+
+.account-form input {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+}
+
+.account-form h3 { grid-column: 1 / -1; }
+.account-form button { grid-column: 2; justify-self: start; }
+
+.appearance-mode-group,
+.settings-group {
+    min-width: 0;
+    margin: var(--space-5) 0;
+    padding: 0;
+    border: 0;
+}
+
+.appearance-mode-group legend,
+.settings-group legend {
+    margin-bottom: var(--space-3);
+    color: var(--v4-ink-secondary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.appearance-option { position: relative; }
+.appearance-option input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    clip-path: inset(50%);
+    opacity: 0;
+}
+
+.appearance-option span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.appearance-option + .appearance-option { border-left: 1px solid var(--v4-line); }
+.appearance-option input:checked + span {
+    background: var(--v4-primary);
+    color: var(--v4-on-primary);
+}
+.appearance-option input:focus-visible + span {
+    outline: 2px solid var(--v4-information);
+    outline-offset: -3px;
+}
+.appearance-option input:disabled + span { opacity: .5; cursor: wait; }
+
+.settings-group {
+    padding: var(--space-5) 0;
+    border-bottom: 1px solid var(--v4-line-strong);
+}
+.settings-group label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    gap: var(--space-2);
+    padding-right: var(--space-5);
+    font-size: 13px;
+    cursor: pointer;
+}
+.settings-group input,
+.account-deletion-local-option input { accent-color: var(--v4-primary); }
+
+.settings-shell :deep(.settings-actions) {
+    align-items: center;
+    margin-top: var(--space-4);
+}
+.settings-shell :deep(.settings-card button),
+.settings-shell :deep(.button-link) { min-height: 44px; }
+.settings-shell :deep(.settings-card button:disabled) { opacity: .5; cursor: not-allowed; }
+.settings-shell :deep(.button-link) {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--v4-line-strong);
+    border-radius: var(--radius-control);
+    background: var(--v4-surface);
+    color: var(--v4-ink);
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+}
+.settings-shell :deep(.settings-status.failure) { color: var(--v4-danger); }
+.settings-shell :deep(.settings-status.success) { color: var(--v4-success); }
+.settings-shell :deep(.settings-status) {
+    padding: var(--space-3) 0;
+    overflow-wrap: anywhere;
+}
+.settings-shell :deep(.settings-card :is(input, select, button, a):focus-visible) {
+    outline: 2px solid var(--v4-information);
+    outline-offset: 2px;
+}
+
+.restore-confirmation,
+.calendar-import-preview,
+.account-deletion-panel {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--v4-line-strong);
+}
+.account-deletion-local-option { display: flex; align-items: center; gap: var(--space-3); }
+.cloud-device-card + .cloud-device-card { margin-top: var(--space-5); }
+.cloud-device-title { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.device-badge { font-size: 12px; color: var(--v4-ink-secondary); }
+.device-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.device-actions input { flex: 1; min-width: 0; }
+.calendar-import-events { list-style: none; padding: 0; }
+.calendar-import-events li { padding: var(--space-4) 0; border-bottom: 1px solid var(--v4-line); }
+.calendar-import-events li > div { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
+.calendar-import-events li > div span { color: var(--v4-ink-secondary); font-size: 12px; }
+
+.data-file-group { padding-top: var(--space-5); }
+.data-file-group + .data-file-group {
+    margin-top: var(--space-5);
+    border-top: 1px solid var(--v4-line);
+}
+.data-file-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+}
+.data-file-description h3 { margin: 0; font-size: 14px; }
+.data-file-description h3 span {
+    margin-left: var(--space-2);
+    color: var(--v4-ink-secondary);
+    font-size: 11px;
+    font-weight: 400;
+}
+.data-file-description p { margin: var(--space-2) 0 0; }
+.data-file-row .settings-actions { margin-top: 0; }
+
+@media (max-width: 599px) {
+    .account-form { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+    .account-form label,
+    .account-form input,
+    .account-form button { grid-column: 1; }
+    .account-form label:not(:first-child) { margin-top: var(--space-3); }
+    .account-form button { margin-top: var(--space-3); }
+    .appearance-segmented { display: flex; }
+    .appearance-option { flex: 1; }
+    .appearance-option span { padding-inline: var(--space-3); }
+    .device-actions label { flex-basis: 100%; }
+    .device-actions input { flex-basis: 100%; }
+    .settings-shell :deep(.account-information) { grid-template-columns: 96px minmax(0, 1fr); }
+}
+
+@media (forced-colors: active) {
+    .appearance-option input:checked + span { outline: 2px solid Highlight; outline-offset: -4px; }
 }

@@ -24,7 +24,7 @@
     <section class="settings-card sync-status-card" aria-labelledby="last-sync-heading">
         <div class="settings-heading-row">
             <h2 id="last-sync-heading">上次同步</h2>
-            <a href="settings#sync-settings">管理同步</a>
+            <a href="sync-status#sync-settings">管理同步</a>
         </div>
         @if (status is not null)
         {
@@ -46,6 +46,10 @@
         }
         <button type="button" disabled="@isBusy" @onclick="RefreshAsync">刷新状态</button>
     </section>
+
+    <div id="sync-settings" tabindex="-1">
+        <SyncSettings ShowCloudManagement="true" ShowBackupSync="false" />
+    </div>
 
     <div id="diagnostics-heading" tabindex="-1">
         @if (diagnosticReport is not null)

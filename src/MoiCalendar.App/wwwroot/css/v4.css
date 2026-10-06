@@ -2460,6 +2460,41 @@ a {
     font-weight: 600;
 }
 
+/* 导出与文件入口共享颜色和尺寸，均为低强调小按钮。 */
+.settings-shell .data-files .settings-data-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    flex: 0 0 84px;
+    width: 84px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--v4-line-strong);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--v4-primary) 6%, var(--v4-surface));
+    color: var(--v4-ink);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+@media (hover: hover) {
+    .settings-shell .data-files .settings-data-button:not(:disabled):not(.disabled):hover {
+        background: color-mix(in srgb, var(--v4-primary) 10%, var(--v4-surface));
+        border-color: var(--v4-ink-secondary);
+    }
+}
+@media (pointer: coarse) {
+    .settings-shell .data-files .settings-data-button { height: 44px; min-height: 44px; }
+}
+@media (forced-colors: active) {
+    .settings-shell .data-files .settings-data-button { border-color: ButtonText; }
+}
+
 .settings-card p,
 .settings-note {
     color: var(--v4-ink-secondary);

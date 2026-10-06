@@ -164,14 +164,15 @@ internal sealed class SupabaseAccountService : IAccountService, ISupabaseAccessT
     {
         ThrowIfDisposed();
         var email = ValidateEmail(emailAddress);
-        ValidatePassword(password);
+        if (string.IsNullOrEmpty(password)) throw new AccountServiceException("请输入密码。");
+        if (password.Length > 1024) throw new AccountServiceException("密码长度超过允许范围。");
 
         await accountGate.WaitAsync(cancellationToken);
         try
         {
             var response = await SendAsync<SupabaseAuthPayload>(
                 HttpMethod.Post,
-                "token?grant_type=password",
+                "../../functions/v1/account-login",
                 new EmailPasswordRequest(email, password),
                 cancellationToken: cancellationToken);
             if (!response.HasSession)
@@ -650,6 +651,17 @@ internal sealed class SupabaseAccountService : IAccountService, ISupabaseAccessT
         errorCode?.ToLowerInvariant() switch
         {
             "invalid_credentials" => "邮箱或密码不正确。",
+            "email_not_registered" => "该邮箱尚未注册，请先创建云账户。",
+            "wrong_password" => "密码不正确，请重新输入，或使用“忘记密码”重置。",
+            "password_not_set" => "该账户尚未设置密码，请使用原登录方式或重置密码。",
+            "email_address_invalid" => "邮箱格式不正确，请检查是否遗漏 @ 或域名。",
+            "password_required" => "请输入密码。",
+            "password_too_long" => "密码长度超过允许范围。",
+            "login_rate_limited" => "登录尝试过于频繁，请等待 15 分钟后重试。",
+            "login_unavailable" => "云账户登录服务暂不可用，请稍后再试；本地日历不受影响。",
+            "user_banned" => "该云账户已被停用，请联系管理员。",
+            "email_provider_disabled" => "当前服务未开放邮箱密码登录。",
+            "captcha_failed" => "安全验证未通过，请重新完成验证后登录。",
             "email_not_confirmed" => "邮箱尚未验证，请先查看验证邮件。",
             "user_already_exists" or "user_already_registered" => "该邮箱已注册，请直接登录。",
             "weak_password" => "密码不符合云账户的安全要求。",
@@ -657,6 +669,8 @@ internal sealed class SupabaseAccountService : IAccountService, ISupabaseAccessT
             "same_password" => "新密码不能与当前密码相同。",
             "session_not_found" or "refresh_token_not_found" => "登录会话已失效，请重新登录。",
             _ when statusCode == HttpStatusCode.TooManyRequests => "请求过于频繁，请稍后再试。",
+            _ when statusCode == HttpStatusCode.NotFound => "账户服务接口不可用，请联系管理员检查后端部署。",
+            _ when (int)statusCode >= 500 => "云账户服务暂时异常，请稍后再试；本地日历不受影响。",
             _ when statusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
                 "云账户认证失败，请重新登录。",
             _ => $"云账户请求失败（HTTP {(int)statusCode}）。"

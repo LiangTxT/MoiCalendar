@@ -114,10 +114,12 @@ public sealed partial class ProductionSecurityHardeningTests
             .ToArray();
 
         Assert.NotEmpty(securityDefinerNames);
-        Assert.All(securityDefinerNames, name => Assert.Contains(
-            $"alter function public.{name}",
-            HardeningMigration,
-            StringComparison.OrdinalIgnoreCase));
+        Assert.All(securityDefinerNames, name => Assert.True(
+            HardeningMigration.Contains($"alter function public.{name}", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(AllMigrations,
+                $@"create\s+function\s+public\.{Regex.Escape(name)}\s*\([^$]*?security\s+definer[^$]*?set\s+search_path\s*=\s*pg_catalog,\s*pg_temp\s+as\s+\$\$",
+                RegexOptions.IgnoreCase),
+            $"{name} 必须在既有加固迁移中或创建时固定安全 search_path。"));
         Assert.DoesNotContain(
             "set search_path = public, pg_temp",
             HardeningMigration,
