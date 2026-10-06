@@ -18,6 +18,9 @@ public sealed record CalendarEvent
 
     public required bool IsAllDay { get; init; }
 
+    /// <summary>主题事件配色编号；旧记录默认使用雾蓝。</summary>
+    public int ColorIndex { get; init; } = 1;
+
     /// <summary>
     /// RFC 5545 RRULE 属性值；为空表示事件不重复。
     /// </summary>
@@ -40,7 +43,7 @@ public sealed record CalendarEvent
     public bool Equals(CalendarEvent? other) => other is not null &&
         Id == other.Id && Title == other.Title && Description == other.Description &&
         Location == other.Location && StartUtc == other.StartUtc && EndUtc == other.EndUtc &&
-        TimeZoneId == other.TimeZoneId && IsAllDay == other.IsAllDay &&
+        TimeZoneId == other.TimeZoneId && IsAllDay == other.IsAllDay && ColorIndex == other.ColorIndex &&
         RecurrenceRule == other.RecurrenceRule && ExternalUid == other.ExternalUid &&
         CreatedAtUtc == other.CreatedAtUtc && UpdatedAtUtc == other.UpdatedAtUtc &&
         DeletedAtUtc == other.DeletedAtUtc &&
@@ -57,6 +60,7 @@ public sealed record CalendarEvent
         hash.Add(EndUtc);
         hash.Add(TimeZoneId);
         hash.Add(IsAllDay);
+        hash.Add(ColorIndex);
         hash.Add(RecurrenceRule);
         hash.Add(ExternalUid);
         hash.Add(CreatedAtUtc);

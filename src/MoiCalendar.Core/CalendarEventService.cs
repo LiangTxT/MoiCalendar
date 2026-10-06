@@ -49,6 +49,7 @@ public sealed class CalendarEventService(
             TimeZoneId = draft.TimeZoneId,
             IsAllDay = draft.IsAllDay,
             RecurrenceRule = values.RecurrenceRule,
+            ColorIndex = draft.ColorIndex,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
@@ -80,6 +81,7 @@ public sealed class CalendarEventService(
             TimeZoneId = draft.TimeZoneId,
             IsAllDay = draft.IsAllDay,
             RecurrenceRule = values.RecurrenceRule,
+            ColorIndex = draft.ColorIndex,
             UpdatedAtUtc = timeProvider.GetUtcNow()
         };
 
@@ -163,6 +165,7 @@ public sealed class CalendarEventService(
             Id = Guid.NewGuid(), Title = values.Title, Description = values.Description,
             Location = values.Location, StartUtc = values.StartUtc, EndUtc = values.EndUtc,
             TimeZoneId = draft.TimeZoneId, IsAllDay = draft.IsAllDay,
+            ColorIndex = draft.ColorIndex,
             CreatedAtUtc = now, UpdatedAtUtc = now
         };
         var update = await CreateOperationAsync(updated, SyncOperationType.Update, now, cancellationToken);
@@ -362,7 +365,7 @@ public sealed class CalendarEventService(
                     CalendarPresentationLayout.GetSegmentPosition(date, eventFirstDate, eventLastDate),
                     calendarEvent.StartUtc,
                     calendarEvent.EndUtc,
-                    eventTimeZone.Id));
+                    eventTimeZone.Id, CalendarColorIndex: calendarEvent.ColorIndex));
                 continue;
             }
 
@@ -392,7 +395,7 @@ public sealed class CalendarEventService(
                 calendarEvent.Location,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
-                displayTimeZone.Id));
+                displayTimeZone.Id, CalendarColorIndex: calendarEvent.ColorIndex));
         }
     }
 
@@ -454,12 +457,14 @@ public sealed class CalendarEventService(
                 segment.Position,
                 calendarEvent.StartUtc,
                 calendarEvent.EndUtc,
-                eventTimeZone.Id));
+                eventTimeZone.Id, CalendarColorIndex: calendarEvent.ColorIndex));
         }
     }
 
     private static ValidatedEventValues ValidateAndConvert(CalendarEventDraft draft)
     {
+        if (draft.ColorIndex is < 1 or > 8)
+            throw new ArgumentException("请选择内置的日程颜色。", nameof(draft));
         var title = draft.Title.Trim();
         if (string.IsNullOrWhiteSpace(title))
         {

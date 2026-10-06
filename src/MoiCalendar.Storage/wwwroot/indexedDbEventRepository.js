@@ -1633,6 +1633,10 @@ function validateEvent(calendarEvent) {
         validateDateValue(calendarEvent.deletedAtUtc, "deletedAtUtc");
     }
 
+    if (calendarEvent.colorIndex !== undefined &&
+        (!Number.isInteger(calendarEvent.colorIndex) || calendarEvent.colorIndex < 1 || calendarEvent.colorIndex > 8)) {
+        throw new Error("日程颜色编号无效。");
+    }
     if (calendarEvent.recurrenceRule !== null &&
         calendarEvent.recurrenceRule !== undefined &&
         typeof calendarEvent.recurrenceRule !== "string") {

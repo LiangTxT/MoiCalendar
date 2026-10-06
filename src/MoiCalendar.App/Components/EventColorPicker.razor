@@ -1,0 +1,24 @@
+<fieldset class="event-color-picker" disabled="@Disabled">
+    <legend>日程颜色 <span>@Colors[Math.Clamp(Value, 1, 8) - 1]</span></legend>
+    <div class="event-color-options">
+        @for (var index = 1; index <= Colors.Length; index++)
+        {
+            var color = index;
+            <label class="event-color-option" title="@Colors[color - 1]" style="@($"--swatch-color:var(--calendar-color-{color})")">
+                <input type="radio" name="@groupName" value="@color" checked="@(Value == color)"
+                       aria-label="@Colors[color - 1]" @onchange="() => ValueChanged.InvokeAsync(color)" />
+                <span class="event-color-swatch" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="m6 12 4 4 8-8" /></svg>
+                </span>
+            </label>
+        }
+    </div>
+</fieldset>
+
+@code {
+    private static readonly string[] Colors = ["雾蓝", "鼠尾草", "陶土", "烟紫", "玫瑰", "靛蓝", "麦金", "松绿"];
+    private readonly string groupName = $"event-color-{Guid.NewGuid():N}";
+    [Parameter] public int Value { get; set; } = 1;
+    [Parameter] public EventCallback<int> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+}

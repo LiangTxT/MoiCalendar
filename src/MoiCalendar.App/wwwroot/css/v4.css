@@ -255,6 +255,8 @@ body {
 .form-picker-day[aria-current="date"]:not(.selected) { text-decoration: underline; text-decoration-color: var(--v4-signal); text-decoration-thickness: 2px; text-underline-offset: 4px; }
 .form-picker .form-picker-today { margin-top: 8px; padding: 6px 10px; color: var(--v4-focus); font-size: 12px; }
 .form-picker-time { display: flex; gap: 8px; min-width: 120px; }
+.form-picker[data-mode="time"] .form-picker-time { width: 100%; }
+.form-picker[data-mode="time"] .form-picker-time-number { width: 100%; }
 .form-picker-time-column { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 6px; flex: 1; min-width: 0; }
 .form-picker-time-column label { color: var(--v4-ink-secondary); font-size: 11px; }
 .form-picker-time-number { width: 58px; min-height: 32px; padding: 4px; text-align: center; }
@@ -850,39 +852,56 @@ a {
     scroll-behavior: auto;
 }
 .agenda-month-banner {
-    --agenda-banner-height: clamp(144px, 17vw, 208px);
     position: relative;
-    height: var(--agenda-banner-height);
     overflow: hidden;
     background-color: var(--v4-canvas);
     isolation: isolate;
 }
-.agenda-month-banner::before {
-    content: "";
-    position: absolute;
-    width: max(300%, calc(var(--agenda-banner-height) * 12));
-    aspect-ratio: 3 / 1;
-    left: 50%;
-    top: 50%;
-    transform: translate(calc((var(--agenda-art-column) + .5) * -100% / 3), calc((var(--agenda-art-row) + .5) * -25%));
-    background: url('../images/agenda-seasons-pixel-v2.png') center / 100% 100% no-repeat;
+.agenda-month-art {
+    display: block;
+    width: 100%;
+    height: auto;
     image-rendering: pixelated;
-    z-index: -1;
     pointer-events: none;
 }
 .agenda-month-banner h2 {
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: var(--space-4) 0 0 var(--space-4);
+    font-size: clamp(24px, 2.4vw, 32px);
+    font-weight: 600;
+    line-height: 1;
+}
+.agenda-month-stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: #283033;
+    color: #fafaf7;
+    clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.agenda-month-number { display: inline-flex; align-items: baseline; gap: 4px; }
+.agenda-month-number small { font-size: 14px; font-weight: 500; }
+.agenda-month-year {
     display: inline-flex;
     align-items: baseline;
     gap: 4px;
-    margin: 16px 0 0 24px;
-    padding: 4px 8px;
-    background: #f3f3ef;
-    color: #283033;
-    font-size: clamp(24px, 2.4vw, 36px);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 1px solid #62676a;
+    color: #dde2e2;
+    font-size: 14px;
     font-weight: 400;
-    line-height: 1.3;
+    line-height: 1.6;
 }
-.agenda-month-banner h2 small { font-size: .65em; }
+.agenda-month-year small { font-size: 12px; }
+@media (forced-colors: active) {
+    .agenda-month-stamp { background: Canvas; color: CanvasText; outline: 1px solid CanvasText; clip-path: none; }
+    .agenda-month-year { color: CanvasText; border-color: CanvasText; }
+}
 .agenda-stream-day {
     display: grid;
     grid-template-columns: 64px minmax(0, 1fr);
@@ -931,8 +950,9 @@ a {
 .agenda-edge { min-height: 28px; padding: 6px 12px; text-align: center; color: var(--v4-ink-secondary); font-size: 11px; }
 .agenda-stream button:focus-visible { outline: 2px solid var(--v4-information); outline-offset: 2px; }
 @media (max-width: 720px) {
-    .agenda-month-banner { --agenda-banner-height: 152px; }
-    .agenda-month-banner h2 { margin: 12px 0 0 12px; font-size: 27px; }
+    .agenda-month-banner { display: flex; flex-direction: column; }
+    .agenda-month-art { order: 2; }
+    .agenda-month-banner h2 { position: static; order: 1; margin: 12px; align-self: flex-start; font-size: 24px; }
     .agenda-stream-day { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px; }
     .agenda-empty-week { padding: 20px 12px 20px 68px; }
     .agenda-stream-event { flex-wrap: wrap; gap: 4px 8px; }
@@ -1195,6 +1215,10 @@ a {
     background: color-mix(in srgb, var(--v4-information) 3%, var(--v4-elevated));
 }
 
+.month-view .month-boundary-week .calendar-date:hover {
+    background: var(--v4-elevated);
+}
+
 .month-view .calendar-date.outside-month {
     background: color-mix(in srgb, var(--v4-canvas) 74%, var(--v4-elevated));
     color: var(--v4-ink-tertiary);
@@ -1372,6 +1396,54 @@ a {
     height: 100%;
     overflow-x: auto;
     overflow-y: hidden;
+}
+
+.week-calendar.has-period-paging {
+    position: relative;
+}
+
+/* 空周提示保留给读屏，不再把日期栏和时间网格向下挤。 */
+.has-period-paging > .week-empty {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.has-period-paging .week-day-headings {
+    cursor: grab;
+    touch-action: pan-y pinch-zoom;
+    user-select: none;
+}
+
+.has-period-paging .week-timed-days,
+.has-period-paging .week-all-day-row {
+    touch-action: pan-y pinch-zoom;
+}
+
+.is-period-paging .week-grid-frame {
+    will-change: transform;
+}
+
+.is-period-paging .week-day-headings,
+.is-period-paging .week-day-heading {
+    cursor: grabbing;
+}
+
+.period-page-snapshot {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    background: var(--v4-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-period-paging .week-grid-frame { will-change: auto; }
 }
 
 .week-grid-frame {
@@ -2772,6 +2844,111 @@ a {
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
     }
+}
+
+/* 只混合背景，不降低整个事件的 opacity：文字与调整手柄保持清晰。 */
+.month-view .event-chip,
+.month-view .event-chip.all-day,
+.week-calendar .week-timed-event,
+.week-calendar .week-all-day-event {
+    background: color-mix(in srgb, var(--calendar-entity-color, var(--v4-calendar-1)) 24%, transparent);
+    transition: background-color var(--motion-fast) ease-out;
+}
+
+.month-view .event-chip:hover,
+.week-calendar .week-timed-event:hover,
+.week-calendar .week-all-day-event:hover {
+    background: color-mix(in srgb, var(--calendar-entity-color, var(--v4-calendar-1)) 32%, transparent);
+}
+
+.month-view .event-chip.selected,
+.week-calendar .week-timed-event.selected,
+.week-calendar .week-all-day-event.selected {
+    background: color-mix(in srgb, var(--calendar-entity-color, var(--v4-calendar-1)) 32%, var(--v4-elevated));
+    outline: 1px solid var(--calendar-entity-color, var(--v4-calendar-1));
+    outline-offset: -1px;
+}
+
+.event-color-picker {
+    min-width: 0;
+    padding: 0;
+    margin: var(--space-3) 0;
+    border: 0;
+}
+
+.month-view .event-chip .event-time,
+.week-calendar .week-timed-event .timed-event-time,
+.week-calendar .week-timed-event .timed-event-metadata {
+    color: var(--v4-ink);
+}
+
+.event-color-picker legend {
+    padding: 0;
+    font-size: 12px;
+    color: var(--v4-ink);
+}
+
+.event-color-picker legend span {
+    margin-left: var(--space-2);
+    color: var(--v4-ink-secondary);
+    font-size: 11px;
+}
+
+.event-color-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+}
+
+.event-color-picker .event-color-option {
+    position: relative;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    margin: 0;
+    cursor: pointer;
+}
+
+.event-color-option input[type="radio"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.event-color-swatch {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-control);
+    background: var(--swatch-color);
+}
+
+.event-color-swatch svg { width: 20px; height: 20px; visibility: hidden; }
+.event-color-swatch path { stroke: white; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.event-color-option input:checked + .event-color-swatch { outline: 1px solid var(--v4-ink); outline-offset: 3px; }
+.event-color-option input:checked + .event-color-swatch svg { visibility: visible; }
+.event-color-option input:focus-visible + .event-color-swatch { outline: 2px solid var(--v4-focus); outline-offset: 3px; }
+.event-color-picker:disabled { opacity: .6; }
+
+@media (max-width: 400px) {
+    .event-color-options {
+        display: grid;
+        grid-template-columns: repeat(4, 40px);
+        column-gap: var(--space-2);
+    }
+}
+
+@media (forced-colors: active) {
+    .event-color-swatch { border: 1px solid ButtonText; }
+    .event-color-swatch path { stroke: ButtonText; }
 }
 
 @media (prefers-reduced-motion: reduce) {

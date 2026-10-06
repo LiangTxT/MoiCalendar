@@ -59,12 +59,14 @@ public sealed class RecurrenceScopeRenderingTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task EditScope_OffersSingleEditOnlyForKnownOccurrence(bool known)
+    [InlineData(false, CalendarRecurrenceAction.EditSeries)]
+    [InlineData(true, CalendarRecurrenceAction.EditSeries)]
+    [InlineData(false, CalendarRecurrenceAction.ApplyInteractionToSeries)]
+    [InlineData(true, CalendarRecurrenceAction.ApplyInteractionToSeries)]
+    public async Task EditScope_OffersSingleEditOnlyForKnownOccurrence(bool known, CalendarRecurrenceAction action)
     {
         var html = System.Net.WebUtility.HtmlDecode(await RenderAsync(null, false,
-            known ? new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero) : null, CalendarRecurrenceAction.EditSeries));
+            known ? new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero) : null, action));
         Assert.Equal(known, html.Contains("仅编辑这一次"));
         Assert.Contains("编辑整个系列", html);
         Assert.Contains("aria-describedby=\"recurrence-scope-description\"", html);

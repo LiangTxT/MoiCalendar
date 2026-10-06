@@ -16,6 +16,10 @@ public interface ICalendarEventInteractionIntent
 {
     Guid EventId { get; }
 
+    DateTimeOffset OriginalStartUtc { get; }
+
+    DateTimeOffset OriginalEndUtc { get; }
+
     bool IsReadOnly { get; }
 }
 
@@ -212,6 +216,25 @@ public static class CalendarInteractionGeometry
 
 public sealed class CalendarInteractionService(CalendarEventService eventService)
 {
+    /// <summary>保留原出现标识，生成拖动或拉伸后的单次编辑草稿；此处不写入数据。</summary>
+    public CalendarEventDraft PrepareOccurrenceInteractionDraft(CalendarEvent series, CalendarInteractionIntent intent)
+    {
+        if (intent is not ICalendarEventInteractionIntent occurrence || occurrence.EventId != series.Id || occurrence.IsReadOnly ||
+            occurrence.OriginalEndUtc <= occurrence.OriginalStartUtc)
+            throw new ArgumentException("无法调整此次重复事件。");
+
+        var instance = series with
+        {
+            StartUtc = occurrence.OriginalStartUtc,
+            EndUtc = occurrence.OriginalEndUtc,
+            RecurrenceRule = null
+        };
+        var draft = eventService.CreateDraft(instance);
+        var invalid = ApplyInteraction(intent, instance, draft);
+        if (invalid is not null) throw new ArgumentException(invalid.Message);
+        return draft;
+    }
+
     /// <summary>把单次出现的拖动差值映射到系列起点；只生成草稿，不写入数据。</summary>
     public CalendarEventDraft PrepareSeriesInteractionDraft(CalendarEvent series, CalendarInteractionIntent intent)
     {

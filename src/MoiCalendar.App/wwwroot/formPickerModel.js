@@ -35,6 +35,12 @@
         const above = anchor.top - gap - inset;
         const side = below >= height || below >= above ? 'bottom' : 'top';
         const available = Math.max(0, side === 'bottom' ? below : above);
+        // 上下不足但侧边有空间时避开源字段，单击立即展开后仍能双击原字段。
+        if (height > available && anchor.width > 0) {
+            const right = anchor.right ?? anchor.left + anchor.width;
+            const left = right + gap + width <= viewport.width - inset ? right + gap : anchor.left - gap - width >= inset ? anchor.left - gap - width : null;
+            if (left !== null) return { left, top: Math.max(inset, Math.min(anchor.top, viewport.height - height - inset)), maxHeight: viewport.height - inset * 2, side: 'side' };
+        }
         // 两侧都不足时使用视口内的完整高度，而不是把确认按钮挤进滚动区。
         if (height > available) return { left: Math.max(inset, Math.min(anchor.left, viewport.width - width - inset)), top: Math.max(inset, Math.min(anchor.bottom + gap, viewport.height - height - inset)), maxHeight: viewport.height - inset * 2, side };
         const actualHeight = Math.min(height, available);

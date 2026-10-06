@@ -429,6 +429,78 @@ public sealed class CalendarInteractionTests
         Assert.Equal(new DateTime(2026, 9, 8, 10, 0, 0), draft.StartLocal);
     }
 
+    [Theory]
+    [InlineData("month")]
+    [InlineData("time")]
+    [InlineData("end")]
+    [InlineData("start")]
+    [InlineData("all-day")]
+    [InlineData("midnight")]
+    public async Task RecurringInteraction_SingleDraftKeepsTargetAndOnlyReplacesOriginalOccurrence(string kind)
+    {
+        var context = CreateContext();
+        var allDay = kind == "all-day";
+        var master = CreateEvent(Utc(2026, 9, 11, allDay ? 0 : 10), Utc(2026, 9, 12, allDay ? 0 : 11), allDay)
+            with { RecurrenceRule = "FREQ=DAILY;COUNT=5" };
+        await context.Repository.CreateAsync(master);
+        var start = master.StartUtc.AddDays(2);
+        var end = master.EndUtc.AddDays(2);
+        CalendarInteractionIntent intent = kind switch
+        {
+            "month" or "all-day" => MoveEventIntent.ToDate(master.Id, start, end, new(2026, 9, 13), new(2026, 9, 16), TimeZoneInfo.Utc.Id),
+            "end" => new ResizeEventIntent(master.Id, start, end, end.UtcDateTime.AddHours(1), TimeZoneInfo.Utc.Id),
+            "start" => new ResizeEventIntent(master.Id, start, end, end.UtcDateTime, TimeZoneInfo.Utc.Id, NewStartLocal: start.UtcDateTime.AddHours(-1)),
+            "midnight" => MoveEventIntent.ToTime(master.Id, start, end, new(2026, 9, 13, 23, 30, 0), new(2026, 9, 15, 0, 30, 0), TimeZoneInfo.Utc.Id),
+            _ => MoveEventIntent.ToTime(master.Id, start, end, start.UtcDateTime.AddHours(2), end.UtcDateTime.AddHours(2), TimeZoneInfo.Utc.Id)
+        };
+        Assert.Equal(CalendarInteractionStatus.RecurrenceScopeRequired, (await context.Interactions.ExecuteAsync(intent)).Status);
+        var draft = context.Interactions.PrepareOccurrenceInteractionDraft(master, intent);
+        Assert.Equal(CalendarEventRepeatOption.Never, draft.Recurrence.RepeatOption);
+        Assert.Equal(allDay, draft.IsAllDay);
+        Assert.Equal(master, await context.Repository.GetByIdAsync(master.Id));
+        Assert.Empty(await context.Operations.GetByStatusAsync(SyncOperationStatus.Pending));
+
+        var expectedStart = kind switch
+        {
+            "month" or "all-day" => start.UtcDateTime.AddDays(3),
+            "start" => start.UtcDateTime.AddHours(-1),
+            "time" => start.UtcDateTime.AddHours(2),
+            "midnight" => new DateTime(2026, 9, 13, 23, 30, 0),
+            _ => start.UtcDateTime
+        };
+        var expectedEnd = kind switch
+        {
+            "month" or "all-day" => end.UtcDateTime.AddDays(3),
+            "end" => end.UtcDateTime.AddHours(1),
+            "time" => end.UtcDateTime.AddHours(2),
+            "midnight" => new DateTime(2026, 9, 15, 0, 30, 0),
+            _ => end.UtcDateTime
+        };
+        Assert.Equal(expectedStart, draft.StartLocal);
+        Assert.Equal(expectedEnd, draft.EndLocal);
+        var saved = await context.Service.UpdateOccurrenceAsync(master.Id, start, draft);
+        Assert.Equal(expectedStart, saved.StartUtc.UtcDateTime);
+        Assert.Equal(expectedEnd, saved.EndUtc.UtcDateTime);
+        var updated = (await context.Repository.GetByIdAsync(master.Id))!;
+        Assert.Equal(master.StartUtc, updated.StartUtc);
+        Assert.Equal(master.RecurrenceRule, updated.RecurrenceRule);
+        var remaining = new RecurrenceExpansionService().Expand([updated], master.StartUtc, master.StartUtc.AddDays(7));
+        Assert.Equal(4, remaining.Count);
+        Assert.DoesNotContain(remaining, item => item.StartUtc == start);
+    }
+
+    [Fact]
+    public void SingleInteractionDraft_RejectsReadOnlyWrongIdAndInvalidResize()
+    {
+        var context = CreateContext();
+        var master = CreateEvent(Utc(2026, 9, 11, 10), Utc(2026, 9, 11, 11)) with { RecurrenceRule = "FREQ=DAILY" };
+        var intent = new ResizeEventIntent(master.Id, master.StartUtc.AddDays(2), master.EndUtc.AddDays(2),
+            new(2026, 9, 13, 12, 0, 0), TimeZoneInfo.Utc.Id);
+        Assert.Throws<ArgumentException>(() => context.Interactions.PrepareOccurrenceInteractionDraft(master, intent with { IsReadOnly = true }));
+        Assert.Throws<ArgumentException>(() => context.Interactions.PrepareOccurrenceInteractionDraft(master, intent with { EventId = Guid.NewGuid() }));
+        Assert.Throws<ArgumentException>(() => context.Interactions.PrepareOccurrenceInteractionDraft(master, intent with { NewEndLocal = new(2026, 9, 13, 9, 0, 0) }));
+    }
+
     private static TestContext CreateContext()
     {
         var repository = new InMemoryEventRepository();

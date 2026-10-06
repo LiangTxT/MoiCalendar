@@ -3,6 +3,7 @@
         type="button"
         title="@CalendarEvent.Title"
         aria-disabled="@CalendarEvent.IsReadOnly"
+        aria-pressed="@(SelectedCalendarEventId == CalendarEvent.Id)"
         @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
         @onpointerdown="HandlePointerDown"
         @onpointerdown:stopPropagation="true"
@@ -31,6 +32,7 @@
 </button>
 
 @code {
+    [CascadingParameter(Name = "SelectedCalendarEventId")] public Guid? SelectedCalendarEventId { get; set; }
     [Parameter, EditorRequired] public CalendarEventListItem CalendarEvent { get; set; } = null!;
     [Parameter, EditorRequired] public DateOnly Date { get; set; }
     [Parameter] public bool IsInteractionSource { get; set; }
@@ -54,6 +56,7 @@
     private string EventClass => string.Join(' ', new[]
     {
         "event-chip",
+        SelectedCalendarEventId == CalendarEvent.Id ? "selected" : null,
         CalendarEvent.IsAllDay ? "all-day" : "timed",
         CalendarEvent.SegmentPosition switch
         {

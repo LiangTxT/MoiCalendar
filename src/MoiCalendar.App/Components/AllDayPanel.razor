@@ -17,6 +17,7 @@
                             type="button"
                             title="@calendarEvent.Title"
                             aria-disabled="@calendarEvent.IsReadOnly"
+                            aria-pressed="@(SelectedCalendarEventId == calendarEvent.Id)"
                             @onfocus="() => EventFocused.InvokeAsync(calendarEvent.Id)"
                             @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         @if (ContinuesBefore(calendarEvent.SegmentPosition))
@@ -55,6 +56,7 @@
 </div>
 
 @code {
+    [CascadingParameter(Name = "SelectedCalendarEventId")] public Guid? SelectedCalendarEventId { get; set; }
     private readonly HashSet<DateOnly> expandedDates = [];
 
     [Parameter, EditorRequired]
@@ -76,9 +78,10 @@
 
     private void Collapse(DateOnly date) => expandedDates.Remove(date);
 
-    private static string GetEventClass(CalendarWeekAllDayEvent calendarEvent) => string.Join(' ', new[]
+    private string GetEventClass(CalendarWeekAllDayEvent calendarEvent) => string.Join(' ', new[]
     {
         "week-all-day-event",
+        SelectedCalendarEventId == calendarEvent.Id ? "selected" : null,
         calendarEvent.SegmentPosition switch
         {
             CalendarEventSegmentPosition.Start => "segment-start continues-after",

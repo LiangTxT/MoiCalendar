@@ -33,7 +33,7 @@
         const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight;
         const rect = input.getBoundingClientRect();
         if (rect.bottom < 0 || rect.top > height) { close(false); return; }
-        popup.style.width = `${Math.min(active.kind === 'select' ? Math.max(rect.width, 200) : active.hasDate && active.hasTime ? 460 : 304, width - 24)}px`;
+        popup.style.width = `${Math.min(active.kind === 'select' ? Math.max(rect.width, 200) : active.hasDate && active.hasTime ? 460 : active.hasDate ? 304 : 244, width - 24)}px`;
         popup.style.maxHeight = `${height - 24}px`;
         const bounds = { width: popup.offsetWidth, height: popup.offsetHeight };
         const position = model.position(rect, bounds.width, bounds.height, { width, height });
@@ -81,13 +81,14 @@
         });
         reveal(); state.popup.children[state.index]?.focus({ preventScroll: true });
     };
-    const open = input => {
+    const open = (input, preserveFocus = false) => {
         if (!eligible(input)) return;
         if (active?.input === input) return;
         const state = mount(input, 'date');
         const now = new Date();
         const today = `${now.getFullYear().toString().padStart(4, '0')}-${model.pad(now.getMonth() + 1)}-${model.pad(now.getDate())}`;
         state.hasDate = input.type !== 'time'; state.hasTime = input.type !== 'date';
+        state.popup.dataset.mode = input.type;
         state.date = model.parseDate(input.value.slice(0, 10)) ? input.value.slice(0, 10) : today;
         const time = input.type === 'time' ? input.value : input.value.split('T')[1];
         state.time = model.validTime(time) ? time : `${model.pad(now.getHours())}:${model.pad(now.getMinutes())}`;
@@ -168,7 +169,8 @@
         state.popup.append(summary);
         const footer = element('footer', 'form-picker-footer'); footer.append(button('取消', null, () => close()), apply); state.popup.append(footer); update(); reveal();
         state.scrollTime?.();
-        (state.popup.querySelector('.form-picker-day[tabindex="0"]:not([disabled])') ?? state.popup.querySelector('.form-picker-time-number') ?? apply).focus({ preventScroll: true });
+        // 整框单击保持源字段焦点，第二次点击仍可触发双击直接输入，不等待双击计时器。
+        if (!preserveFocus) (state.popup.querySelector('.form-picker-day[tabindex="0"]:not([disabled])') ?? state.popup.querySelector('.form-picker-time-number') ?? apply).focus({ preventScroll: true });
     };
     const pointerdown = event => {
         if (active && !active.popup.contains(event.target) && event.target !== active.input) close(false);

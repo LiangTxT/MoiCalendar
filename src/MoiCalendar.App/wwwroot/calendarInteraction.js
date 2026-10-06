@@ -91,6 +91,7 @@
         },
         cancelActiveInteraction: surface => cleanup(surface, active.get(surface)),
         beginTimeGridInteraction: (surface, grid, scroll, dotNet, config) => {
+            if (surface.classList.contains("is-period-paging")) return;
             cleanup(surface, active.get(surface));
             const initialBounds = grid.getBoundingClientRect();
             const minuteRange = config.visibleEndMinute - config.visibleStartMinute;

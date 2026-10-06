@@ -7,6 +7,19 @@ namespace MoiCalendar.Tests;
 public sealed class LocalBackupRestoreServiceTests
 {
     [Fact]
+    public async Task EventColor_IsRestoredAndInvalidColorIsRejected()
+    {
+        var calendarEvent = CreateEvent(Guid.NewGuid(), "配色恢复") with { ColorIndex = 7 };
+        var repository = new FakeRestoreRepository([], syncOperationCount: 0);
+        var service = new LocalBackupRestoreService(repository);
+        var preview = service.PrepareRestore(CreateJson([calendarEvent]));
+        await service.RestorePreparedAsync(preview.RestoreId);
+        Assert.Equal(7, Assert.Single(repository.Events).ColorIndex);
+        Assert.Throws<LocalBackupRestoreException>(() => service.PrepareRestore(CreateJson([calendarEvent with { ColorIndex = 9 }])));
+        Assert.Equal(7, Assert.Single(repository.Events).ColorIndex);
+    }
+
+    [Fact]
     public async Task OccurrenceExclusions_ArePreservedDuringRestore()
     {
         var excluded = new DateTimeOffset(2026, 8, 28, 9, 0, 0, TimeSpan.Zero);

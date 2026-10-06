@@ -94,3 +94,27 @@ test('输入无效分钟不能确认，修正后恢复；无效输入不污染�
     for (const value of ['60', '-1', '1.5', '']) { number.value = value; number.dispatchEvent({ type: 'input' }); assert.equal(apply.disabled, true); }
     assert.equal(input.value, '08:34'); number.value = '59'; number.dispatchEvent({ type: 'input' }); assert.equal(apply.disabled, false); apply.click(); assert.equal(input.value, '08:59');
 });
+
+test('纯时间弹层使用紧凑宽度并保留源字段焦点支持即时单击与双击', () => {
+    const f = fixture(), input = f.input('time'); input.focus();
+    f.window.moicalendarFormPicker.open(input, true);
+    assert.equal(f.document.activeElement, input);
+    assert.equal(f.popup().style.width, '244px');
+    assert.equal(f.popup().dataset.mode, 'time');
+    assert.equal(input.events.length, 0);
+});
+
+test('只有一个日历选项时下拉仍打开，选择当前项不产生变更', () => {
+    const f = fixture(), select = new f.Node('select'); select.value = 'local'; select.options = [{ value: 'local', textContent: '本地日历' }]; f.document.body.append(select);
+    f.fire('pointerdown', select);
+    assert.equal(f.popup().getAttribute('role'), 'listbox');
+    f.popup().children[0].click(); assert.equal(f.popup(), undefined); assert.deepEqual(select.events, []);
+    const component = readFileSync(new URL('../../src/MoiCalendar.App/Components/EventQuickCreate.razor', import.meta.url), 'utf8');
+    assert.match(component, /<select id="quick-event-calendar">/);
+});
+
+test('纯时间两列占满可用宽度，不留右侧空白且保持分钟输入宽度一致', () => {
+    const css = readFileSync(new URL('css/v4.css', base), 'utf8');
+    assert.ok(css.includes('.form-picker[data-mode="time"] .form-picker-time { width: 100%; }'));
+    assert.ok(css.includes('.form-picker[data-mode="time"] .form-picker-time-number { width: 100%; }'));
+});

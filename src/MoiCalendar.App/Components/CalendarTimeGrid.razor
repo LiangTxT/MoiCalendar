@@ -122,6 +122,10 @@
     [Parameter]
     public EventCallback<DateOnly> DateSelected { get; set; }
 
+    [Parameter] public EventCallback<int> PeriodChanged { get; set; }
+    [Parameter] public string PeriodKey { get; set; } = string.Empty;
+    [Parameter] public bool PagingEnabled { get; set; } = true;
+
     [Parameter]
     public EventCallback<CalendarInteractionIntent> IntentRequested { get; set; }
 
@@ -178,7 +182,10 @@
         if (firstRender)
         {
             dotNetReference = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("moicalendarPaging.attach", interactionSurface, dotNetReference);
         }
+
+        await JS.InvokeVoidAsync("moicalendarPaging.rendered", interactionSurface, PeriodKey, PagingEnabled);
 
         if (!scrollInitializationPending)
         {
@@ -210,6 +217,7 @@
         try
         {
             await JS.InvokeVoidAsync("moicalendarUi.disposeCalendarScroll", timedScrollElement);
+            await JS.InvokeVoidAsync("moicalendarPaging.dispose", interactionSurface);
             await JS.InvokeVoidAsync("moicalendarInteraction.cancelActiveInteraction", interactionSurface);
         }
         catch (JSDisconnectedException)
@@ -227,6 +235,20 @@
             if (days[index].Date.Date == SelectedDate) return index;
         }
         return 0;
+    }
+
+    [JSInvokable]
+    public void CancelTimeGridForPaging()
+    {
+        gesture = null;
+        eventClickCancellation?.Cancel();
+    }
+
+    [JSInvokable]
+    public async Task NavigateTimeGridPeriod(int direction)
+    {
+        if (!PagingEnabled || gesture is not null || direction is not (-1 or 1)) return;
+        await PeriodChanged.InvokeAsync(direction);
     }
 
     private string GetTimeLabelStyle(int hour) =>

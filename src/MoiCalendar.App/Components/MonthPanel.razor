@@ -1,9 +1,9 @@
 <section class="month-panel" data-month="@MonthKey" aria-label="@MonthTitle">
     <div class="month-grid @(IsDirectManipulation ? "is-direct-manipulation" : null)"
          role="grid"
-         aria-rowcount="@visibleWeeks.Length"
+         aria-rowcount="@VisibleRowCount"
          aria-colcount="7"
-         style="@($"--month-week-count: {visibleWeeks.Length}")"
+         style="@($"--month-week-count: {VisibleRowCount}")"
          @ref="GridElement"
          @onpointermove="PointerMove"
          @onpointerup="PointerUp"
@@ -26,11 +26,22 @@
                           EventEdit="EventEdit"
                           MoreRequested="MoreRequested" />
         }
+        @if (needsBoundaryWeek)
+        {
+            <div class="month-week-row month-boundary-week" role="row" aria-label="月份间隔">
+                @for (var day = 0; day < 7; day++)
+                {
+                    <div class="calendar-date" role="gridcell"></div>
+                }
+            </div>
+        }
     </div>
 </section>
 
 @code {
     private CalendarMonthWeekLayout[] visibleWeeks = [];
+    private bool needsBoundaryWeek;
+    private int VisibleRowCount => visibleWeeks.Length + (needsBoundaryWeek ? 1 : 0);
     private CalendarMonthLayoutView? renderedLayout;
     private bool renderRequired = true;
     private (DateOnly, Guid?, DateOnly?, MonthDragPreviewModel?, bool,
@@ -67,6 +78,10 @@
             visibleWeeks = Layout.Weeks
                 .TakeWhile(week => week.Days.Any(day => day.Date.IsInActiveMonth))
                 .ToArray();
+            // 月末占满最后一周时，相邻月份都没有补位空格，只在此边界补一周。
+            needsBoundaryWeek = visibleWeeks.Length > 0
+                && visibleWeeks[^1].Days.Count == 7
+                && visibleWeeks[^1].Days[6].Date.IsInActiveMonth;
         }
         renderedLayout = Layout;
         renderedState = state;

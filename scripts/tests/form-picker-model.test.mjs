@@ -5,6 +5,16 @@ import { readFileSync } from 'node:fs';
 const context = vm.createContext({ window: {} });
 vm.runInContext(readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/formPickerModel.js', import.meta.url), 'utf8'), context);
 const model = context.window.moicalendarPickerModel;
+
+test('短窗口优先侧边展开，不覆盖支持双击输入的源字段', () => {
+    const anchor = { left: 420, top: 400, bottom: 444, width: 200, right: 620 };
+    const result = model.position(anchor, 244, 430, { width: 1280, height: 720 });
+    assert.equal(result.side, 'side'); assert.ok(result.left >= anchor.right + 8);
+    assert.ok(result.top >= 12 && result.top + 430 <= 708);
+    const rightAnchor = { left: 1000, top: 400, bottom: 444, width: 200, right: 1200 };
+    const left = model.position(rightAnchor, 244, 430, { width: 1280, height: 720 });
+    assert.equal(left.side, 'side'); assert.ok(left.left + 244 <= rightAnchor.left - 8);
+});
 test('民用日期严格验证，不自动修正无效日期', () => {
     for (const value of ['2026-02-29', '2026-13-01', '0000-01-01', '2026-10-00', '2026-1-01', '', null]) assert.equal(model.parseDate(value), null);
     for (const value of ['2024-02-29', '0001-01-01', '9999-12-31', '2026-10-06']) assert.equal(model.dateKey(model.parseDate(value)), value);

@@ -9,6 +9,8 @@
 
 <PageTitle>MoiCalendar</PageTitle>
 
+<CascadingValue TValue="Guid?" Name="SelectedCalendarEventId" Value="focusedEventId">
+
 <main id="main-content" tabindex="-1" class="calendar-workspace @(isSidebarOpen ? null : "sidebar-collapsed") @(selectedEvent is not null ? "inspector-open" : null)">
     @if (isSidebarOpen)
     {
@@ -132,6 +134,9 @@
                                                       SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{WeekTitle}周视图")"
+                                                      PeriodKey="@($"week:{weekView.Week.StartDate:yyyy-MM-dd}")"
+                                                      PagingEnabled="@(!HasOpenOverlay)"
+                                                      PeriodChanged="NavigateTimelinePeriodAsync"
                                                       OverlayRequests="overlayRequests"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
@@ -148,6 +153,9 @@
                                                       SelectedEventId="focusedEventId"
                                                       InteractionTimeZoneId="@displayTimeZoneId"
                                                       AriaLabel="@($"{DayTitle}日视图")"
+                                                      PeriodKey="@($"day:{selectedDate:yyyy-MM-dd}")"
+                                                      PagingEnabled="@(!HasOpenOverlay)"
+                                                      PeriodChanged="NavigateTimelinePeriodAsync"
                                                       OverlayRequests="overlayRequests"
                                                       EventSelected="OpenEventDetailsAsync"
                                                       EventFocused="SetFocusedEvent"
@@ -169,6 +177,7 @@
                                                         Close="CloseEventDetails" />
     }
 </main>
+</CascadingValue>
 
 @if (HasOpenOverlay)
 {
@@ -366,6 +375,7 @@
                 </section>
 
                 <section class="editor-group" aria-label="更多信息">
+                <EventColorPicker @bind-Value="editor.ColorIndex" />
                 <div class="editor-row">
                     <label for="event-repeat">重复</label>
                     <select id="event-repeat"
@@ -989,8 +999,9 @@
 
     private async Task ShowWeekAsync(CalendarWeek week)
     {
+        selectedDate = week.StartDate.AddDays(((int)selectedDate.DayOfWeek + 6) % 7);
         weekView = week.CreateView(today);
-        await LoadEventsAsync();
+        await LoadEventsAsync(showLoading: false);
     }
 
     private void OpenMonthDay(DateOnly date)
@@ -1006,8 +1017,12 @@
         selectedDate = date;
         weekView = CalendarWeek.FromDate(date).CreateView(today);
         monthView = CalendarMonth.FromDate(date).CreateView(today);
-        await LoadEventsAsync();
+        await LoadEventsAsync(showLoading: false);
     }
+
+    private Task NavigateTimelinePeriodAsync(int direction) => HasOpenOverlay
+        ? Task.CompletedTask
+        : direction < 0 ? ShowPreviousPeriodAsync() : ShowNextPeriodAsync();
 
     private void ShowDisplayMode(CalendarViewMode mode)
     {
@@ -1314,10 +1329,12 @@
             if (recurringEvent is not null)
             {
                 await RememberFocusAsync();
+                selectedOccurrence = new(recurringEvent.Id, recurringIntent.OriginalStartUtc, recurringIntent.OriginalEndUtc);
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     recurringEvent,
                     CalendarRecurrenceAction.ApplyInteractionToSeries,
-                    result.Intent);
+                    result.Intent,
+                    occurrenceStartUtc: recurringIntent.OriginalStartUtc);
                 detailError = null;
             }
             return;
@@ -1616,13 +1633,23 @@
 
     private void EditSelectedOccurrence()
     {
-        if (overlayState is not RecurrenceScopeOverlayState { Action: CalendarRecurrenceAction.EditSeries, OccurrenceStartUtc: { } start } scope ||
+        if (overlayState is not RecurrenceScopeOverlayState { OccurrenceStartUtc: { } start } scope ||
+            scope.Action is not (CalendarRecurrenceAction.EditSeries or CalendarRecurrenceAction.ApplyInteractionToSeries) ||
             selectedOccurrence is not { EndUtc: { } end }) return;
-        var draft = EventService.CreateDraft(scope.CalendarEvent with { StartUtc = start, EndUtc = end, RecurrenceRule = null });
-        editingEventId = scope.CalendarEvent.Id;
-        editorError = null;
-        detailError = null;
-        overlayState = new FullEditorOverlayState(draft, new(scope.CalendarEvent.Id, start, end));
+        try
+        {
+            var draft = scope.PendingIntent is { } pending
+                ? InteractionService.PrepareOccurrenceInteractionDraft(scope.CalendarEvent, pending)
+                : EventService.CreateDraft(scope.CalendarEvent with { StartUtc = start, EndUtc = end, RecurrenceRule = null });
+            editingEventId = scope.CalendarEvent.Id;
+            editorError = null;
+            detailError = null;
+            overlayState = new FullEditorOverlayState(draft, new(scope.CalendarEvent.Id, start, end));
+        }
+        catch (ArgumentException exception)
+        {
+            detailError = exception.Message;
+        }
     }
 
     private async Task DeleteSelectedEventAsync()

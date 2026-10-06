@@ -71,6 +71,7 @@ public sealed class LocalBackupRestoreService(
         "endUtc",
         "timeZoneId",
         "isAllDay",
+        "colorIndex",
         "recurrenceRule",
         "excludedOccurrenceStartsUtc",
         "externalUid",
@@ -382,6 +383,9 @@ public sealed class LocalBackupRestoreService(
             {
                 throw new LocalBackupRestoreException("备份包含无效的外部事件 UID，未修改本地数据。");
             }
+
+            if (calendarEvent.ColorIndex is < 1 or > 8)
+                throw new LocalBackupRestoreException("备份包含无效的日程颜色，未修改本地数据。");
 
             if (calendarEvent.EndUtc <= calendarEvent.StartUtc ||
                 calendarEvent.UpdatedAtUtc < calendarEvent.CreatedAtUtc ||

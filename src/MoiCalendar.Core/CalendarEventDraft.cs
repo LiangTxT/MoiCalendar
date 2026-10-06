@@ -10,6 +10,8 @@ public sealed class CalendarEventDraft
 
     public string Location { get; set; } = string.Empty;
 
+    public int ColorIndex { get; set; } = 1;
+
     public DateTime StartLocal { get; set; }
 
     public DateTime EndLocal { get; set; }
@@ -64,6 +66,7 @@ public sealed class CalendarEventDraft
             Title = calendarEvent.Title,
             Description = calendarEvent.Description,
             Location = calendarEvent.Location,
+            ColorIndex = calendarEvent.ColorIndex,
             StartLocal = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified),
             EndLocal = DateTime.SpecifyKind(endLocal, DateTimeKind.Unspecified),
             TimeZoneId = calendarEvent.TimeZoneId

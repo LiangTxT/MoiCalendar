@@ -15,8 +15,14 @@
     {
         var month = entry.Month;
         <section class="agenda-month" @key="month" data-agenda-month="@($"{month.Year:D4}-{month.Month:D2}")" aria-label="@($"{month.Year}年{month.Month}月")">
-            <header class="agenda-month-banner" style="@BannerStyle(month.Month)">
-                <h2><span>@month.Year</span><small>年</small><span>@month.Month</span><small>月</small></h2>
+            <header class="agenda-month-banner">
+                <img class="agenda-month-art" src="@BannerSource(month.Month)" width="@BannerSize(month.Month).Width" height="@BannerSize(month.Month).Height" alt="" loading="lazy" decoding="async" />
+                <h2 aria-label="@($"{month.Year}年{month.Month}月")">
+                    <time class="agenda-month-stamp" datetime="@($"{month.Year:D4}-{month.Month:D2}")" aria-hidden="true">
+                        <span class="agenda-month-number">@month.Month<small>月</small></span>
+                        <span class="agenda-month-year">@month.Year<small>年</small></span>
+                    </time>
+                </h2>
             </header>
             @foreach (var week in AgendaWeekProjection.Create(month, entry.View, CalendarVisible, Today))
             {
@@ -156,7 +162,14 @@
         else await ExtendAsync(failedDirection);
     }
 
-    private static string BannerStyle(int month) => $"--agenda-art-column:{(month - 1) % 3};--agenda-art-row:{(month - 1) / 3}";
+    private static string BannerSource(int month) => $"images/agenda-month-{month:D2}-pixel-v1.png";
+    private static (int Width, int Height) BannerSize(int month) => month switch
+    {
+        3 or 4 or 9 => (1983, 793),
+        6 or 10 or 12 => (2048, 768),
+        8 => (2087, 754),
+        _ => (2172, 724)
+    };
     private static string EventStyle(CalendarEventListItem item) => $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(item.CalendarColorIndex, 1, 8)})";
     private static string Weekday(DateOnly date) => new[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" }[(int)date.DayOfWeek];
 

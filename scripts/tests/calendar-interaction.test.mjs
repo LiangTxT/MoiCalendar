@@ -13,7 +13,7 @@ function fixture(pointerType = 'mouse') {
     const node = () => ({
         style: { setProperty() {} },
         setAttribute() {},
-        classList: { add() {}, remove() {} },
+        classList: { add() {}, remove() {}, contains() { return false; } },
         children: [],
         append(...children) { this.children.push(...children); for (const child of children) child.parentElement = this; },
         remove() { this.removed = true; }

@@ -23,7 +23,7 @@
 
             <div class="quick-create-field">
                 <label for="quick-event-calendar">日历</label>
-                <select id="quick-event-calendar" disabled>
+                <select id="quick-event-calendar">
                     <option>本地日历</option>
                 </select>
             </div>
@@ -36,6 +36,8 @@
                        value="@DateInput"
                        @oninput="args => DateInput = args.Value?.ToString() ?? DateInput" />
             </div>
+
+            <EventColorPicker @bind-Value="Draft.ColorIndex" Disabled="IsSaving" />
 
             <div class="quick-create-field quick-create-all-day">
                 <span>全天</span>
