@@ -349,28 +349,7 @@
                     </label>
                 </div>
 
-                <div class="date-time-fields">
-                    <div>
-                        <label for="event-start">@(editor.IsAllDay ? "开始日期" : "开始日期/时间")</label>
-                        <input id="event-start"
-                               data-date-time-picker aria-describedby="editor-date-time-hint"
-                               type="@EditorInputType"
-                               step="@(editor.IsAllDay ? "1" : "60")"
-                               required
-                               @bind="editor.StartInput"
-                               @bind:event="oninput" />
-                    </div>
-                    <div>
-                        <label for="event-end">@(editor.IsAllDay ? "结束日期（不含）" : "结束日期/时间")</label>
-                        <input id="event-end"
-                               data-date-time-picker aria-describedby="editor-date-time-hint"
-                               type="@EditorInputType"
-                               step="@(editor.IsAllDay ? "1" : "60")"
-                               required
-                               @bind="editor.EndInput"
-                               @bind:event="oninput" />
-                    </div>
-                </div>
+                <EventDateTimeFields Draft="editor" />
                 <p id="editor-date-time-hint" class="date-time-input-hint">单击选择日期或时间，双击直接输入</p>
                 </section>
 
@@ -699,8 +678,6 @@
             : new DateOnly(monthView.Month.Year, monthView.Month.Month, 1);
 
     private DateOnly SelectedCreateDate => selectedDate == default ? AgendaCreateDate : selectedDate;
-
-    private string EditorInputType => editor?.IsAllDay == true ? "date" : "datetime-local";
 
     private const string RecurrenceDateInputType = "date";
 

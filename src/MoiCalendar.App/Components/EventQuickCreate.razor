@@ -30,11 +30,7 @@
 
             <div class="quick-create-field">
                 <label for="quick-event-date">日期</label>
-                <input id="quick-event-date"
-                       data-date-time-picker aria-describedby="quick-date-time-hint"
-                       type="date"
-                       value="@DateInput"
-                       @oninput="args => DateInput = args.Value?.ToString() ?? DateInput" />
+                <TemporalInput Id="quick-event-date" @bind-Value="DateInput" HintId="quick-date-time-hint" Required="true" />
             </div>
 
             <EventColorPicker @bind-Value="Draft.ColorIndex" Disabled="IsSaving" />
@@ -55,12 +51,7 @@
             {
                 <div class="quick-create-field">
                     <label for="quick-event-end-date">结束日期<br /><span class="field-hint">包含当天</span></label>
-                    <input id="quick-event-end-date"
-                           data-date-time-picker aria-describedby="quick-date-time-hint"
-                           type="date"
-                           min="@DateInput"
-                           value="@EndDateInput"
-                           @oninput="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
+                    <TemporalInput Id="quick-event-end-date" @bind-Value="EndDateInput" Min="@DateInput" HintId="quick-date-time-hint" Required="true" />
                 </div>
             }
             else
@@ -68,29 +59,18 @@
                 <div class="quick-create-time-pair">
                     <div>
                     <label for="quick-event-start">开始</label>
-                    <input id="quick-event-start"
-                           data-date-time-picker aria-describedby="quick-date-time-hint"
-                           type="time"
-                           step="60"
-                           value="@StartTimeInput"
-                           @oninput="args => StartTimeInput = args.Value?.ToString() ?? StartTimeInput" />
+                    <TemporalInput Id="quick-event-start" Type="time" @bind-Value="StartTimeInput" HintId="quick-date-time-hint" Required="true" />
                     </div>
                     <div>
                     <label for="quick-event-end">结束</label>
-                    <input id="quick-event-end"
-                           data-date-time-picker aria-describedby="quick-date-time-hint"
-                           type="time"
-                           step="60"
-                           value="@EndTimeInput"
-                           @oninput="args => EndTimeInput = args.Value?.ToString() ?? EndTimeInput" />
+                    <TemporalInput Id="quick-event-end" Type="time" @bind-Value="EndTimeInput" HintId="quick-date-time-hint" Required="true" />
                     </div>
                 </div>
                 @if (schedule.CrossesMidnight)
                 {
                     <div class="quick-create-field">
                         <label for="quick-event-end-date">结束日期</label>
-                        <input id="quick-event-end-date" data-date-time-picker aria-describedby="quick-date-time-hint" type="date" min="@DateInput" value="@EndDateInput"
-                               @oninput="args => EndDateInput = args.Value?.ToString() ?? EndDateInput" />
+                        <TemporalInput Id="quick-event-end-date" @bind-Value="EndDateInput" Min="@DateInput" HintId="quick-date-time-hint" Required="true" />
                     </div>
                 }
             }

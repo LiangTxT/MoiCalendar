@@ -1,0 +1,17 @@
+<span class="temporal-input temporal-input-@Type">
+    <input id="@Id" type="@Type" value="@Value" min="@Min" required="@Required"
+           step="@(Type == "time" ? "60" : "1")" data-date-time-picker
+           aria-label="@AccessibleLabel" aria-describedby="@HintId"
+           @oninput="args => ValueChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)" />
+</span>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter] public string Type { get; set; } = "date";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? Min { get; set; }
+    [Parameter] public string? AccessibleLabel { get; set; }
+    [Parameter] public string? HintId { get; set; }
+    [Parameter] public bool Required { get; set; }
+}

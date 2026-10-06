@@ -1,0 +1,45 @@
+@using System.Globalization
+<div class="date-time-fields">
+    <div>
+        <label for="event-start">@(Draft.IsAllDay ? "开始日期" : "开始")</label>
+        <TemporalInput Id="event-start" Value="@Draft.StartLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" ValueChanged="value => ChangeDate(value, true)" Required="true" AccessibleLabel="开始日期" HintId="editor-date-time-hint" />
+        @if (!Draft.IsAllDay)
+        {
+            <TemporalInput Id="event-start-time" Type="time" Value="@Draft.StartLocal.ToString("HH:mm", CultureInfo.InvariantCulture)" ValueChanged="value => ChangeTime(value, true)" Required="true" AccessibleLabel="开始时间" HintId="editor-date-time-hint" />
+        }
+    </div>
+    <div>
+        <label for="event-end">@(Draft.IsAllDay ? "结束日期（不含）" : "结束")</label>
+        <TemporalInput Id="event-end" Value="@Draft.EndLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" ValueChanged="value => ChangeDate(value, false)" Required="true" AccessibleLabel="结束日期" HintId="editor-date-time-hint" />
+        @if (!Draft.IsAllDay)
+        {
+            <TemporalInput Id="event-end-time" Type="time" Value="@Draft.EndLocal.ToString("HH:mm", CultureInfo.InvariantCulture)" ValueChanged="value => ChangeTime(value, false)" Required="true" AccessibleLabel="结束时间" HintId="editor-date-time-hint" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CalendarEventDraft Draft { get; set; } = null!;
+
+    private void ChangeDate(string value, bool start)
+    {
+        var current = start ? Draft.StartLocal : Draft.EndLocal;
+        var updated = WithDate(current, value);
+        if (start) Draft.StartLocal = updated; else Draft.EndLocal = updated;
+    }
+
+    private void ChangeTime(string value, bool start)
+    {
+        var current = start ? Draft.StartLocal : Draft.EndLocal;
+        var updated = WithTime(current, value);
+        if (start) Draft.StartLocal = updated; else Draft.EndLocal = updated;
+    }
+
+    public static DateTime WithDate(DateTime current, string value) =>
+        DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date.ToDateTime(TimeOnly.FromDateTime(current), DateTimeKind.Unspecified) : current;
+
+    public static DateTime WithTime(DateTime current, string value) =>
+        TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time)
+            ? DateOnly.FromDateTime(current).ToDateTime(time, DateTimeKind.Unspecified) : current;
+}
