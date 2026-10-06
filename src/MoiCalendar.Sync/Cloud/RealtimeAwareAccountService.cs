@@ -6,7 +6,8 @@ namespace MoiCalendar.Sync.Cloud;
 /// </summary>
 internal sealed class RealtimeAwareAccountService(
     IAccountService inner,
-    IRealtimeNotifier realtimeNotifier) : IAccountService
+    IRealtimeNotifier realtimeNotifier,
+    AutoSyncSignal? autoSyncSignal = null) : IAccountService
 {
     public bool IsAvailable => inner.IsAvailable;
 
@@ -45,6 +46,7 @@ internal sealed class RealtimeAwareAccountService(
             emailRedirectUrl,
             cancellationToken);
         await AlignSubscriptionAsync(result.IsSignedIn ? result.Account : null, cancellationToken);
+        if (result.IsSignedIn) NotifyAccountReady();
         return result;
     }
 
@@ -55,6 +57,7 @@ internal sealed class RealtimeAwareAccountService(
     {
         var account = await inner.LoginAsync(emailAddress, password, cancellationToken);
         await AlignSubscriptionAsync(account, cancellationToken);
+        NotifyAccountReady();
         return account;
     }
 
@@ -82,7 +85,14 @@ internal sealed class RealtimeAwareAccountService(
     {
         var account = await inner.CompletePasswordResetAsync(newPassword, cancellationToken);
         await AlignSubscriptionAsync(account, cancellationToken);
+        NotifyAccountReady();
         return account;
+    }
+
+    private void NotifyAccountReady()
+    {
+        try { autoSyncSignal?.NotifyAccountReady(); }
+        catch { /* Synchronization failure must not invalidate successful authentication. */ }
     }
 
     private async Task AlignSubscriptionAsync(

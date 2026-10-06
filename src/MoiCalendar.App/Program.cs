@@ -86,7 +86,10 @@ builder.Services.AddScoped<ISyncStateRepository, IndexedDbSyncStateRepository>()
 builder.Services.AddScoped<ICloudSyncBindingRepository, IndexedDbCloudSyncBindingRepository>();
 builder.Services.AddScoped<ICloudChangeApplyRepository, IndexedDbCloudChangeApplyRepository>();
 builder.Services.AddScoped<IAccountDeletionLocalRepository, IndexedDbAccountDeletionLocalRepository>();
-builder.Services.AddScoped<ILocalEventChangeRepository, IndexedDbEventChangeRepository>();
+builder.Services.AddScoped<IndexedDbEventChangeRepository>();
+builder.Services.AddScoped<ILocalEventChangeRepository>(sp => new NotifyingLocalEventChangeRepository(
+    sp.GetRequiredService<IndexedDbEventChangeRepository>(),
+    sp.GetRequiredService<ILocalChangeNotifier>()));
 builder.Services.AddScoped<IRemoteSyncApplyRepository, IndexedDbRemoteSyncApplyRepository>();
 builder.Services.AddScoped<CalendarEventService>();
 builder.Services.AddScoped<CalendarInteractionService>();

@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @using MoiCalendar.App.Components
 @inject CalendarEventService EventService
+@inject ICalendarDataChangeNotifier DataChanges
 @inject CalendarInteractionService InteractionService
 @inject ICalendarViewPreferenceStore ViewPreferences
 @inject NavigationManager Navigation
@@ -721,6 +722,31 @@
         }
     }
 
+    private bool disposed;
+
+    protected override void OnInitialized() => DataChanges.Changed += OnSyncedDataChanged;
+
+    private void OnSyncedDataChanged(object? sender, EventArgs args) => _ = RefreshSyncedEventsAsync();
+
+    private async Task RefreshSyncedEventsAsync()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (disposed || !isInitialized) return;
+                timelinePrefetch?.Cancel();
+                timelineViewCache.Clear();
+                monthEventCache.Clear();
+                monthLayoutCache.Clear();
+                await LoadEventsAsync(showLoading: false);
+                if (!disposed) StateHasChanged();
+            });
+        }
+        catch (Exception) when (disposed) { }
+        catch (EventRepositoryException) { /* The next refresh can retry; local data remains intact. */ }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -747,6 +773,8 @@
 
     public async ValueTask DisposeAsync()
     {
+        disposed = true;
+        DataChanges.Changed -= OnSyncedDataChanged;
         ++timelineNavigationVersion;
         timelinePrefetch?.Cancel();
         timelinePrefetch?.Dispose();

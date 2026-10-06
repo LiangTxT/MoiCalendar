@@ -81,7 +81,8 @@ public sealed class CloudSyncStatusService(
     ISyncStateRepository syncStateRepository,
     ICloudSyncBindingRepository bindingRepository,
     IEventRepository eventRepository,
-    TimeProvider timeProvider) : ICloudSyncStatusService, IDisposable
+    TimeProvider timeProvider,
+    AutoSyncSignal? autoSyncSignal = null) : ICloudSyncStatusService, IDisposable
 {
     private const int MaximumStatusEntryCount = 1_000;
     private static readonly JsonSerializerOptions PayloadSerializerOptions =
@@ -238,11 +239,13 @@ public sealed class CloudSyncStatusService(
                         Guid.NewGuid(),
                         timeProvider.GetUtcNow(),
                         cancellationToken);
+                    autoSyncSignal?.NotifyCommitted();
                     break;
                 case CloudConflictResolution.KeepCloud
                     when conflict.ConflictServerRevision is > 0 &&
                          conflict.ConflictRemoteEvent?.Id == conflict.EntityId:
                     _ = await conflictRepository.KeepCloudAsync(mutationId, cancellationToken);
+                    autoSyncSignal?.NotifyChanged();
                     break;
                 default:
                     throw new CloudConflictResolutionException(

@@ -16,7 +16,8 @@ public sealed class CloudSyncService(
     TimeProvider timeProvider,
     ICloudSyncRetryPolicy retryPolicy,
     ICloudSyncDelay syncDelay,
-    IOperationalDiagnosticsSink? diagnostics = null) : ICloudSyncService
+    IOperationalDiagnosticsSink? diagnostics = null,
+    ICalendarDataChangeNotifier? dataChanges = null) : ICloudSyncService
 {
     private const int BatchSize = 100;
     private const int MaximumPendingInspectionCount = 1_000;
@@ -40,6 +41,11 @@ public sealed class CloudSyncService(
         {
             var result = await SynchronizeCoreAsync(cancellationToken);
             CurrentStatus = result.Status;
+            if (result.PulledCount > 0)
+            {
+                try { dataChanges?.NotifyChanged(); }
+                catch { /* A view refresh cannot change the outcome of committed synchronization. */ }
+            }
             await RecordDiagnosticAsync(new OperationalDiagnosticDraft
             {
                 Kind = OperationalDiagnosticKind.SyncCompleted,

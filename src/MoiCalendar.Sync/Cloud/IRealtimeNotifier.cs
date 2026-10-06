@@ -15,7 +15,8 @@ public enum RealtimeWakeUpReason
     InitialConnection,
     ChangeNotification,
     Reconnected,
-    ForegroundResume
+    ForegroundResume,
+    PeriodicCheck
 }
 
 /// <summary>

@@ -46,7 +46,8 @@ public static class SupabaseServiceCollectionExtensions
                 new DiagnosticsAwareAccountService(
                     new RealtimeAwareAccountService(
                         serviceProvider.GetRequiredService<SupabaseAccountService>(),
-                        serviceProvider.GetRequiredService<IRealtimeNotifier>()),
+                        serviceProvider.GetRequiredService<IRealtimeNotifier>(),
+                        serviceProvider.GetRequiredService<AutoSyncSignal>()),
                     serviceProvider.GetService<IOperationalDiagnosticsSink>() ??
                         DisabledOperationalDiagnosticsSink.Instance));
             services.AddScoped<ICloudSyncTransport>(serviceProvider => new SupabaseCloudSyncTransport(
@@ -80,6 +81,9 @@ public static class SupabaseServiceCollectionExtensions
         services.AddSingleton<ICloudSyncDelay, SystemCloudSyncDelay>();
         services.AddScoped<ICloudSyncService, CloudSyncService>();
         services.AddScoped<ICloudSyncStatusService, CloudSyncStatusService>();
+        services.AddScoped<AutoSyncSignal>();
+        services.AddScoped<ILocalChangeNotifier>(sp => sp.GetRequiredService<AutoSyncSignal>());
+        services.AddScoped<ICalendarDataChangeNotifier>(sp => sp.GetRequiredService<AutoSyncSignal>());
         services.AddScoped<IRealtimeSyncCoordinator, RealtimeSyncCoordinator>();
         return services;
     }
