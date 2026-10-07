@@ -713,6 +713,8 @@ public sealed class InMemoryCloudChangeApplyRepository(
         DateTimeOffset synchronizedAtUtc,
         CancellationToken cancellationToken = default)
     {
+        var previous = await syncStateRepository.GetAsync(scope, cancellationToken);
+        var deferred = previous?.DeferredEntityRevisions?.ToDictionary(pair => pair.Key, pair => pair.Value) ?? [];
         var pendingEntityIds = outboxRepository is null
             ? []
             : (await outboxRepository.GetPendingAsync(1_000, cancellationToken))
@@ -723,14 +725,21 @@ public sealed class InMemoryCloudChangeApplyRepository(
             if (!pendingEntityIds.Contains(change.CalendarEvent.Id))
             {
                 await eventRepository.UpsertAsync(change.CalendarEvent, cancellationToken);
+                deferred.Remove(change.CalendarEvent.Id);
+            }
+            else
+            {
+                deferred[change.CalendarEvent.Id] = Math.Min(change.ServerRevision,
+                    deferred.GetValueOrDefault(change.CalendarEvent.Id, change.ServerRevision));
             }
         }
 
         await syncStateRepository.SaveAsync(new SyncState
         {
             Scope = scope,
-            LastSuccessfulServerRevision = cursor,
-            LastSuccessfulSyncAtUtc = synchronizedAtUtc.ToUniversalTime()
+            LastSuccessfulServerRevision = deferred.Count == 0 ? cursor : Math.Min(cursor, deferred.Values.Min() - 1),
+            LastSuccessfulSyncAtUtc = synchronizedAtUtc.ToUniversalTime(),
+            DeferredEntityRevisions = deferred
         }, cancellationToken);
     }
 }

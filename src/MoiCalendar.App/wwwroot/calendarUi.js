@@ -139,6 +139,8 @@ window.moicalendarUi = {
             const tag = target?.tagName?.toLowerCase();
             const isTextEntry = tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
             const key = event.key.toLowerCase();
+            // Native button activation and the gridcell's own handler must retain Enter.
+            if ((key === "enter" || key === " ") && target?.closest?.("button, a, [role='gridcell']")) return;
             const isSearchShortcut = key === "k" && !event.altKey && event.ctrlKey !== event.metaKey;
             if (target?.closest?.(".month-navigation-rail, .form-picker") || isTextEntry || (!isSearchShortcut && (event.ctrlKey || event.altKey || event.metaKey)) || !supported.has(key)) {
                 return;

@@ -2,7 +2,8 @@
         type="button"
         aria-label="@($"{Date:yyyy-MM-dd} 还有 {HiddenEventCount} 个事件")"
         @onclick="() => Requested.InvokeAsync(Date)"
-        @onclick:stopPropagation="true">+@HiddenEventCount 更多</button>
+        @onclick:stopPropagation="true"
+        @onkeydown:stopPropagation="true">+@HiddenEventCount 更多</button>
 
 @code {
     [Parameter, EditorRequired] public DateOnly Date { get; set; }

@@ -387,6 +387,10 @@ public sealed class CloudSyncService(
             }
         }
 
+        // Pending entities were retained locally; acknowledge only the durable replay-safe cursor,
+        // never the higher cursor of the server page that contained skipped revisions.
+        var durableState = await syncStateRepository.GetAsync(scope, cancellationToken);
+        cursor = Math.Min(cursor, durableState?.LastSuccessfulServerRevision ?? cursor);
         var remaining = await outboxRepository.GetPendingAsync(
             MaximumPendingInspectionCount,
             cancellationToken);

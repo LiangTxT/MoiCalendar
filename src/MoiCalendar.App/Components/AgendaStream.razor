@@ -68,6 +68,8 @@
 
 @code {
     [Parameter] public CalendarMonth Month { get; set; }
+    [Parameter] public int ReloadVersion { get; set; }
+    private int loadedReloadVersion = -1;
     [Parameter] public DateOnly Today { get; set; }
     [Parameter] public string TimeZoneId { get; set; } = "UTC";
     [Parameter] public bool CalendarVisible { get; set; } = true;
@@ -89,24 +91,29 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (loadedMonth == Month) return;
+        if (loadedMonth == Month && loadedReloadVersion == ReloadVersion) return;
+        var refresh = loadedMonth == Month && months.Count > 0;
+        var refreshMonths = refresh ? months.Select(item => item.Month).ToArray() : null;
+        loadedReloadVersion = ReloadVersion;
         loadedMonth = Month;
         var version = ++loadVersion;
-        months.Clear();
+        if (!refresh) months.Clear();
         busy = true;
         try
         {
             // 保留本月在顶部，预读后两个月；向上扩展时不替换已呈现的内容。
             var next = Month;
             var loaded = new List<(CalendarMonth Month, CalendarAgendaView View)>();
-            for (var index = 0; index < 3; index++)
+            for (var index = 0; index < (refreshMonths?.Length ?? 3); index++)
             {
+                if (refreshMonths is not null) next = refreshMonths[index];
                 var view = await Events.GetAgendaViewAsync(next, TimeZoneId);
                 if (disposed || version != loadVersion) return;
                 loaded.Add((next, view));
                 if (next.Year == 9999 && next.Month == 12) break;
                 next = next.Next();
             }
+            months.Clear();
             months.AddRange(loaded);
             error = null;
         }

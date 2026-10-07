@@ -1,0 +1,74 @@
+@implements IAsyncDisposable
+@inject CalendarReminderService Reminders
+@inject IReminderStateStore State
+@inject BrowserReminderService Browser
+@inject ILocalChangeNotifier Changes
+@inject ICalendarDataChangeNotifier RemoteChanges
+
+@if (message is not null)
+{
+    <aside class="reminder-toast" role="status" aria-live="polite">
+        <div><span class="v4-meta">日程提醒</span><strong>@message.Title</strong></div>
+        <a href="@($"?view=day&date={(message.IsAllDay ? message.Date : DateOnly.FromDateTime(message.OccurrenceStartUtc.ToLocalTime().DateTime)):yyyy-MM-dd}")">查看</a>
+        <button class="icon-button" type="button" aria-label="关闭提醒" @onclick="Dismiss">×</button>
+    </aside>
+}
+
+@code {
+    private CalendarReminder? message;
+    private readonly Queue<CalendarReminder> pending = new();
+    private void Dismiss() => message = pending.TryDequeue(out var next) ? next : null;
+    private readonly CancellationTokenSource lifetime = new();
+    private Task? loop;
+    private bool busy;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { _ = await Browser.StatusAsync(); } catch (JSException) { /* In-app reminders remain available. */ }
+        Changes.Committed += Changed;
+        RemoteChanges.Changed += Changed;
+        loop = RunAsync();
+    }
+    private void Changed(object? sender, EventArgs args) => _ = InvokeAsync(CheckAsync);
+    private async Task RunAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try { do { await InvokeAsync(CheckAsync); } while (await timer.WaitForNextTickAsync(lifetime.Token)); }
+        catch (OperationCanceledException) { }
+    }
+    private async Task CheckAsync()
+    {
+        if (busy || lifetime.IsCancellationRequested) return;
+        busy = true;
+        try
+        {
+            if (!await State.GetEnabledAsync(lifetime.Token)) return;
+            var now = DateTimeOffset.UtcNow;
+            foreach (var reminder in await Reminders.GetDueAsync(now.AddMinutes(-5), now, lifetime.Token))
+            {
+                if (!await State.ClaimAsync(reminder.Key, now, lifetime.Token)) continue;
+                bool shown;
+                try { shown = await Browser.ShowAsync(reminder); }
+                catch (JSException) { shown = false; }
+                if (!shown)
+                {
+                    if (message is null) message = reminder;
+                    else pending.Enqueue(reminder);
+                    StateHasChanged();
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is JSException or EventRepositoryException or InvalidOperationException)
+        { /* Notification transport failure must not stop local calendar use. Retry next tick. */ }
+        finally { busy = false; }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        Changes.Committed -= Changed;
+        RemoteChanges.Changed -= Changed;
+        lifetime.Cancel();
+        if (loop is not null) await loop;
+        lifetime.Dispose();
+    }
+}

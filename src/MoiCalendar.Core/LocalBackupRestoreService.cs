@@ -72,6 +72,9 @@ public sealed class LocalBackupRestoreService(
         "timeZoneId",
         "isAllDay",
         "colorIndex",
+        "reminderMinutesBeforeStart",
+        "reminderTimeZoneId",
+        "allDayReminderMinuteOfDay",
         "recurrenceRule",
         "excludedOccurrenceStartsUtc",
         "externalUid",
@@ -396,9 +399,13 @@ public sealed class LocalBackupRestoreService(
 
             try
             {
-                _ = TimeZoneInfo.FindSystemTimeZoneById(calendarEvent.TimeZoneId);
+                _ = CalendarTimeZone.Resolve(calendarEvent.TimeZoneId);
+                ReminderPolicy.Validate(calendarEvent.ReminderMinutesBeforeStart);
+                ReminderPolicy.ValidateAllDayTime(calendarEvent.AllDayReminderMinuteOfDay);
+                if (calendarEvent.ReminderMinutesBeforeStart is not null)
+                    _ = CalendarTimeZone.Resolve(calendarEvent.ReminderTimeZoneId ?? calendarEvent.TimeZoneId);
             }
-            catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+            catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentException)
             {
                 throw new LocalBackupRestoreException("备份包含当前设备无法识别的事件时区，未修改本地数据。", exception);
             }

@@ -41,7 +41,7 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
 
         return expanded
             .OrderBy(item => item.StartUtc)
-            .ThenBy(item => item.Title, StringComparer.CurrentCulture)
+            .ThenBy(item => item.Title, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -78,6 +78,7 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
         var searchEnd = AddClamped(localRangeEnd, TimeSpan.FromDays(1));
 
         var occurrenceNumber = 0;
+        var exclusions = (master.ExcludedOccurrenceStartsUtc ?? []).ToHashSet();
         var enumerationStart = rule.Count is null ? searchStart : masterLocalStart;
         foreach (var localStart in EnumerateStarts(masterLocalStart, enumerationStart, searchEnd, rule))
         {
@@ -97,9 +98,19 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
                 break;
             }
             // 排除不补足 COUNT，否则删除一次会意外新增系列末尾的一次。
-            if (master.ExcludedOccurrenceStartsUtc?.Contains(occurrenceStartUtc) == true) continue;
+            if (exclusions.Contains(occurrenceStartUtc)) continue;
 
             var localEnd = AddClamped(localStart, wallClockDuration);
+            if (timeZone.IsInvalidTime(localEnd))
+            {
+                // Interpret an endpoint in the spring gap with the pre-transition offset:
+                // 02:30 becomes 03:30, preserving minutes, rather than erasing the occurrence.
+                var before = localEnd;
+                var after = localEnd;
+                for (var minutes = 0; minutes < 2880 && timeZone.IsInvalidTime(before); minutes++) before = before.AddMinutes(-1);
+                for (var minutes = 0; minutes < 2880 && timeZone.IsInvalidTime(after); minutes++) after = after.AddMinutes(1);
+                localEnd = AddClamped(localEnd, timeZone.GetUtcOffset(after) - timeZone.GetUtcOffset(before));
+            }
             if (!TryConvertLocalToUtc(localEnd, timeZone, out var occurrenceEndUtc))
             {
                 continue;
@@ -173,7 +184,8 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
         DateTime searchEnd,
         ParsedRecurrenceRule rule)
     {
-        var masterWeekStart = masterStart.Date.AddDays(-RecurrenceRuleParser.ToMondayBasedIndex(masterStart.DayOfWeek));
+        static int Index(DayOfWeek day, DayOfWeek start) => ((int)day - (int)start + 7) % 7;
+        var masterWeekStart = masterStart.Date.AddDays(-Index(masterStart.DayOfWeek, rule.WeekStart));
         var weekIndex = rule.Count is null
             ? Math.Max(0L, (long)Math.Floor((searchStart.Date - masterWeekStart).TotalDays / (7 * rule.Interval)) - 1)
             : 0L;
@@ -198,7 +210,7 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
             }
 
             var candidates = weekdays
-                .Select(day => weekStart.AddDays(RecurrenceRuleParser.ToMondayBasedIndex(day)) + masterStart.TimeOfDay)
+                .Select(day => weekStart.AddDays(Index(day, rule.WeekStart)) + masterStart.TimeOfDay)
                 .Where(candidate => candidate >= masterStart)
                 .Append(weekIndex == 0 ? masterStart : DateTime.MinValue)
                 .Where(candidate => candidate != DateTime.MinValue)
@@ -356,7 +368,9 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
 
         try
         {
-            utc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localDateTime, timeZone), TimeSpan.Zero);
+            utc = timeZone.IsAmbiguousTime(localDateTime)
+                ? new DateTimeOffset(localDateTime, timeZone.GetAmbiguousTimeOffsets(localDateTime).Max()).ToUniversalTime()
+                : new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localDateTime, timeZone), TimeSpan.Zero);
             return true;
         }
         catch (ArgumentException)
@@ -375,7 +389,7 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
 
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return CalendarTimeZone.Resolve(timeZoneId);
         }
         catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
         {

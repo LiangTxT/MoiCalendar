@@ -1,8 +1,11 @@
 {
   "devDependencies": {
+    "rrule": "2.8.1",
+    "web-push": "3.6.7",
     "supabase": "^2.116.0"
   },
   "scripts": {
+    "test": "node --test scripts/tests/*.test.mjs",
     "cloud:configure:local": "node scripts/configure-cloud-backend.mjs local",
     "cloud:configure:managed": "node scripts/configure-cloud-backend.mjs managed",
     "cloud:configure:production": "node scripts/configure-cloud-backend.mjs production",

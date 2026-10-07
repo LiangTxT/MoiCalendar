@@ -16,6 +16,7 @@ public sealed record CalendarImportPreviewItem(
     Guid? ExistingEventId)
 {
     public bool IsPotentialDuplicate => ExistingEventId.HasValue;
+    public bool IsDeletedDuplicate { get; init; }
 }
 
 public sealed record CalendarImportPreview(
@@ -88,7 +89,8 @@ public sealed class CalendarImportService(
             .Select((candidate, index) => new CalendarImportPreviewItem(
                 index + 1,
                 candidate,
-                duplicateLookup.GetValueOrDefault(candidate.ExternalUid)?.Id))
+                duplicateLookup.GetValueOrDefault(candidate.ExternalUid)?.Id)
+                { IsDeletedDuplicate = duplicateLookup.GetValueOrDefault(candidate.ExternalUid)?.DeletedAtUtc is not null })
             .ToArray();
         var preview = new CalendarImportPreview(
             Guid.NewGuid(),
@@ -142,14 +144,14 @@ public sealed class CalendarImportService(
                         throw new CalendarImportException("重复事件处理方式无效，请重新选择后导入。");
                     }
 
-                    if (action == CalendarImportDuplicateAction.Skip)
+                    if (action == CalendarImportDuplicateAction.Skip || item.IsDeletedDuplicate)
                     {
                         skippedCount++;
                         continue;
                     }
 
                     existing = prepared.ExistingEvents[existingId];
-                    calendarEvent = ToCalendarEvent(item.Candidate, existing.Id, existing.CreatedAtUtc, now) with
+                    calendarEvent = ToCalendarEvent(item.Candidate, existing.Id, existing.CreatedAtUtc, now, existing) with
                     {
                         DeletedAtUtc = null
                     };
@@ -228,7 +230,15 @@ public sealed class CalendarImportService(
         ICalendarImportCandidate candidate,
         Guid id,
         DateTimeOffset createdAtUtc,
-        DateTimeOffset updatedAtUtc) => new()
+        DateTimeOffset updatedAtUtc,
+        CalendarEvent? existing = null)
+    {
+        var updated = (existing ?? new CalendarEvent
+        {
+            Id = id, Title = string.Empty, Description = string.Empty, Location = string.Empty,
+            StartUtc = candidate.StartUtc, EndUtc = candidate.EndUtc, TimeZoneId = candidate.TimeZoneId,
+            IsAllDay = candidate.IsAllDay, CreatedAtUtc = createdAtUtc, UpdatedAtUtc = updatedAtUtc
+        }) with
         {
             Id = id,
             Title = candidate.Title,
@@ -239,10 +249,16 @@ public sealed class CalendarImportService(
             TimeZoneId = candidate.TimeZoneId,
             IsAllDay = candidate.IsAllDay,
             RecurrenceRule = candidate.RecurrenceRule,
+            ColorIndex = existing?.ColorIndex ?? 1,
+            ExcludedOccurrenceStartsUtc = candidate.ExcludedOccurrenceStartsUtc ?? existing?.ExcludedOccurrenceStartsUtc ?? [],
             ExternalUid = candidate.ExternalUid,
             CreatedAtUtc = createdAtUtc,
             UpdatedAtUtc = updatedAtUtc
         };
+        if (existing is not null && candidate.ExcludedOccurrenceStartsUtc is null)
+            updated = updated with { ExcludedOccurrenceStartsUtc = RecurrenceExclusionPolicy.Remap(existing, updated, new RecurrenceExpansionService()) };
+        return updated;
+    }
 
     private static Guid CreateDeterministicImportedEventId(string externalUid)
     {

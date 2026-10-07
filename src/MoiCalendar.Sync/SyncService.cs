@@ -246,6 +246,13 @@ public sealed partial class SyncService : ISyncService, ISyncDiagnosticsService
                 var eventToApply = localEvent is null || ShouldApplyRemoteEvent(remoteEvent, localEvent)
                     ? remoteEvent
                     : null;
+                if (localEvent is not null)
+                {
+                    var merged = eventToApply is not null
+                        ? RecurrenceExclusionMerge.Merge(remoteEvent, localEvent)
+                        : RecurrenceExclusionMerge.Merge(localEvent, remoteEvent);
+                    if (merged != localEvent) eventToApply = merged;
+                }
                 if (remoteSyncApplyRepository is not null)
                 {
                     await remoteSyncApplyRepository.ApplyAsync(

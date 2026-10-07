@@ -11,6 +11,25 @@ public sealed class CalendarEventDraft
     public string Location { get; set; } = string.Empty;
 
     public int ColorIndex { get; set; } = 1;
+    public int RemovedExclusionCount { get; internal set; }
+    public int? ReminderMinutesBeforeStart { get; set; }
+    public string? ReminderTimeZoneId { get; set; }
+    public int AllDayReminderMinuteOfDay { get; set; } = 420;
+    public TimeOnly AllDayReminderTime
+    {
+        get => TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(AllDayReminderMinuteOfDay));
+        set => AllDayReminderMinuteOfDay = value.Hour * 60 + value.Minute;
+    }
+    public string AllDayReminderTimeInput
+    {
+        get => TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(AllDayReminderMinuteOfDay)).ToString("HH:mm", CultureInfo.InvariantCulture);
+        set
+        {
+            if (TimeOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+                AllDayReminderMinuteOfDay = time.Hour * 60 + time.Minute;
+        }
+    }
+    public int ReminderChoice { get => ReminderMinutesBeforeStart ?? -1; set => ReminderMinutesBeforeStart = value < 0 ? null : value; }
 
     public DateTime StartLocal { get; set; }
 
@@ -36,10 +55,17 @@ public sealed class CalendarEventDraft
 
     public void SetAllDay(bool isAllDay)
     {
+        var wasAllDay = IsAllDay;
         IsAllDay = isAllDay;
 
         if (!isAllDay)
         {
+            if (wasAllDay)
+            {
+                StartLocal = StartLocal.Date.AddHours(9);
+                EndLocal = EndLocal.Date.AddHours(9);
+                if (EndLocal <= StartLocal) EndLocal = StartLocal.AddHours(1);
+            }
             return;
         }
 
@@ -53,7 +79,8 @@ public sealed class CalendarEventDraft
     {
         StartLocal = date.ToDateTime(new TimeOnly(9, 0)),
         EndLocal = date.ToDateTime(new TimeOnly(10, 0)),
-        TimeZoneId = timeZoneId
+        TimeZoneId = timeZoneId,
+        ReminderTimeZoneId = timeZoneId
     };
 
     internal static CalendarEventDraft FromEvent(CalendarEvent calendarEvent, TimeZoneInfo timeZone)
@@ -69,7 +96,10 @@ public sealed class CalendarEventDraft
             ColorIndex = calendarEvent.ColorIndex,
             StartLocal = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified),
             EndLocal = DateTime.SpecifyKind(endLocal, DateTimeKind.Unspecified),
-            TimeZoneId = calendarEvent.TimeZoneId
+            TimeZoneId = calendarEvent.TimeZoneId,
+            ReminderMinutesBeforeStart = calendarEvent.ReminderMinutesBeforeStart,
+            AllDayReminderMinuteOfDay = calendarEvent.AllDayReminderMinuteOfDay,
+            ReminderTimeZoneId = calendarEvent.ReminderTimeZoneId ?? (calendarEvent.IsAllDay ? TimeZoneInfo.Local.Id : calendarEvent.TimeZoneId)
         };
 
         draft.SetAllDay(calendarEvent.IsAllDay);

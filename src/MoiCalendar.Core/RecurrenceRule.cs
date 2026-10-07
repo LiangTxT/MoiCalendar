@@ -23,7 +23,10 @@ public sealed record ParsedRecurrenceRule(
     int Interval,
     int? Count,
     RecurrenceUntil? Until,
-    IReadOnlyList<DayOfWeek> ByDay);
+    IReadOnlyList<DayOfWeek> ByDay)
+{
+    public DayOfWeek WeekStart { get; init; } = DayOfWeek.Monday;
+}
 
 public static class RecurrenceRuleParser
 {
@@ -49,7 +52,7 @@ public static class RecurrenceRuleParser
         };
 
     private static readonly HashSet<string> SupportedParts =
-        new(["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"], StringComparer.OrdinalIgnoreCase);
+        new(["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY", "WKST"], StringComparer.OrdinalIgnoreCase);
 
     public static ParsedRecurrenceRule Parse(string value)
     {
@@ -95,6 +98,11 @@ public static class RecurrenceRuleParser
         var interval = ReadPositiveInteger(parts, "INTERVAL") ?? 1;
         var count = ReadPositiveInteger(parts, "COUNT");
         var until = parts.TryGetValue("UNTIL", out var untilText) ? ParseUntil(untilText) : null;
+        if (count is not null && until is not null)
+            throw new RecurrenceRuleException("COUNT 与 UNTIL 不能同时指定，请只选择一种结束方式。");
+        var weekStart = DayOfWeek.Monday;
+        if (parts.TryGetValue("WKST", out var weekStartText) && !Weekdays.TryGetValue(weekStartText, out weekStart))
+            throw new RecurrenceRuleException("WKST 必须是有效的星期名称。");
         var byDay = parts.TryGetValue("BYDAY", out var byDayText)
             ? ParseByDay(byDayText)
             : Array.Empty<DayOfWeek>();
@@ -104,7 +112,7 @@ public static class RecurrenceRuleParser
             throw new RecurrenceRuleException("当前版本仅支持 WEEKLY 规则使用 BYDAY。");
         }
 
-        return new ParsedRecurrenceRule(frequency, interval, count, until, byDay);
+        return new ParsedRecurrenceRule(frequency, interval, count, until, byDay) { WeekStart = weekStart };
     }
 
     private static int? ReadPositiveInteger(IReadOnlyDictionary<string, string> parts, string name)

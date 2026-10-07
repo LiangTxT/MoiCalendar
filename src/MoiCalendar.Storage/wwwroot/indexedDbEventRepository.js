@@ -515,7 +515,19 @@ export async function applyRemoteSyncOperation(calendarEvent, operation, operati
         }
 
         if (calendarEvent !== null && calendarEvent !== undefined) {
-            transaction.objectStore(configuredEventStoreName).put(calendarEvent);
+            const eventStore = transaction.objectStore(configuredEventStoreName);
+            const current = await requestAsPromise(eventStore.get(calendarEvent.id));
+            let preferred = !current || Date.parse(calendarEvent.updatedAtUtc) > Date.parse(current.updatedAtUtc) ||
+                (Date.parse(calendarEvent.updatedAtUtc) === Date.parse(current.updatedAtUtc) && calendarEvent.deletedAtUtc)
+                ? calendarEvent : current;
+            const other = preferred === current ? calendarEvent : current;
+            if (other && !preferred.deletedAtUtc && !other.deletedAtUtc && preferred.recurrenceRule &&
+                preferred.startUtc === other.startUtc && preferred.timeZoneId === other.timeZoneId &&
+                preferred.isAllDay === other.isAllDay && preferred.recurrenceRule === other.recurrenceRule) {
+                preferred = { ...preferred, excludedOccurrenceStartsUtc: [...new Set([
+                    ...(preferred.excludedOccurrenceStartsUtc || []), ...(other.excludedOccurrenceStartsUtc || [])])].sort() };
+            }
+            eventStore.put(preferred);
         }
         operationStore.put(operation);
         await completion;
@@ -1208,11 +1220,15 @@ export async function applyCloudChangesAndAdvanceCursor(
 
     const pendingEntries = await requestAsPromise(outboxStore.getAll());
     const pendingEntityIds = new Set(pendingEntries.map(entry => entry.entityId));
+    const deferredEntityRevisions = { ...(existingState?.deferredEntityRevisions || {}) };
     for (const change of changes) {
         if (pendingEntityIds.has(change.calendarEvent.id)) {
+            deferredEntityRevisions[change.calendarEvent.id] = Math.min(change.serverRevision,
+                deferredEntityRevisions[change.calendarEvent.id] ?? change.serverRevision);
             continue;
         }
         eventStore.put(change.calendarEvent);
+        delete deferredEntityRevisions[change.calendarEvent.id];
         entityStateStore.put({
             key: createCloudEntityStateKey(0, change.calendarEvent.id),
             entityType: 0,
@@ -1222,7 +1238,9 @@ export async function applyCloudChangesAndAdvanceCursor(
     }
     syncStateStore.put({
         scope,
-        lastSuccessfulServerRevision: cursor,
+        lastSuccessfulServerRevision: Math.min(cursor,
+            ...Object.values(deferredEntityRevisions).map(revision => revision - 1)),
+        deferredEntityRevisions,
         lastSuccessfulSyncAtUtc: synchronizedAtUtc
     });
     await completion;
@@ -1391,6 +1409,58 @@ export async function saveCalendarViewPreference(viewMode) {
     const request = transaction.objectStore(configuredSettingsStoreName)
         .put({ key: "calendarView", value: viewMode });
     await Promise.all([requestAsPromise(request), transactionAsPromise(transaction)]);
+}
+
+export async function getRemindersEnabled() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const done = transactionAsPromise(transaction);
+    const record = await requestAsPromise(transaction.objectStore(configuredSettingsStoreName).get("reminders-enabled"));
+    await done;
+    return record?.value === true;
+}
+export async function setRemindersEnabled(enabled) {
+    if (typeof enabled !== "boolean") throw new Error("提醒设置无效。");
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    transaction.objectStore(configuredSettingsStoreName).put({ key: "reminders-enabled", value: enabled });
+    await transactionAsPromise(transaction);
+}
+export async function getReminderPushOwner() {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readonly");
+    const done = transactionAsPromise(transaction);
+    const record = await requestAsPromise(transaction.objectStore(configuredSettingsStoreName).get("reminders-push-owner"));
+    await done;
+    return typeof record?.value === "string" ? record.value : null;
+}
+export async function setReminderPushOwner(owner) {
+    if (owner !== null && typeof owner !== "string") throw new Error("推送账户无效。");
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    transaction.objectStore(configuredSettingsStoreName).put({ key: "reminders-push-owner", value: owner });
+    await transactionAsPromise(transaction);
+}
+export async function claimReminder(key, now) {
+    if (typeof key !== "string" || key.length > 300 || !Number.isFinite(Date.parse(now))) throw new Error("提醒标识无效。");
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    const done = transactionAsPromise(transaction);
+    const store = transaction.objectStore(configuredSettingsStoreName);
+    const ledgerKey = "reminder-delivered:" + key;
+    const old = await requestAsPromise(store.get(ledgerKey));
+    if (!old) store.put({ key: ledgerKey, value: now });
+    // Delivery history is device-local, not calendar business data.
+    const all = await requestAsPromise(store.getAll());
+    for (const record of all) if (record.key.startsWith("reminder-delivered:") && Date.parse(record.value) < Date.parse(now) - 30 * 86400000) store.delete(record.key);
+    await done;
+    return !old;
+}
+export async function releaseReminder(key) {
+    const database = await getDatabase();
+    const transaction = database.transaction(configuredSettingsStoreName, "readwrite");
+    transaction.objectStore(configuredSettingsStoreName).delete("reminder-delivered:" + key);
+    await transactionAsPromise(transaction);
 }
 
 export async function getAppearancePreference() {
@@ -1637,6 +1707,16 @@ function validateEvent(calendarEvent) {
         (!Number.isInteger(calendarEvent.colorIndex) || calendarEvent.colorIndex < 1 || calendarEvent.colorIndex > 8)) {
         throw new Error("日程颜色编号无效。");
     }
+    if (calendarEvent.reminderMinutesBeforeStart != null && ![0, 5, 15, 30, 60, 1440].includes(calendarEvent.reminderMinutesBeforeStart)) {
+        throw new Error("提醒时间无效。");
+    }
+    if (calendarEvent.reminderTimeZoneId != null) {
+        if (typeof calendarEvent.reminderTimeZoneId !== "string" || calendarEvent.reminderTimeZoneId.length > 128) throw new Error("提醒时区无效。");
+        // Cross-platform timezone aliases are resolved by Core, not by browser-specific Intl implementations.
+    }
+    if (calendarEvent.allDayReminderMinuteOfDay !== undefined &&
+        (!Number.isInteger(calendarEvent.allDayReminderMinuteOfDay) || calendarEvent.allDayReminderMinuteOfDay < 0 || calendarEvent.allDayReminderMinuteOfDay > 1439))
+        throw new Error("全天提醒时间无效。");
     if (calendarEvent.recurrenceRule !== null &&
         calendarEvent.recurrenceRule !== undefined &&
         typeof calendarEvent.recurrenceRule !== "string") {

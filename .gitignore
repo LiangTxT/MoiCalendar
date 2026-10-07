@@ -3,6 +3,10 @@
 **/obj/
 
 # IDE and editor state
+node_modules/
+.codex/npm-cache/
+.playwright-cli/
+output/playwright/
 .vs/
 .vscode/
 .idea/

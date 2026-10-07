@@ -81,6 +81,10 @@
     }
 
     window.moicalendarInteraction = {
+        getMonthDateAtPoint: (element, x, y) => {
+            const cell = document.elementFromPoint(x, y)?.closest?.(".calendar-date");
+            return cell && element.contains(cell) ? cell.getAttribute("aria-label") : null;
+        },
         getElementBounds: element => {
             const rect = element.getBoundingClientRect();
             return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, scrollLeft: element.scrollLeft ?? 0, scrollTop: element.scrollTop ?? 0 };

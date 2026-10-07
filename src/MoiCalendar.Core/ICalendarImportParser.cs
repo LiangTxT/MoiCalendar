@@ -25,7 +25,11 @@ public sealed record ICalendarImportCandidate(
     DateTimeOffset EndUtc,
     string TimeZoneId,
     bool IsAllDay,
-    string? RecurrenceRule);
+    string? RecurrenceRule)
+{
+    // Null means the file did not specify exclusions; updating must preserve local exceptions.
+    public DateTimeOffset[]? ExcludedOccurrenceStartsUtc { get; init; }
+}
 
 public sealed record ICalendarImportResult(
     string? SourceName,
@@ -60,7 +64,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
 
     private static readonly HashSet<string> SilentlyIgnoredEventProperties = new(StringComparer.OrdinalIgnoreCase)
     {
-        "BEGIN", "END", "DTSTAMP", "SEQUENCE", "STATUS", "TRANSP", "CLASS", "CATEGORIES"
+        "BEGIN", "END", "DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE", "STATUS", "TRANSP", "CLASS", "CATEGORIES"
     };
 
     public ICalendarImportResult Parse(string content, string? sourceName = null)
@@ -97,7 +101,15 @@ public sealed class CalendarImportParser : ICalendarImportParser
 
         for (var lineIndex = 1; lineIndex < lines.Count - 1; lineIndex++)
         {
-            var property = ParseProperty(lines[lineIndex], lineIndex + 1);
+            if (string.IsNullOrWhiteSpace(lines[lineIndex])) continue;
+            ParsedProperty property;
+            try { property = ParseProperty(lines[lineIndex], lineIndex + 1); }
+            catch (ICalendarImportException)
+            {
+                messages.Add(new(ICalendarImportMessageSeverity.Warning, "INVALID_PROPERTY",
+                    $"第 {lineIndex + 1} 行属性格式无效，已忽略；其余有效事件仍可导入。", insideEvent ? totalEventCount : null));
+                continue;
+            }
             if (property.Name.Equals("BEGIN", StringComparison.OrdinalIgnoreCase) &&
                 property.Value.Equals("VEVENT", StringComparison.OrdinalIgnoreCase))
             {
@@ -180,7 +192,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
     {
         try
         {
-            var uid = ReadSingle(properties, "UID", required: true, eventNumber);
+            var uid = UnescapeText(ReadSingle(properties, "UID", required: true, eventNumber)!);
             var summary = ReadSingle(properties, "SUMMARY", required: false, eventNumber);
             var description = ReadSingle(properties, "DESCRIPTION", required: false, eventNumber);
             var location = ReadSingle(properties, "LOCATION", required: false, eventNumber);
@@ -207,6 +219,16 @@ public sealed class CalendarImportParser : ICalendarImportParser
             }
 
             var recurrenceRule = ReadRecurrenceRule(properties, eventNumber, messages);
+            if (recurrenceRule is not null)
+            {
+                var rule = RecurrenceRuleParser.Parse(recurrenceRule);
+                var zone = TimeZoneInfo.FindSystemTimeZoneById(start.TimeZoneId);
+                if (rule.Until is { } until && !until.Includes(TimeZoneInfo.ConvertTime(start.Utc, zone).DateTime, start.Utc))
+                    throw InvalidEvent(eventNumber, "重复结束时间早于 DTSTART，该系列不会产生任何日程。");
+            }
+            var excluded = ReadExclusions(properties, start, eventNumber, messages);
+            if (excluded is { Length: > 0 } && recurrenceRule is null)
+                throw InvalidEvent(eventNumber, "无法在没有有效重复规则的事件上保留 EXDATE。");
             AddUnsupportedPropertyWarnings(properties, eventNumber, messages);
 
             candidates.Add(new ICalendarImportCandidate(
@@ -219,7 +241,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
                 end.Utc,
                 start.TimeZoneId,
                 start.IsAllDay,
-                recurrenceRule));
+                recurrenceRule) { ExcludedOccurrenceStartsUtc = excluded });
         }
         catch (ICalendarEventImportException exception)
         {
@@ -252,9 +274,9 @@ public sealed class CalendarImportParser : ICalendarImportParser
             messages.Add(new ICalendarImportMessage(
                 ICalendarImportMessageSeverity.Warning,
                 "UNSUPPORTED_RRULE",
-                $"事件 {eventNumber} 的重复规则不受支持，导入时将忽略该规则：{exception.Message}",
+                $"事件 {eventNumber} 的重复规则无法安全保留，该事件不会导入：{exception.Message}",
                 eventNumber));
-            return null;
+            throw InvalidEvent(eventNumber, "重复规则无效或不受支持，未将重复事件降级为单次事件。");
         }
     }
 
@@ -265,8 +287,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
     {
         var unsupported = properties
             .Select(property => property.Name)
-            .Where(name => name.Equals("EXDATE", StringComparison.OrdinalIgnoreCase) ||
-                           name.Equals("RDATE", StringComparison.OrdinalIgnoreCase) ||
+            .Where(name => name.Equals("RDATE", StringComparison.OrdinalIgnoreCase) ||
                            name.Equals("RECURRENCE-ID", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -281,6 +302,28 @@ public sealed class CalendarImportParser : ICalendarImportParser
             $"事件 {eventNumber} 使用了当前版本不支持的重复例外属性 {string.Join("、", unsupported)}，为避免改变原日程，该事件不会导入。",
             eventNumber));
         throw InvalidEvent(eventNumber, "包含当前版本无法安全保留的重复例外。");
+    }
+
+    private static DateTimeOffset[]? ReadExclusions(IReadOnlyList<ParsedProperty> properties,
+        ParsedDateTime start, int eventNumber, ICollection<ICalendarImportMessage> messages)
+    {
+        var exclusions = properties.Where(p => p.Name.Equals("EXDATE", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (exclusions.Length == 0) return null;
+        var result = new HashSet<DateTimeOffset>();
+        foreach (var property in exclusions)
+        {
+            foreach (var value in property.Value.Split(','))
+            {
+                var parameters = new Dictionary<string, string>(property.Parameters, StringComparer.OrdinalIgnoreCase);
+                if (!start.IsAllDay && !value.EndsWith('Z') && !parameters.ContainsKey("TZID"))
+                    parameters["TZID"] = start.TimeZoneId;
+                var parsed = ParseDateTime(property with { Value = value, Parameters = parameters }, eventNumber, messages);
+                if (parsed.IsAllDay != start.IsAllDay)
+                    throw InvalidEvent(eventNumber, "EXDATE 与 DTSTART 的日期类型必须一致。");
+                result.Add(parsed.Utc.ToUniversalTime());
+            }
+        }
+        return [.. result.Order()];
     }
 
     private static ParsedDateTime ParseDateTime(
@@ -355,7 +398,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
         TimeZoneInfo timeZone;
         try
         {
-            timeZone = TimeZoneInfo.FindSystemTimeZoneById(Unquote(timeZoneId));
+            timeZone = CalendarTimeZone.Resolve(Unquote(timeZoneId));
         }
         catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
         {
@@ -367,8 +410,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
             throw InvalidEvent(eventNumber, $"{property.Name} 落在时区切换导致的无效本地时间内。");
         }
 
-        var utcValue = TimeZoneInfo.ConvertTimeToUtc(local, timeZone);
-        return new ParsedDateTime(new DateTimeOffset(utcValue), timeZone.Id, false);
+        return new ParsedDateTime(CalendarTimeZone.ToUtc(local, timeZone), timeZone.Id, false);
     }
 
     private static ParsedProperty? ReadSingleProperty(
@@ -432,7 +474,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
     {
         var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "UID", "SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "RRULE"
+            "UID", "SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "RRULE", "EXDATE"
         };
         foreach (var name in properties
                      .Select(property => property.Name)

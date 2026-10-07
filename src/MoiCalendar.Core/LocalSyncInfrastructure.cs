@@ -27,6 +27,7 @@ public sealed record SyncState
     public long? LastSuccessfulServerRevision { get; init; }
 
     public DateTimeOffset? LastSuccessfulSyncAtUtc { get; init; }
+    public IReadOnlyDictionary<Guid, long>? DeferredEntityRevisions { get; init; }
 }
 
 public sealed record CloudSyncBinding(string AccountId, DateTimeOffset BoundAtUtc);

@@ -4,7 +4,7 @@
         title="@($"{CalendarEvent.TimeLabel} {CalendarEvent.Title}")"
         aria-pressed="@IsSelected"
         aria-disabled="@CalendarEvent.IsReadOnly"
-        @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
+        @onfocus="() => Focused.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @onpointerdown="args => PointerDown.InvokeAsync(new TimedEventPointerArgs(CalendarEvent, Date, args))"
         @onpointerdown:stopPropagation="true"
         @onclick="() => Selected.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
@@ -55,7 +55,7 @@
     [Parameter] public DayEventStackLayout? Stack { get; set; }
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public bool IsInteractionSource { get; set; }
-    [Parameter] public EventCallback<Guid> Focused { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> Focused { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> Selected { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> Edit { get; set; }
     [Parameter] public EventCallback<TimedEventPointerArgs> PointerDown { get; set; }

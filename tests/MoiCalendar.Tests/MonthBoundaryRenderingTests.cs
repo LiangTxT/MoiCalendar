@@ -37,6 +37,7 @@ public sealed class MonthBoundaryRenderingTests
         {
             var boundary = html[html.IndexOf("month-boundary-week", StringComparison.Ordinal)..];
             Assert.Equal(7, System.Text.RegularExpressions.Regex.Matches(boundary, "role=\"gridcell\"").Count);
+            Assert.Equal(7, System.Text.RegularExpressions.Regex.Matches(boundary, "class=\"calendar-date month-blank-date\"").Count);
             Assert.DoesNotContain("data-date", boundary);
             Assert.DoesNotContain("tabindex", boundary);
         }

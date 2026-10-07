@@ -19,14 +19,15 @@ test('导航分类均衡、名称准确，统一行高并适配窄屏', () => {
     const nav = markup.match(/<nav class="settings-index"[\s\S]*?<\/nav>/)?.[0];
     assert.ok(nav);
     const groups = [...nav.matchAll(/<section>([\s\S]*?)<\/section>/g)].map(match => match[1]);
-    assert.deepEqual(groups.map(group => (group.match(/<a /g) ?? []).length), [3, 3, 3, 2]);
+    assert.deepEqual(groups.map(group => (group.match(/<a /g) ?? []).length), [4, 3, 3, 2]);
+    assert.match(nav, /settings#reminders-heading/);
     assert.deepEqual(groups.map(group => group.match(/<h2>(.*?)<\/h2>/)[1]),
         ['账户与外观', '备份与文件', '同步与诊断', '帮助与隐私']);
-    assert.equal(new Set([...nav.matchAll(/href="([^"]+)"/g)].map(match => match[1])).size, 11);
+    assert.equal(new Set([...nav.matchAll(/href="([^"]+)"/g)].map(match => match[1])).size, 12);
     assert.match(nav, /<span>云账户<\/span>/);
     assert.match(nav, /<span>日历导入 \/ 导出<\/span>/);
     assert.match(nav, /<span>备份同步日志<\/span>/);
-    assert.equal((nav.match(/aria-hidden="true">›/g) ?? []).length, 11);
+    assert.equal((nav.match(/aria-hidden="true">›/g) ?? []).length, 12);
     assert.match(nav, /settings-index-trailing"><SyncIndicator \/>/);
     assert.match(css, /\.settings-index \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
     assert.match(css, /@media \(min-width: 560px\)/);

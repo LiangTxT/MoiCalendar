@@ -1,3 +1,5 @@
+using MoiCalendar.Core;
+
 namespace MoiCalendar.Sync.Cloud;
 
 /// <summary>
@@ -7,7 +9,10 @@ namespace MoiCalendar.Sync.Cloud;
 internal sealed class RealtimeAwareAccountService(
     IAccountService inner,
     IRealtimeNotifier realtimeNotifier,
-    AutoSyncSignal? autoSyncSignal = null) : IAccountService
+    AutoSyncSignal? autoSyncSignal = null,
+    IReminderStateStore? reminderState = null,
+    ICloudReminderTransport? reminders = null,
+    IDeviceService? devices = null) : IAccountService
 {
     public bool IsAvailable => inner.IsAvailable;
 
@@ -63,6 +68,16 @@ internal sealed class RealtimeAwareAccountService(
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
+        // Clear the service-worker gate even offline, before dropping the session.
+        if (reminderState is not null) await reminderState.SetPushOwnerAsync(null, cancellationToken);
+        if (reminders?.IsAvailable == true && devices is not null)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            try { await reminders.UnregisterAsync((await devices.GetDeviceIdentityAsync(timeout.Token)).DeviceId, timeout.Token); }
+            catch (Exception ex) when (ex is InvalidOperationException or AccountServiceException or HttpRequestException or OperationCanceledException)
+            { /* An offline logout still blocks old pushes locally. */ }
+        }
         try
         {
             await inner.LogoutAsync(cancellationToken);

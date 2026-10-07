@@ -92,6 +92,9 @@ builder.Services.AddScoped<ILocalEventChangeRepository>(sp => new NotifyingLocal
     sp.GetRequiredService<ILocalChangeNotifier>()));
 builder.Services.AddScoped<IRemoteSyncApplyRepository, IndexedDbRemoteSyncApplyRepository>();
 builder.Services.AddScoped<CalendarEventService>();
+builder.Services.AddScoped<IReminderStateStore, IndexedDbReminderStateStore>();
+builder.Services.AddScoped<CalendarReminderService>();
+builder.Services.AddScoped<BrowserReminderService>();
 builder.Services.AddScoped<CalendarInteractionService>();
 builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),

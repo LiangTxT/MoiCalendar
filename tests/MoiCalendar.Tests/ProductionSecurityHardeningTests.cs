@@ -117,7 +117,7 @@ public sealed partial class ProductionSecurityHardeningTests
         Assert.All(securityDefinerNames, name => Assert.True(
             HardeningMigration.Contains($"alter function public.{name}", StringComparison.OrdinalIgnoreCase)
             || Regex.IsMatch(AllMigrations,
-                $@"create\s+function\s+public\.{Regex.Escape(name)}\s*\([^$]*?security\s+definer[^$]*?set\s+search_path\s*=\s*pg_catalog,\s*pg_temp\s+as\s+\$\$",
+                $@"create\s+(?:or\s+replace\s+)?function\s+public\.{Regex.Escape(name)}\s*\([^$]*?security\s+definer[^$]*?set\s+search_path\s*=\s*pg_catalog,\s*pg_temp\s+as\s+\$\$",
                 RegexOptions.IgnoreCase),
             $"{name} 必须在既有加固迁移中或创建时固定安全 search_path。"));
         Assert.DoesNotContain(
@@ -239,7 +239,7 @@ public sealed partial class ProductionSecurityHardeningTests
     }
 
     [GeneratedRegex(
-        @"create\s+function\s+public\.(moicalendar_[a-z0-9_]+)[\s\S]*?security\s+definer",
+        @"create\s+(?:or\s+replace\s+)?function\s+public\.(moicalendar_[a-z0-9_]+)[^$]*?security\s+definer",
         RegexOptions.IgnoreCase)]
     private static partial Regex SecurityDefinerFunctionRegex();
 

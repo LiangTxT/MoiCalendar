@@ -95,12 +95,7 @@ public sealed class CalendarEventRecurrenceDraftTests
     {
         const string originalRule = "FREQ=DAILY;COUNT=5;UNTIL=20260831";
         var calendarEvent = CreateEvent() with { RecurrenceRule = originalRule };
-        var draft = CreateService().CreateDraft(calendarEvent);
-
-        Assert.Equal(originalRule, draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
-
-        draft.Recurrence.Interval = 2;
-        Assert.Equal("FREQ=DAILY;INTERVAL=2;COUNT=5", draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
+        Assert.Throws<RecurrenceRuleException>(() => CreateService().CreateDraft(calendarEvent));
     }
 
     [Theory]

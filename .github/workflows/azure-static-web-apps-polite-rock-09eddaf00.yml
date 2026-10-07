@@ -28,6 +28,10 @@ jobs:
         with:
           node-version: 22.x
       - name: Test
+        run: |
+          npm ci
+          npm test
+      - name: Test .NET
         run: dotnet test MoiCalendar.slnx --configuration Release
       - name: Generate production browser configuration
         env:

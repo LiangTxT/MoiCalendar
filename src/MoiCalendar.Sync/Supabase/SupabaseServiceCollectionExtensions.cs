@@ -22,6 +22,10 @@ public static class SupabaseServiceCollectionExtensions
         services.AddSingleton(options);
         services.AddSingleton(supabaseOptions);
         services.AddScoped<ICloudBackend, SupabaseCloudBackend>();
+        services.AddScoped<ICloudReminderTransport>(sp => options.Enabled
+            ? new SupabaseReminderTransport(new HttpClient { BaseAddress = BuildServiceBaseUri(options.BaseUrl!, string.Empty), Timeout = TimeSpan.FromSeconds(15) },
+                options.PublicKey!, sp.GetRequiredService<ISupabaseAccessTokenProvider>())
+            : new DisabledCloudReminderTransport());
         if (options.Enabled)
         {
             var authBaseUri = BuildAuthBaseUri(options.BaseUrl!);
@@ -47,7 +51,10 @@ public static class SupabaseServiceCollectionExtensions
                     new RealtimeAwareAccountService(
                         serviceProvider.GetRequiredService<SupabaseAccountService>(),
                         serviceProvider.GetRequiredService<IRealtimeNotifier>(),
-                        serviceProvider.GetRequiredService<AutoSyncSignal>()),
+                        serviceProvider.GetRequiredService<AutoSyncSignal>(),
+                        serviceProvider.GetRequiredService<IReminderStateStore>(),
+                        serviceProvider.GetRequiredService<ICloudReminderTransport>(),
+                        serviceProvider.GetRequiredService<IDeviceService>()),
                     serviceProvider.GetService<IOperationalDiagnosticsSink>() ??
                         DisabledOperationalDiagnosticsSink.Instance));
             services.AddScoped<ICloudSyncTransport>(serviceProvider => new SupabaseCloudSyncTransport(

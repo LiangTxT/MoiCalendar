@@ -87,13 +87,19 @@ public sealed class CalendarExportService(
 
         if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
         {
-            _ = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule);
+            var parsed = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule);
             var rule = calendarEvent.RecurrenceRule.Trim();
             if (rule.StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
             {
                 rule = rule[6..];
             }
 
+            if (!calendarEvent.IsAllDay && parsed.Until?.Date is { } untilDate)
+            {
+                var utcEnd = CalendarTimeZone.ToUtc(untilDate.ToDateTime(new TimeOnly(23, 59, 59)), timeZone);
+                rule = string.Join(';', rule.Split(';').Select(part => part.StartsWith("UNTIL=", StringComparison.OrdinalIgnoreCase)
+                    ? "UNTIL=" + FormatUtc(utcEnd) : part));
+            }
             lines.Add("RRULE:" + rule);
             foreach (var excluded in calendarEvent.ExcludedOccurrenceStartsUtc ?? [])
             {
@@ -136,7 +142,7 @@ public sealed class CalendarExportService(
     {
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return CalendarTimeZone.Resolve(timeZoneId);
         }
         catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
         {

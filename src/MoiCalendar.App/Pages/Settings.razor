@@ -41,6 +41,7 @@
             <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault><span>云账户</span><span aria-hidden="true">›</span></a>
             <a href="settings#cloud-devices-heading" @onclick='() => NavigateSectionAsync("cloud-devices-heading")' @onclick:preventDefault><span>我的设备</span><span aria-hidden="true">›</span></a>
             <a href="settings#appearance-heading" @onclick='() => NavigateSectionAsync("appearance-heading")' @onclick:preventDefault><span>外观</span><span aria-hidden="true">›</span></a>
+            <a href="settings#reminders-heading" @onclick='() => NavigateSectionAsync("reminders-heading")' @onclick:preventDefault><span>日程提醒</span><span aria-hidden="true">›</span></a>
         </section>
         <section>
             <h2>备份与文件</h2>
@@ -409,6 +410,8 @@
         }
     </section>
 
+    <ReminderSettings />
+
     <fieldset id="external-backup" tabindex="-1" class="settings-group">
         <legend>可选外部备份提供商</legend>
 
@@ -694,7 +697,11 @@
                                 <strong>@item.Candidate.Title</strong>
                                 <span>@FormatImportTime(item.Candidate)</span>
                             </div>
-                            @if (item.IsPotentialDuplicate)
+                            @if (item.IsDeletedDuplicate)
+                            {
+                                <span class="settings-note compact">相同 UID 的事件已删除，将跳过以保留删除记录。</span>
+                            }
+                            else if (item.IsPotentialDuplicate)
                             {
                                 <label>
                                     相同 UID 已存在：
