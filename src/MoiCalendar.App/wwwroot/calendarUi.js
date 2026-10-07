@@ -46,6 +46,7 @@ window.moicalendarUi = {
         }
 
         window.moicalendarUi.disposeCalendarScroll(timeline);
+        window.moicalendarZoom?.attach(timeline);
 
         const positions = window.moicalendarUi.calendarScrollPositions;
         const remembered = positions[contextKey];
@@ -94,6 +95,7 @@ window.moicalendarUi = {
         horizontal?.addEventListener("scroll", remember, { passive: true });
     },
     disposeCalendarScroll: timeline => {
+        window.moicalendarZoom?.dispose(timeline);
         timeline?._moicalendarScrollDispose?.();
         if (timeline) delete timeline._moicalendarScrollDispose;
     },

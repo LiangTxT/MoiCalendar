@@ -1418,14 +1418,14 @@ a {
     white-space: nowrap;
 }
 
-.has-period-paging .week-day-headings {
+.has-period-paging:not(.has-week-overflow) .week-day-headings {
     cursor: grab;
     touch-action: pan-y pinch-zoom;
     user-select: none;
 }
 
-.has-period-paging .week-timed-days,
-.has-period-paging .week-all-day-row {
+.has-period-paging:not(.has-week-overflow) .week-timed-days,
+.has-period-paging:not(.has-week-overflow) .week-all-day-row {
     touch-action: pan-y pinch-zoom;
 }
 
@@ -1588,9 +1588,12 @@ a {
 }
 
 .week-timed-scroll {
+    touch-action: pan-x pan-y;
     min-height: 0;
     overflow: auto;
-    overscroll-behavior: contain;
+    /* 横向滚动属于外层七天画布；内层只阻止纵向穿透。 */
+    overscroll-behavior-x: auto;
+    overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
 }
 
@@ -1607,7 +1610,7 @@ a {
 .week-timed-days,
 .week-timed-day {
     position: relative;
-    height: calc(var(--time-grid-hours, 24) * 52px);
+    height: calc(var(--time-grid-hours, 24) * var(--time-grid-hour-height, 52px));
 }
 
 .week-time-labels {

@@ -1358,6 +1358,10 @@
         {
             quickCreateError = exception.Message;
         }
+        catch (SyncOperationException)
+        {
+            quickCreateError = "无法获取安全的本地数据操作锁，日程尚未保存。请使用 HTTPS 地址（本机可使用 localhost），或支持安全操作锁的浏览器后重试；不要清除浏览器数据。";
+        }
         finally
         {
             isQuickCreating = false;

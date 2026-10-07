@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/calendarPaging.js', import.meta.url), 'utf8');
-function setup({ reduce = false } = {}) {
+function setup({ reduce = false, overflow = false } = {}) {
     let clock = 1000, nextTimer = 0;
     const timers = new Map(), calls = [], motions = [];
     const events = () => ({ handlers: new Map(),
@@ -20,7 +20,7 @@ function setup({ reduce = false } = {}) {
     const ghost = { style: {}, classList: classes(), setAttribute() {}, querySelectorAll: () => [],
         querySelector: selector => selector === '.week-grid-frame' ? { style: {} } : { scrollTop: 0 },
         remove() { removed++; }, animate: frame.animate };
-    const horizontal = { scrollLeft: 0, cloneNode: () => ghost };
+    const horizontal = { scrollLeft: 0, clientWidth: 400, scrollWidth: overflow ? 1000 : 400, cloneNode: () => ghost };
     const surface = { ...events(), style: {}, classList: classes(), clientWidth: 1000,
         querySelector: selector => selector === '.week-grid-frame' ? frame : selector === '.week-timed-scroll' ? timeline : horizontal,
         append() {}, setPointerCapture() {}, hasPointerCapture: () => false };
@@ -44,10 +44,39 @@ function setup({ reduce = false } = {}) {
         for (const [, callback] of scheduled) callback();
         for (let i = 0; i < 12; i++) await Promise.resolve();
     };
-    return { ui, surface, window, timeline, ghost, dotNet, motions, calls, target, event, flush,
+    return { ui, surface, horizontal, window, timeline, ghost, dotNet, motions, calls, target, event, flush,
         tick: n => clock += n, removed: () => removed,
         navigation: () => calls.filter(x => x.name === 'NavigateTimeGridPeriod') };
 }
+
+test('超宽周表格在任意滚动位置保留触摸横滑，顶部和网格均不跳周', async () => {
+    for (const header of [true, false]) for (const left of [0, 300, 600]) {
+        const f = setup({ overflow: true });
+        f.horizontal.scrollLeft = left;
+        const e = extra => f.event({ pointerType: 'touch', target: f.target(header), ...extra });
+        f.surface.fire('pointerdown', e());
+        const move = e({clientX: 350});
+        f.window.fire('pointermove', move);
+        await f.window.fire('pointerup', e({clientX: 350}));
+        assert.equal(move.prevented, undefined);
+        assert.equal(f.calls.length, 0);
+        assert.equal(f.surface.classList.contains('has-week-overflow'), true);
+    }
+});
+
+test('超宽表格横向滚轮不拦截；宽度恢复后重新允许翻页', async () => {
+    const f = setup({overflow: true});
+    const wheel = f.event({deltaX: 100, deltaY: 0});
+    f.surface.fire('wheel', wheel);
+    assert.equal(wheel.prevented, undefined);
+    assert.equal(f.navigation().length, 0);
+    f.horizontal.scrollWidth = 400;
+    f.ui.rendered(f.surface, 'week:2026-10-05', true);
+    assert.equal(f.surface.classList.contains('has-week-overflow'), false);
+    f.surface.fire('wheel', f.event({deltaX: 100, deltaY: 0}));
+    await f.flush();
+    assert.equal(f.navigation().length, 1);
+});
 
 test('顶部左拖下一周，右拖上一周；保留时间轴位置', async () => {
     for (const [dx, direction] of [[-250, 1], [250, -1]]) {
