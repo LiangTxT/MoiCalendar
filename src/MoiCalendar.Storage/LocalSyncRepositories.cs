@@ -583,6 +583,10 @@ public sealed class InMemorySyncOutboxRepository(IEventRepository? eventReposito
                 conflict.EntityId,
                 cancellationToken)
                 ?? throw new SyncOperationException("找不到冲突的本地事件版本。");
+            localEvent = RecurrenceExclusionMerge.Merge(localEvent, remoteEvent);
+            if (localEvent.ExcludedOccurrenceStartsUtc.Length > 100_000)
+                throw new SyncOperationException("合并后的系列超过 100000 条排除记录上限，请先导出备份并拆分系列。");
+            await events.UpdateAsync(localEvent, cancellationToken);
             var operation = localEvent.DeletedAtUtc is null
                 ? SyncOperationType.Update
                 : SyncOperationType.Delete;

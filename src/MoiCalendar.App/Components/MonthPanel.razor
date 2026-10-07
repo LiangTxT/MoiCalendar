@@ -4,10 +4,7 @@
          aria-rowcount="@VisibleRowCount"
          aria-colcount="7"
          style="@($"--month-week-count: {VisibleRowCount}")"
-         @ref="GridElement"
-         @onpointermove="PointerMove"
-         @onpointerup="PointerUp"
-         @onpointercancel="PointerCancel">
+         @ref="GridElement">
         @foreach (var week in visibleWeeks)
         {
             <MonthWeekRow Week="week"

@@ -425,7 +425,7 @@ public sealed class CalendarInteractionTests
         var master = CreateEvent(new(2026, 9, 7, 10, 0, 0, TimeSpan.Zero), new(2026, 9, 7, 11, 0, 0, TimeSpan.Zero)) with { RecurrenceRule = "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=5" };
         var draft = context.Interactions.PrepareSeriesInteractionDraft(master,
             MoveEventIntent.ToDate(master.Id, master.StartUtc.AddDays(7), master.EndUtc.AddDays(7), new(2026, 9, 14), new(2026, 9, 15), TimeZoneInfo.Utc.Id));
-        Assert.Equal("FREQ=WEEKLY;BYDAY=TU,TH;COUNT=5", draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
+        Assert.Equal("FREQ=WEEKLY;BYDAY=TU,TH;COUNT=5", draft.Recurrence.ToRecurrenceRule(draft.StartLocal, CalendarTimeZone.Resolve(draft.TimeZoneId), draft.IsAllDay));
         Assert.Equal(new DateTime(2026, 9, 8, 10, 0, 0), draft.StartLocal);
     }
 
@@ -551,6 +551,6 @@ public sealed class CalendarInteractionTests
             throw new NotSupportedException();
 
         public Task ApplyImportAsync(IReadOnlyList<CalendarImportChange> changes, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            throw new EventRepositoryException("模拟写入失败。", new InvalidOperationException("测试故障"));
     }
 }

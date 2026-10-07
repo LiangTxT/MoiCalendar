@@ -4,6 +4,9 @@ namespace MoiCalendar.Core;
 
 public sealed class CalendarEventDraft
 {
+    private TimeSpan? timedStart;
+    private TimeSpan timedDuration = TimeSpan.FromHours(1);
+    internal DateTimeOffset? ExpectedUpdatedAtUtc { get; private set; }
     public string Title { get; set; } = string.Empty;
 
     public string Description { get; set; } = string.Empty;
@@ -56,19 +59,21 @@ public sealed class CalendarEventDraft
     public void SetAllDay(bool isAllDay)
     {
         var wasAllDay = IsAllDay;
+        if (wasAllDay == isAllDay) return;
         IsAllDay = isAllDay;
 
         if (!isAllDay)
         {
             if (wasAllDay)
             {
-                StartLocal = StartLocal.Date.AddHours(9);
-                EndLocal = EndLocal.Date.AddHours(9);
-                if (EndLocal <= StartLocal) EndLocal = StartLocal.AddHours(1);
+                StartLocal = StartLocal.Date + (timedStart ?? TimeSpan.FromHours(9));
+                EndLocal = StartLocal + timedDuration;
             }
             return;
         }
 
+        timedStart = StartLocal.TimeOfDay;
+        timedDuration = EndLocal > StartLocal ? EndLocal - StartLocal : TimeSpan.FromHours(1);
         StartLocal = StartLocal.Date;
         EndLocal = EndLocal.Date <= StartLocal.Date
             ? StartLocal.Date.AddDays(1)
@@ -94,6 +99,7 @@ public sealed class CalendarEventDraft
             Description = calendarEvent.Description,
             Location = calendarEvent.Location,
             ColorIndex = calendarEvent.ColorIndex,
+            ExpectedUpdatedAtUtc = calendarEvent.UpdatedAtUtc,
             StartLocal = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified),
             EndLocal = DateTime.SpecifyKind(endLocal, DateTimeKind.Unspecified),
             TimeZoneId = calendarEvent.TimeZoneId,
@@ -102,7 +108,8 @@ public sealed class CalendarEventDraft
             ReminderTimeZoneId = calendarEvent.ReminderTimeZoneId ?? (calendarEvent.IsAllDay ? TimeZoneInfo.Local.Id : calendarEvent.TimeZoneId)
         };
 
-        draft.SetAllDay(calendarEvent.IsAllDay);
+        // Loading an existing all-day event has no remembered timed duration.
+        draft.IsAllDay = calendarEvent.IsAllDay;
         draft.Recurrence = CalendarEventRecurrenceDraft.FromRule(
             calendarEvent.RecurrenceRule,
             draft.StartLocal,

@@ -26,6 +26,8 @@ public sealed class CalendarEventRecurrenceDraft
     private string? originalSettingsSignature;
     private RecurrenceUntil? originalUntil;
     private DateOnly? originalUntilDate;
+    private DateTime? originalStartLocal;
+    private string? originalTimeZoneId;
     private DayOfWeek weekStart = DayOfWeek.Monday;
 
     public CalendarEventRepeatOption RepeatOption { get; set; }
@@ -69,7 +71,7 @@ public sealed class CalendarEventRecurrenceDraft
         }
     }
 
-    public string? ToRecurrenceRule(DateTime startLocal, TimeZoneInfo? timeZone = null, bool isAllDay = true)
+    public string? ToRecurrenceRule(DateTime startLocal, TimeZoneInfo timeZone, bool isAllDay)
     {
         if (RepeatOption == CalendarEventRepeatOption.Never)
         {
@@ -132,7 +134,8 @@ public sealed class CalendarEventRecurrenceDraft
                     throw new ArgumentException("重复结束日期不能早于事件开始日期。");
                 }
 
-                if (originalUntil?.Utc is { } originalUtc && UntilDate == originalUntilDate && !isAllDay)
+                if (originalUntil?.Utc is { } originalUtc && UntilDate == originalUntilDate && !isAllDay &&
+                    startLocal == originalStartLocal && timeZone?.Id == originalTimeZoneId)
                     parts.Add($"UNTIL={originalUtc:yyyyMMdd'T'HHmmss'Z'}");
                 else if (!isAllDay && timeZone is not null)
                 {
@@ -154,7 +157,8 @@ public sealed class CalendarEventRecurrenceDraft
                 throw new ArgumentOutOfRangeException(nameof(EndOption), "重复结束选项无效。");
         }
 
-        return PreserveOriginalRuleWhenUnchanged(string.Join(';', parts));
+        return PreserveOriginalRuleWhenUnchanged(string.Join(';', parts),
+            originalUntil?.Utc is null || (startLocal == originalStartLocal && timeZone?.Id == originalTimeZoneId && !isAllDay));
     }
 
     internal static CalendarEventRecurrenceDraft FromRule(
@@ -198,6 +202,8 @@ public sealed class CalendarEventRecurrenceDraft
 
         draft.originalRule = recurrenceRule;
         draft.originalUntil = parsed.Until;
+        draft.originalStartLocal = startLocal;
+        draft.originalTimeZoneId = timeZone.Id;
         draft.originalUntilDate = draft.UntilDate;
         draft.weekStart = parsed.WeekStart;
         draft.originalSettingsSignature = draft.GetSettingsSignature();
@@ -205,8 +211,8 @@ public sealed class CalendarEventRecurrenceDraft
         return draft;
     }
 
-    private string PreserveOriginalRuleWhenUnchanged(string generatedRule) =>
-        originalRule is not null && originalSettingsSignature == GetSettingsSignature()
+    private string PreserveOriginalRuleWhenUnchanged(string generatedRule, bool preserveAnchor = true) =>
+        preserveAnchor && originalRule is not null && originalSettingsSignature == GetSettingsSignature()
             ? originalRule
             : generatedRule;
 

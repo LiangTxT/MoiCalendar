@@ -75,6 +75,9 @@ public sealed class CalendarEventService(
         await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException("找不到要更新的日历事件。");
+        draft.RemovedExclusionCount = 0;
+        if (draft.ExpectedUpdatedAtUtc is { } expected && expected != existing.UpdatedAtUtc)
+            throw new EventRepositoryException("编辑期间日程已变化，请重新打开后再修改。", new InvalidOperationException("事件版本不匹配。"));
         var values = ValidateAndConvert(draft);
         var updated = existing with
         {
@@ -101,7 +104,8 @@ public sealed class CalendarEventService(
             SyncOperationType.Update,
             updated.UpdatedAtUtc,
             cancellationToken);
-        return await localEventChanges.UpdateEventAsync(updated, operation, cancellationToken);
+        await localEventChanges.ApplyImportAsync([new(updated, operation, existing.Id, existing.UpdatedAtUtc)], cancellationToken);
+        return updated;
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -132,9 +136,12 @@ public sealed class CalendarEventService(
         await using var lease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException("找不到此重复事件系列。");
+        if ((existing.ExcludedOccurrenceStartsUtc?.Length ?? 0) >= 100_000)
+            throw new ArgumentException("此系列已达到 100000 条单次排除记录上限，请拆分系列后再操作。");
         if (string.IsNullOrWhiteSpace(existing.RecurrenceRule)) throw new ArgumentException("此事件不是重复事件。");
         var start = occurrenceStartUtc.ToUniversalTime();
         var excluded = existing.ExcludedOccurrenceStartsUtc ?? [];
+        if (excluded.Length >= 100_000) throw new ArgumentException("此系列已达到 100000 条单次排除记录上限，请拆分系列后再操作。");
         if (excluded.Contains(start)) throw new ArgumentException("这次重复事件已删除，请刷新日历后重试。");
         if (start == DateTimeOffset.MaxValue || !recurrenceExpansionService.Expand([existing], start, start.AddTicks(1)).Any(item => item.StartUtc == start))
             throw new ArgumentException("这次重复事件已不存在，请刷新日历后重试。");
@@ -150,6 +157,26 @@ public sealed class CalendarEventService(
 
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         repository.GetByIdAsync(id, cancellationToken);
+
+    public async Task<IReadOnlyList<CalendarEventDisplayIssue>> GetInvalidEventsAsync(CancellationToken cancellationToken = default)
+    {
+        var issues = new List<CalendarEventDisplayIssue>();
+        foreach (var item in await repository.GetAllIncludingDeletedAsync(cancellationToken))
+        {
+            if (item.DeletedAtUtc is not null) continue;
+            try
+            {
+                _ = ResolveTimeZone(item.TimeZoneId);
+                if (item.EndUtc <= item.StartUtc) throw new ArgumentException("结束时间不晚于开始时间。");
+                if (!string.IsNullOrWhiteSpace(item.RecurrenceRule)) _ = RecurrenceRuleParser.Parse(item.RecurrenceRule);
+            }
+            catch (Exception exception) when (exception is RecurrenceRuleException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                issues.Add(new(item.Id, item.Title, exception.Message));
+            }
+        }
+        return issues;
+    }
 
     public CalendarEvent? GetOccurrence(CalendarEvent master, DateTimeOffset startUtc) =>
         startUtc == DateTimeOffset.MaxValue ? null : recurrenceExpansionService
@@ -231,6 +258,21 @@ public sealed class CalendarEventService(
             .ToArray();
 
         return new CalendarAgendaView(days);
+    }
+
+    public async Task<IReadOnlyDictionary<CalendarMonth, CalendarAgendaView>> GetAgendaViewsAsync(
+        IReadOnlyList<CalendarMonth> months, string displayTimeZoneId, CancellationToken cancellationToken = default)
+    {
+        var ordered = months.Distinct().OrderBy(month => month.Year).ThenBy(month => month.Month).ToArray();
+        if (ordered.Length == 0) return new Dictionary<CalendarMonth, CalendarAgendaView>();
+        var first = new DateOnly(ordered[0].Year, ordered[0].Month, 1);
+        var end = new DateOnly(ordered[^1].Year, ordered[^1].Month, 1).AddMonths(1);
+        var groups = await GetEventGroupsAsync(first, end, displayTimeZoneId, cancellationToken);
+        var daysByMonth = groups.Where(pair => pair.Value.Count > 0)
+            .GroupBy(pair => CalendarMonth.FromDate(pair.Key))
+            .ToDictionary(group => group.Key, group => new CalendarAgendaView(group.OrderBy(pair => pair.Key)
+                .Select(pair => new CalendarAgendaDay(pair.Key, pair.Value)).ToArray()));
+        return ordered.ToDictionary(month => month, month => daysByMonth.GetValueOrDefault(month, CalendarAgendaView.Empty));
     }
 
     public async Task<CalendarWeekEventView> GetWeekViewAsync(
@@ -351,6 +393,9 @@ public sealed class CalendarEventService(
             .Select(group => group.First())
             .ToArray();
         var calendarEvents = new List<CalendarEvent>();
+        var candidateIds = candidates.Select(item => item.Id).ToHashSet();
+        foreach (var id in displayIssues.Keys)
+            if (!candidateIds.Contains(id)) displayIssues.TryRemove(id, out _);
         foreach (var candidate in candidates)
         {
             try

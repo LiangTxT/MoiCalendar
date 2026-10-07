@@ -300,7 +300,7 @@ public sealed class DiagnosticReportService(
     };
 
     private static string NormalizeVersion(string value) =>
-        Version.TryParse(value, out var version) ? version.ToString() : "unknown";
+        ApplicationVersion.Normalize(value) ?? "unknown";
 
     private sealed record DiagnosticExportDocument(
         string Format,

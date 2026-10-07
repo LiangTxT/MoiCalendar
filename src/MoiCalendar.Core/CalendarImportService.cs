@@ -29,7 +29,7 @@ public sealed record CalendarImportPreview(
 {
     public int ValidEventCount => Items.Count;
 
-    public int PotentialDuplicateCount => Items.Count(item => item.IsPotentialDuplicate);
+    public int PotentialDuplicateCount => Items.Count(item => item.IsPotentialDuplicate && !item.IsDeletedDuplicate);
 
     public int WarningCount => Messages.Count(message => message.Severity == ICalendarImportMessageSeverity.Warning);
 
@@ -65,8 +65,10 @@ public sealed class CalendarImportService(
     ILocalEventChangeRepository localEventChanges,
     IDeviceService deviceService,
     TimeProvider timeProvider,
-    ILocalDataOperationLock? operationLock = null) : ICalendarImportService
+    ILocalDataOperationLock? operationLock = null,
+    IRecurrenceExpansionService? recurrenceExpansionService = null) : ICalendarImportService
 {
+    private readonly IRecurrenceExpansionService expansion = recurrenceExpansionService ?? new RecurrenceExpansionService();
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly object stateGate = new();
     private readonly SemaphoreSlim confirmationGate = new(1, 1);
@@ -84,13 +86,17 @@ public sealed class CalendarImportService(
         var duplicateLookup = existingEvents
             .Where(calendarEvent => !string.IsNullOrWhiteSpace(calendarEvent.ExternalUid))
             .GroupBy(calendarEvent => calendarEvent.ExternalUid!, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.UpdatedAtUtc).First(), StringComparer.Ordinal);
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.UpdatedAtUtc).ThenBy(item => item.Id.ToString("D"), StringComparer.Ordinal).First(), StringComparer.Ordinal);
+        var byId = existingEvents.ToDictionary(item => item.Id);
+        CalendarEvent? FindDuplicate(ICalendarImportCandidate candidate) =>
+            duplicateLookup.GetValueOrDefault(candidate.ExternalUid) ??
+            (TryReadLocalUid(candidate.ExternalUid, out var id) ? byId.GetValueOrDefault(id) : null);
         var items = parsed.CandidateEvents
             .Select((candidate, index) => new CalendarImportPreviewItem(
                 index + 1,
                 candidate,
-                duplicateLookup.GetValueOrDefault(candidate.ExternalUid)?.Id)
-                { IsDeletedDuplicate = duplicateLookup.GetValueOrDefault(candidate.ExternalUid)?.DeletedAtUtc is not null })
+                FindDuplicate(candidate)?.Id)
+                { IsDeletedDuplicate = FindDuplicate(candidate)?.DeletedAtUtc is not null })
             .ToArray();
         var preview = new CalendarImportPreview(
             Guid.NewGuid(),
@@ -226,7 +232,7 @@ public sealed class CalendarImportService(
         }
     }
 
-    private static CalendarEvent ToCalendarEvent(
+    private CalendarEvent ToCalendarEvent(
         ICalendarImportCandidate candidate,
         Guid id,
         DateTimeOffset createdAtUtc,
@@ -249,19 +255,39 @@ public sealed class CalendarImportService(
             TimeZoneId = candidate.TimeZoneId,
             IsAllDay = candidate.IsAllDay,
             RecurrenceRule = candidate.RecurrenceRule,
-            ColorIndex = existing?.ColorIndex ?? 1,
+            ColorIndex = candidate.ColorIndex ?? existing?.ColorIndex ?? 1,
             ExcludedOccurrenceStartsUtc = candidate.ExcludedOccurrenceStartsUtc ?? existing?.ExcludedOccurrenceStartsUtc ?? [],
             ExternalUid = candidate.ExternalUid,
             CreatedAtUtc = createdAtUtc,
             UpdatedAtUtc = updatedAtUtc
         };
-        if (existing is not null && candidate.ExcludedOccurrenceStartsUtc is null)
-            updated = updated with { ExcludedOccurrenceStartsUtc = RecurrenceExclusionPolicy.Remap(existing, updated, new RecurrenceExpansionService()) };
+        if (existing is not null)
+        {
+            try
+            {
+                updated = updated with { ExcludedOccurrenceStartsUtc = [.. RecurrenceExclusionPolicy.Remap(existing, updated, expansion)
+                    .Union(candidate.ExcludedOccurrenceStartsUtc ?? []).Order()] };
+            }
+            catch (Exception exception) when (exception is RecurrenceRuleException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                throw new CalendarImportException("无法安全保留此事件的重复例外，请先修复原事件的规则或时区。", exception);
+            }
+        }
+        if (updated.ExcludedOccurrenceStartsUtc.Length > 100_000)
+            throw new CalendarImportException("此系列超过 100000 条单次排除记录上限，未修改本地数据。");
         return updated;
+    }
+
+    private static bool TryReadLocalUid(string uid, out Guid id)
+    {
+        const string suffix = "@moicalendar.local";
+        id = default;
+        return uid.EndsWith(suffix, StringComparison.Ordinal) && Guid.TryParseExact(uid[..^suffix.Length], "D", out id);
     }
 
     private static Guid CreateDeterministicImportedEventId(string externalUid)
     {
+        if (TryReadLocalUid(externalUid, out var localId)) return localId;
         var name = Encoding.UTF8.GetBytes("MoiCalendar/iCalendar/" + externalUid);
         Span<byte> hash = stackalloc byte[32];
         SHA256.HashData(name, hash);

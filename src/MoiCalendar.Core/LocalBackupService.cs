@@ -86,7 +86,7 @@ public sealed class LocalBackupService(
     }
 
     private static string? NormalizeAppVersion(string? appVersion) =>
-        Version.TryParse(appVersion, out var version) ? version.ToString() : null;
+        ApplicationVersion.Normalize(appVersion);
 }
 
 public sealed class LocalBackupException : Exception

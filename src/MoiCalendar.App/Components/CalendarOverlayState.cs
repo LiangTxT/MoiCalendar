@@ -65,8 +65,8 @@ public static class CalendarOverlayTransitions
             ? new FullEditorOverlayState(quickCreate.Draft)
             : state;
 
-    public static CalendarOverlayState OpenEventDetails(CalendarEvent calendarEvent) =>
-        new EventDetailsOverlayState(calendarEvent);
+    public static CalendarOverlayState OpenEventDetails(CalendarEvent calendarEvent, CalendarOccurrenceReference? occurrence = null) =>
+        new EventDetailsOverlayState(calendarEvent, occurrence);
 
     public static CalendarOverlayState OpenMoreEvents(DateOnly date) =>
         new MoreEventsOverlayState(date);

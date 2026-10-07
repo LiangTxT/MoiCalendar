@@ -139,6 +139,12 @@ window.moicalendarUi = {
             const tag = target?.tagName?.toLowerCase();
             const isTextEntry = tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true;
             const key = event.key.toLowerCase();
+            // Only the overlay host may close a dialog and restore its unsaved editor.
+            if (key === "escape" && target?.closest?.(".calendar-overlay")) return;
+            if (key === " " && !target?.closest?.("button, a") && target?.closest?.("[role='gridcell']")) {
+                event.preventDefault(); // The grid owns Space; do not also scroll the page.
+                return;
+            }
             // Native button activation and the gridcell's own handler must retain Enter.
             if ((key === "enter" || key === " ") && target?.closest?.("button, a, [role='gridcell']")) return;
             const isSearchShortcut = key === "k" && !event.altKey && event.ctrlKey !== event.metaKey;

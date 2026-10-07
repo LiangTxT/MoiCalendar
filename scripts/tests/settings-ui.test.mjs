@@ -86,7 +86,9 @@ test('设置布局具有手机收敛、语义反馈和上传焦点，不隐藏�
 test('合并数据文件区域，按钮紧凑并在说明下一行，保留确认流程', () => {
     const area = markup.slice(markup.indexOf('<section class="settings-card data-files"'), markup.indexOf('</main>'));
     assert.equal((area.match(/class="settings-card/g) ?? []).length, 1);
-    assert.equal((area.match(/class="data-file-group"/g) ?? []).length, 2);
+    assert.equal((area.match(/class="data-file-group"/g) ?? []).length, 3);
+    assert.ok(area.includes('invalid-events-heading'));
+    assert.ok(area.includes('DeleteInvalidEventAsync'));
     for (const method of ['ExportBackupAsync', 'ExportICalendarAsync']) {
         const button = area.match(new RegExp(`<button[^>]+@onclick="${method}"`))?.[0];
         assert.ok(button);

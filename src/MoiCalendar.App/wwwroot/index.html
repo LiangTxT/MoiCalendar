@@ -42,7 +42,12 @@
     <script src="formPicker.js"></script>
     <script src="dateTimePicker.js"></script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
-    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' })
+                .catch(error => console.warn('离线缓存注册失败；在线日历仍可使用。', error));
+        }
+    </script>
 </body>
 
 </html>

@@ -116,6 +116,7 @@
                                                    VisibleMonthChanged="ChangeVisibleMonthAsync"
                                                    DisplayedMonthChanged="SetDisplayedMonth"
                                                    PointerMove="HandleMonthPointerMoveAsync"
+                                                   BackgroundClicked="() => suppressNextMonthClick = false"
                                                    PointerUp="CommitMonthPointerInteractionAsync"
                                                    PointerCancel="CancelMonthPointerInteraction" />
         </section>
@@ -321,7 +322,7 @@
                 </p>
                 @if (seriesExclusionCount > 0)
                 {
-                    <p class="recurrence-series-notice">已单独删除 @seriesExclusionCount 次；重复次数包含这些已删除的日期。</p>
+                    <p class="recurrence-series-notice">已排除或单独调整 @seriesExclusionCount 次；修改系列时按事件时区保留相同日期，不再符合规则的排除记录会移除。</p>
                 }
             }
 
@@ -552,15 +553,9 @@
     private string? editorError;
     private string? quickCreateError;
     private string? detailError;
-    private CalendarOccurrenceReference? selectedOccurrence
-    {
-        get => overlayState is EventDetailsOverlayState details ? details.Occurrence
+    private CalendarOccurrenceReference? selectedOccurrence =>
+        overlayState is EventDetailsOverlayState details ? details.Occurrence
             : (overlayState as RecurrenceScopeOverlayState)?.Occurrence;
-        set
-        {
-            if (overlayState is EventDetailsOverlayState details) overlayState = details with { Occurrence = value };
-        }
-    }
     private string? detailAnchorStyle;
     private string? storageError;
     private string? preferenceError;
@@ -589,7 +584,7 @@
         get => (overlayState as QuickCreateOverlayState)?.Draft;
         set
         {
-            if (value is not null && CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind))
+            if (value is not null && (overlayState.Kind == CalendarOverlayKind.QuickCreate || CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind)))
             {
                 overlayState = CalendarOverlayTransitions.OpenQuickCreate(value);
             }
@@ -685,7 +680,7 @@
     };
 
     private string? LocalError => storageError ?? preferenceError ??
-        (EventService.DisplayIssueCount > 0 ? $"有 {EventService.DisplayIssueCount} 个日程因规则或时区无效暂时无法显示；本地数据仍保留。" : null);
+        (EventService.DisplayIssueCount > 0 ? $"有 {EventService.DisplayIssueCount} 个日程因规则或时区无效暂时无法显示；可在设置的“无法显示的日程”中检查，本地数据仍保留。" : null);
 
     private DateOnly AgendaCreateDate =>
         monthView.Month == CalendarMonth.FromDate(today)
@@ -1018,7 +1013,8 @@
 
     private async Task ShowMonthAsync(CalendarMonth month, bool seamless = false, bool showLoading = true)
     {
-        if (!seamless) focusedEventId = null;
+        focusedEventId = null;
+        focusedOccurrence = null;
         if (!seamless)
         {
             displayedMonth = month;
@@ -1358,7 +1354,7 @@
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
-        catch (Exception exception) when (exception is ArgumentException or EventRepositoryException)
+        catch (Exception exception) when (exception is ArgumentException or EventRepositoryException or RecurrenceRuleException)
         {
             quickCreateError = exception.Message;
         }
@@ -1399,6 +1395,10 @@
         {
             ShowInteractionFeedback(result.Message, false);
         }
+        else if (result.Status == CalendarInteractionStatus.NoChange)
+        {
+            ShowInteractionFeedback(result.Message, true);
+        }
 
         if (result.Status == CalendarInteractionStatus.SelectionReady &&
             result.Intent is SelectTimeRangeIntent timeRange)
@@ -1421,7 +1421,6 @@
             if (recurringEvent is not null)
             {
                 await RememberFocusAsync();
-                selectedOccurrence = new(recurringEvent.Id, recurringIntent.OriginalStartUtc, recurringIntent.OriginalEndUtc);
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     recurringEvent,
                     CalendarRecurrenceAction.ApplyInteractionToSeries,
@@ -1441,6 +1440,7 @@
 
     private void BeginMonthMove(CalendarEventListItem calendarEvent, DateOnly date, PointerEventArgs args)
     {
+        suppressNextMonthClick = false;
         if (args.Button != 0 || calendarEvent.IsReadOnly)
         {
             return;
@@ -1606,9 +1606,6 @@
         string.Equals(current.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
         DateTimeOffset.UtcNow - current.StartedAt < TimeSpan.FromMilliseconds(350);
 
-    private Task OpenEventDetailsAsync(Guid id) =>
-        OpenEventDetailsCoreAsync(id, rememberFocus: true);
-
     private Task OpenEventDetailsAsync(CalendarOccurrenceReference occurrence) =>
         OpenEventDetailsCoreAsync(occurrence.Id, rememberFocus: true, occurrence);
 
@@ -1637,8 +1634,7 @@
             {
                 return;
             }
-            selectedEvent = calendarEvent;
-            selectedOccurrence = occurrence;
+            overlayState = CalendarOverlayTransitions.OpenEventDetails(calendarEvent, occurrence);
             quickCreateDraft = null;
             detailError = null;
         }
@@ -1674,7 +1670,6 @@
             }
             if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
             {
-                selectedOccurrence = occurrence;
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     calendarEvent,
                     CalendarRecurrenceAction.EditSeries,
@@ -1819,7 +1814,7 @@
                 overlayState = CalendarOverlayTransitions.OpenEventFromMore(
                     overlayState,
                     calendarEvent);
-                selectedOccurrence = occurrence;
+                overlayState = CalendarOverlayTransitions.OpenEventDetails(calendarEvent, occurrence);
                 detailError = null;
             }
         }
@@ -1847,12 +1842,11 @@
         {
             await EventService.DeleteOccurrenceAsync(scope.CalendarEvent.Id, start);
             overlayState = CalendarOverlayState.None;
-            selectedOccurrence = null;
             ShowInteractionFeedback("已删除这一次", true);
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
-        catch (Exception exception) when (exception is ArgumentException or KeyNotFoundException or EventRepositoryException)
+        catch (Exception exception) when (exception is ArgumentException or KeyNotFoundException or EventRepositoryException or RecurrenceRuleException)
         {
             detailError = exception.Message;
         }
@@ -1900,7 +1894,7 @@
             detailError = null;
             editor = draft;
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (exception is ArgumentException or RecurrenceRuleException)
         {
             detailError = exception.Message;
         }
@@ -1992,13 +1986,17 @@
             var removedExceptions = editor.RemovedExclusionCount;
             await CloseEditor();
             await LoadEventsAsync();
-            ShowInteractionFeedback(removedExceptions == 0 ? "已保存" : $"已保存；{removedExceptions} 个单次删除不再属于新规则，已清理。", true);
+            ShowInteractionFeedback(removedExceptions == 0 ? "已保存" : $"已保存；{removedExceptions} 个单次排除不再属于新规则，已清理。", true);
         }
         catch (ArgumentException exception)
         {
             editorError = exception.Message;
         }
         catch (KeyNotFoundException exception)
+        {
+            editorError = exception.Message;
+        }
+        catch (RecurrenceRuleException exception)
         {
             editorError = exception.Message;
         }

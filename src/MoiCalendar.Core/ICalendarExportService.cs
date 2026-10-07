@@ -6,7 +6,10 @@ namespace MoiCalendar.Core;
 public sealed record ICalendarExport(
     string FileName,
     string Content,
-    string MediaType = "text/calendar;charset=utf-8");
+    string MediaType = "text/calendar;charset=utf-8")
+{
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+}
 
 public interface ICalendarExportService
 {
@@ -35,19 +38,20 @@ public sealed class CalendarExportService(
             "METHOD:PUBLISH"
         };
 
+        var warnings = new List<string>();
         foreach (var calendarEvent in events)
         {
-            AppendEvent(lines, calendarEvent);
+            AppendEvent(lines, calendarEvent, warnings);
         }
 
         lines.Add("END:VCALENDAR");
         var content = string.Join("\r\n", lines.SelectMany(FoldLine)) + "\r\n";
         return new ICalendarExport(
             $"moicalendar-calendar-{timeProvider.GetUtcNow():yyyy-MM-dd}.ics",
-            content);
+            content) { Warnings = warnings };
     }
 
-    private static void AppendEvent(ICollection<string> lines, CalendarEvent calendarEvent)
+    private static void AppendEvent(ICollection<string> lines, CalendarEvent calendarEvent, ICollection<string> warnings)
     {
         var timeZone = ResolveTimeZone(calendarEvent.TimeZoneId);
         lines.Add("BEGIN:VEVENT");
@@ -56,6 +60,7 @@ public sealed class CalendarExportService(
                 ? $"{calendarEvent.Id:D}@moicalendar.local"
                 : calendarEvent.ExternalUid));
         lines.Add("SUMMARY:" + EscapeText(calendarEvent.Title));
+        lines.Add("X-MOICALENDAR-COLOR-INDEX:" + calendarEvent.ColorIndex.ToString(CultureInfo.InvariantCulture));
         if (!string.IsNullOrEmpty(calendarEvent.Description))
         {
             lines.Add("DESCRIPTION:" + EscapeText(calendarEvent.Description));
@@ -70,8 +75,9 @@ public sealed class CalendarExportService(
         {
             var startDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(calendarEvent.StartUtc, timeZone).DateTime);
             var endDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(calendarEvent.EndUtc, timeZone).DateTime);
-            lines.Add($"DTSTART;VALUE=DATE:{startDate:yyyyMMdd}");
-            lines.Add($"DTEND;VALUE=DATE:{endDate:yyyyMMdd}");
+            lines.Add("X-MOICALENDAR-TZID:" + EscapeText(calendarEvent.TimeZoneId));
+            lines.Add("DTSTART;VALUE=DATE:" + startDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
+            lines.Add("DTEND;VALUE=DATE:" + endDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
         }
         else if (timeZone.Equals(TimeZoneInfo.Utc))
         {
@@ -87,24 +93,31 @@ public sealed class CalendarExportService(
 
         if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
         {
-            var parsed = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule);
+            ParsedRecurrenceRule? parsed = null;
+            try { parsed = RecurrenceRuleParser.Parse(calendarEvent.RecurrenceRule); }
+            catch (RecurrenceRuleException)
+            {
+                warnings.Add($"“{calendarEvent.Title}”的重复规则不受支持，已保留原始规则；导入其他日历前请检查。");
+            }
             var rule = calendarEvent.RecurrenceRule.Trim();
             if (rule.StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
             {
                 rule = rule[6..];
             }
 
-            if (!calendarEvent.IsAllDay && parsed.Until?.Date is { } untilDate)
+            if (!calendarEvent.IsAllDay && parsed?.Until?.Date is { } untilDate)
             {
                 var utcEnd = CalendarTimeZone.ToUtc(untilDate.ToDateTime(new TimeOnly(23, 59, 59)), timeZone);
                 rule = string.Join(';', rule.Split(';').Select(part => part.StartsWith("UNTIL=", StringComparison.OrdinalIgnoreCase)
                     ? "UNTIL=" + FormatUtc(utcEnd) : part));
             }
-            lines.Add("RRULE:" + rule);
+            if (rule.Contains('\r') || rule.Contains('\n'))
+                lines.Add("X-MOICALENDAR-RAW-RRULE:" + EscapeText(rule));
+            else lines.Add("RRULE:" + rule);
             foreach (var excluded in calendarEvent.ExcludedOccurrenceStartsUtc ?? [])
             {
                 lines.Add(calendarEvent.IsAllDay
-                    ? $"EXDATE;VALUE=DATE:{TimeZoneInfo.ConvertTime(excluded, timeZone):yyyyMMdd}"
+                    ? "EXDATE;VALUE=DATE:" + TimeZoneInfo.ConvertTime(excluded, timeZone).ToString("yyyyMMdd", CultureInfo.InvariantCulture)
                     : "EXDATE:" + FormatUtc(excluded));
             }
         }

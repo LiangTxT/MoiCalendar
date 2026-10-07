@@ -550,6 +550,9 @@ export async function applyCalendarImport(changes) {
             change.calendarEvent,
             change.operation,
             change.expectedExistingEventId ? 1 : 0);
+        if ((change.calendarEvent.excludedOccurrenceStartsUtc?.length ?? 0) > 100000) {
+            throw new Error("此系列超过 100000 条单次排除记录上限，未修改本地数据。");
+        }
     }
 
     const database = await getDatabase();
@@ -572,7 +575,11 @@ export async function applyCalendarImport(changes) {
         for (const existingEvent of existingEvents) {
             validateEvent(existingEvent);
             if (typeof existingEvent.externalUid === "string" && existingEvent.externalUid.length > 0) {
-                externalUidLookup.set(existingEvent.externalUid, existingEvent);
+                const previous = externalUidLookup.get(existingEvent.externalUid);
+                if (!previous || dateTimeTicks(existingEvent.updatedAtUtc) > dateTimeTicks(previous.updatedAtUtc) ||
+                    (dateTimeTicks(existingEvent.updatedAtUtc) === dateTimeTicks(previous.updatedAtUtc) && existingEvent.id < previous.id)) {
+                    externalUidLookup.set(existingEvent.externalUid, existingEvent);
+                }
             }
         }
 
@@ -583,11 +590,10 @@ export async function applyCalendarImport(changes) {
             if (change.expectedExistingEventId) {
                 const current = existingEvents.find(item => item.id === change.expectedExistingEventId);
                 if (!current || current.deletedAtUtc || importedEvent.id !== current.id ||
-                    (hasExternalUid && currentDuplicate?.id !== current.id)) {
+                    (hasExternalUid && currentDuplicate && currentDuplicate.id !== current.id)) {
                     throw new Error("预览后本地重复事件已发生变化，请重新预览后导入。");
                 }
-                if (new Date(current.updatedAtUtc).getTime() !==
-                    new Date(change.expectedExistingUpdatedAtUtc).getTime()) {
+                if (dateTimeTicks(current.updatedAtUtc) !== dateTimeTicks(change.expectedExistingUpdatedAtUtc)) {
                     throw new Error("预览后本地事件已被修改，请重新预览后导入。");
                 }
             } else if (currentDuplicate) {
@@ -959,11 +965,23 @@ export async function resolveSyncConflictKeepLocal(
             throw new Error("云端冲突版本与本地实体不匹配。");
         }
 
-        const localEvent = await requestAsPromise(eventStore.get(conflict.entityId));
+        let localEvent = await requestAsPromise(eventStore.get(conflict.entityId));
         if (!localEvent) {
             throw new Error("找不到冲突的本地事件版本。");
         }
         validateEvent(localEvent);
+        const remoteEvent = conflict.conflictRemoteEvent;
+        if (!localEvent.deletedAtUtc && localEvent.recurrenceRule &&
+            Date.parse(localEvent.startUtc) === Date.parse(remoteEvent.startUtc) &&
+            localEvent.timeZoneId === remoteEvent.timeZoneId &&
+            localEvent.isAllDay === remoteEvent.isAllDay && localEvent.recurrenceRule === remoteEvent.recurrenceRule) {
+            localEvent = { ...localEvent, excludedOccurrenceStartsUtc: [...new Set([
+                ...(localEvent.excludedOccurrenceStartsUtc || []), ...(remoteEvent.excludedOccurrenceStartsUtc || [])])].sort() };
+            if (localEvent.excludedOccurrenceStartsUtc.length > 100000)
+                throw new Error("合并后的系列超过 100000 条排除记录上限，请先导出备份并拆分系列。");
+            validateEvent(localEvent);
+            eventStore.put(localEvent);
+        }
 
         const sameEntity = await requestAsPromise(
             outboxStore.index("entityId").getAll(conflict.entityId));
@@ -1907,11 +1925,28 @@ function validateSyncScope(scope) {
     }
 }
 
+function dateTimeTicks(value) {
+    validateDateValue(value, "timestamp");
+    const milliseconds = Date.parse(value);
+    const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/i.exec(value)?.[1] ?? "";
+    return BigInt(milliseconds) * 10000n + BigInt(fraction.padEnd(7, "0").slice(3, 7) || "0");
+}
+
 function validateCloudSyncState(state) {
     if (!state || typeof state !== "object") {
         throw new Error("云同步状态不是有效对象。");
     }
     validateSyncScope(state.scope);
+    if (state.deferredEntityRevisions !== null && state.deferredEntityRevisions !== undefined) {
+        const deferred = state.deferredEntityRevisions;
+        if (typeof deferred !== "object" || Array.isArray(deferred) || Object.keys(deferred).length > 100000) {
+            throw new Error("延迟云同步修订记录无效。");
+        }
+        for (const [id, revision] of Object.entries(deferred)) {
+            validateId(id);
+            validateServerRevision(revision);
+        }
+    }
     if (state.lastSuccessfulServerRevision !== null &&
         state.lastSuccessfulServerRevision !== undefined &&
         (!Number.isSafeInteger(state.lastSuccessfulServerRevision) ||

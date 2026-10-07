@@ -389,6 +389,8 @@ public sealed class LocalBackupRestoreService(
 
             if (calendarEvent.ColorIndex is < 1 or > 8)
                 throw new LocalBackupRestoreException("备份包含无效的日程颜色，未修改本地数据。");
+            if (calendarEvent.ExcludedOccurrenceStartsUtc is { Length: > 100_000 })
+                throw new LocalBackupRestoreException("备份中的单个系列超过 100000 条排除记录上限，未修改本地数据。");
 
             if (calendarEvent.EndUtc <= calendarEvent.StartUtc ||
                 calendarEvent.UpdatedAtUtc < calendarEvent.CreatedAtUtc ||

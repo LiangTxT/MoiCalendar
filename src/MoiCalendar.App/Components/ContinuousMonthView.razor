@@ -11,6 +11,7 @@
     </div>
 
     <div class="month-stream app-scrollable scrollbar-hidden" @ref="streamElement"
+         @onclick="BackgroundClicked"
          @onpointermove="PointerMove" @onpointerup="PointerUp" @onpointercancel="PointerCancel">
         <MonthPanel @key="PreviousPreviousLayout.Month.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
@@ -58,6 +59,7 @@
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextLayout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextNextLayout { get; set; } = null!;
     [Parameter] public int NavigationVersion { get; set; }
+    [Parameter] public EventCallback BackgroundClicked { get; set; }
     [Parameter] public CalendarMonth DisplayedMonth { get; set; }
     [Parameter] public EventCallback<CalendarMonth> NavigateToMonth { get; set; }
     [Parameter] public DateOnly SelectedDate { get; set; }

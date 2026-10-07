@@ -113,6 +113,7 @@ public sealed class RecurrenceExpansionService : IRecurrenceExpansionService
             }
             if (!TryConvertLocalToUtc(localEnd, timeZone, out var occurrenceEndUtc))
             {
+                occurrenceNumber--; // Invalid instances must not consume COUNT.
                 continue;
             }
 

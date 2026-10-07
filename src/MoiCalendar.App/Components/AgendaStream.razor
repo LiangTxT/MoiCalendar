@@ -104,10 +104,12 @@
             // 保留本月在顶部，预读后两个月；向上扩展时不替换已呈现的内容。
             var next = Month;
             var loaded = new List<(CalendarMonth Month, CalendarAgendaView View)>();
+            IReadOnlyDictionary<CalendarMonth, CalendarAgendaView>? refreshedViews = refreshMonths is not null
+                ? await Events.GetAgendaViewsAsync(refreshMonths, TimeZoneId) : null;
             for (var index = 0; index < (refreshMonths?.Length ?? 3); index++)
             {
                 if (refreshMonths is not null) next = refreshMonths[index];
-                var view = await Events.GetAgendaViewAsync(next, TimeZoneId);
+                var view = refreshedViews is not null ? refreshedViews[next] : await Events.GetAgendaViewAsync(next, TimeZoneId);
                 if (disposed || version != loadVersion) return;
                 loaded.Add((next, view));
                 if (next.Year == 9999 && next.Month == 12) break;

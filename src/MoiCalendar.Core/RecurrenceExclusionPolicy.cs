@@ -17,7 +17,7 @@ public static class RecurrenceExclusionPolicy
         var newZone = CalendarTimeZone.Resolve(updated.TimeZoneId);
         var newTime = TimeZoneInfo.ConvertTime(updated.StartUtc, newZone).TimeOfDay;
         var master = updated with { ExcludedOccurrenceStartsUtc = [] };
-        var result = new HashSet<DateTimeOffset>();
+        var candidates = new HashSet<DateTimeOffset>();
         foreach (var excluded in exclusions)
         {
             var date = TimeZoneInfo.ConvertTime(excluded, oldZone).Date;
@@ -26,10 +26,12 @@ public static class RecurrenceExclusionPolicy
             var offset = newZone.IsAmbiguousTime(local)
                 ? newZone.GetAmbiguousTimeOffsets(local).Max() : newZone.GetUtcOffset(local);
             var candidate = new DateTimeOffset(local, offset).ToUniversalTime();
-            if (candidate < DateTimeOffset.MaxValue &&
-                expansion.Expand([master], candidate, candidate.AddTicks(1)).Any(x => x.StartUtc == candidate))
-                result.Add(candidate);
+            if (candidate < DateTimeOffset.MaxValue) candidates.Add(candidate);
         }
-        return [.. result.Order()];
+        if (candidates.Count == 0) return [];
+        // Parse and expand the series once, rather than replaying it for every exception.
+        var actual = expansion.Expand([master], candidates.Min(), candidates.Max().AddTicks(1))
+            .Select(item => item.StartUtc).ToHashSet();
+        return [.. candidates.Where(actual.Contains).Order()];
     }
 }

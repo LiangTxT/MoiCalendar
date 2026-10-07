@@ -5,6 +5,9 @@ public static class CalendarTimeZone
 {
     public static TimeZoneInfo Resolve(string id)
     {
+        // Some ICS exporters prefix the canonical zone with their VTIMEZONE namespace.
+        var prefix = id.IndexOf("/Tzfile/", StringComparison.OrdinalIgnoreCase);
+        if (prefix >= 0) id = id[(prefix + "/Tzfile/".Length)..];
         try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
         catch (TimeZoneNotFoundException)
         {

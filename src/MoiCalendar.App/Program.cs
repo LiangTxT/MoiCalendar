@@ -73,7 +73,7 @@ builder.Services.AddScoped<LocalOperationalDiagnosticsSink>(serviceProvider =>
         serviceProvider.GetRequiredService<IOperationalDiagnosticRepository>(),
         serviceProvider.GetRequiredService<IClientPlatformProvider>(),
         serviceProvider.GetRequiredService<TimeProvider>(),
-        typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown"));
+        AppVersion.Current));
 builder.Services.AddScoped<IOperationalDiagnosticsSink>(serviceProvider =>
     serviceProvider.GetRequiredService<LocalOperationalDiagnosticsSink>());
 builder.Services.AddScoped<IDeviceService, IndexedDbDeviceService>();
@@ -99,7 +99,7 @@ builder.Services.AddScoped<CalendarInteractionService>();
 builder.Services.AddScoped<ILocalBackupService>(sp => new LocalBackupService(
     sp.GetRequiredService<IEventRepository>(),
     sp.GetRequiredService<TimeProvider>(),
-    typeof(App).Assembly.GetName().Version?.ToString()));
+    AppVersion.Current));
 builder.Services.AddScoped<ILocalBackupRestoreService>(sp => new LocalBackupRestoreService(
     sp.GetRequiredService<IBackupRestoreRepository>(),
     sp.GetRequiredService<ILocalDataOperationLock>(),
@@ -119,7 +119,7 @@ builder.Services.AddScoped<IDiagnosticReportService>(serviceProvider =>
         serviceProvider.GetRequiredService<ICloudSyncStatusService>(),
         serviceProvider.GetRequiredService<IRealtimeNotifier>(),
         serviceProvider.GetRequiredService<TimeProvider>(),
-        typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown"));
+        AppVersion.Current));
 builder.Services.AddSingleton<ISyncProviderSelection, InMemorySyncProviderSelection>();
 builder.Services.AddScoped<IOneDriveAccessTokenProvider, MsalOneDriveAccessTokenProvider>();
 builder.Services.AddScoped(sp => new OneDriveSyncStorageProvider(

@@ -29,6 +29,7 @@ public sealed record ICalendarImportCandidate(
 {
     // Null means the file did not specify exclusions; updating must preserve local exceptions.
     public DateTimeOffset[]? ExcludedOccurrenceStartsUtc { get; init; }
+    public int? ColorIndex { get; init; }
 }
 
 public sealed record ICalendarImportResult(
@@ -208,6 +209,26 @@ public sealed class CalendarImportParser : ICalendarImportParser
 
             var start = ParseDateTime(startProperty, eventNumber, messages);
             var end = ParseDateTime(endProperty, eventNumber, messages);
+            var originalZone = ReadSingle(properties, "X-MOICALENDAR-TZID", required: false, eventNumber);
+            if (start.IsAllDay && originalZone is not null)
+            {
+                try
+                {
+                    var zone = CalendarTimeZone.Resolve(UnescapeText(originalZone));
+                    start = new(CalendarTimeZone.ToUtc(start.Utc.UtcDateTime, zone), zone.Id, true);
+                    end = new(CalendarTimeZone.ToUtc(end.Utc.UtcDateTime, zone), zone.Id, true);
+                }
+                catch (Exception exception) when (exception is ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+                { throw InvalidEvent(eventNumber, "全天事件的原始时区无效。"); }
+            }
+            var color = ReadSingle(properties, "X-MOICALENDAR-COLOR-INDEX", required: false, eventNumber);
+            int? colorIndex = null;
+            if (color is not null)
+            {
+                if (!int.TryParse(color, NumberStyles.None, CultureInfo.InvariantCulture, out var index) || index is < 1 or > 8)
+                    throw InvalidEvent(eventNumber, "日程颜色编号必须在 1–8 之间。");
+                colorIndex = index;
+            }
             if (start.IsAllDay != end.IsAllDay)
             {
                 throw InvalidEvent(eventNumber, "DTSTART 与 DTEND 必须同时是全天日期或定时时间。");
@@ -241,7 +262,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
                 end.Utc,
                 start.TimeZoneId,
                 start.IsAllDay,
-                recurrenceRule) { ExcludedOccurrenceStartsUtc = excluded });
+                recurrenceRule) { ExcludedOccurrenceStartsUtc = excluded, ColorIndex = colorIndex });
         }
         catch (ICalendarEventImportException exception)
         {
@@ -312,7 +333,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
         var result = new HashSet<DateTimeOffset>();
         foreach (var property in exclusions)
         {
-            foreach (var value in property.Value.Split(','))
+            foreach (var value in property.Value.Split(',', StringSplitOptions.TrimEntries))
             {
                 var parameters = new Dictionary<string, string>(property.Parameters, StringComparer.OrdinalIgnoreCase);
                 if (!start.IsAllDay && !value.EndsWith('Z') && !parameters.ContainsKey("TZID"))
@@ -320,6 +341,8 @@ public sealed class CalendarImportParser : ICalendarImportParser
                 var parsed = ParseDateTime(property with { Value = value, Parameters = parameters }, eventNumber, messages);
                 if (parsed.IsAllDay != start.IsAllDay)
                     throw InvalidEvent(eventNumber, "EXDATE 与 DTSTART 的日期类型必须一致。");
+                if (start.IsAllDay && start.TimeZoneId != "UTC")
+                    parsed = parsed with { Utc = CalendarTimeZone.ToUtc(parsed.Utc.UtcDateTime, CalendarTimeZone.Resolve(start.TimeZoneId)) };
                 result.Add(parsed.Utc.ToUniversalTime());
             }
         }
@@ -474,7 +497,7 @@ public sealed class CalendarImportParser : ICalendarImportParser
     {
         var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "UID", "SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "RRULE", "EXDATE"
+            "UID", "SUMMARY", "DESCRIPTION", "LOCATION", "DTSTART", "DTEND", "RRULE", "EXDATE", "X-MOICALENDAR-TZID", "X-MOICALENDAR-COLOR-INDEX"
         };
         foreach (var name in properties
                      .Select(property => property.Name)
