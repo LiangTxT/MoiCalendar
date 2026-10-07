@@ -16,7 +16,7 @@ public sealed class CalendarEventRecurrenceDraftTests
     {
         var draft = new CalendarEventRecurrenceDraft { RepeatOption = repeatOption };
 
-        Assert.Equal(expected, draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0)));
+        Assert.Equal(expected, draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0), TimeZoneInfo.Utc, false));
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class CalendarEventRecurrenceDraftTests
         draft.SetWeekdaySelected(DayOfWeek.Monday, true);
         draft.SetWeekdaySelected(DayOfWeek.Wednesday, true);
 
-        var rule = draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0));
+        var rule = draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0), TimeZoneInfo.Utc, false);
 
         Assert.Equal("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;COUNT=8", rule);
     }
@@ -53,7 +53,7 @@ public sealed class CalendarEventRecurrenceDraftTests
 
         Assert.Equal(
             "FREQ=DAILY;UNTIL=20260831",
-            draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0)));
+            draft.ToRecurrenceRule(new DateTime(2026, 8, 3, 9, 0, 0), TimeZoneInfo.Utc, true));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class CalendarEventRecurrenceDraftTests
         var draft = service.CreateDraft(calendarEvent);
         draft.Title = "只修改标题";
 
-        Assert.Equal(originalRule, draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
+        Assert.Equal(originalRule, draft.Recurrence.ToRecurrenceRule(draft.StartLocal, CalendarTimeZone.Resolve(draft.TimeZoneId), draft.IsAllDay));
     }
 
     [Fact]
@@ -95,12 +95,7 @@ public sealed class CalendarEventRecurrenceDraftTests
     {
         const string originalRule = "FREQ=DAILY;COUNT=5;UNTIL=20260831";
         var calendarEvent = CreateEvent() with { RecurrenceRule = originalRule };
-        var draft = CreateService().CreateDraft(calendarEvent);
-
-        Assert.Equal(originalRule, draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
-
-        draft.Recurrence.Interval = 2;
-        Assert.Equal("FREQ=DAILY;INTERVAL=2;COUNT=5", draft.Recurrence.ToRecurrenceRule(draft.StartLocal));
+        Assert.Throws<RecurrenceRuleException>(() => CreateService().CreateDraft(calendarEvent));
     }
 
     [Theory]
@@ -115,7 +110,7 @@ public sealed class CalendarEventRecurrenceDraftTests
             Interval = interval
         };
 
-        Assert.Throws<ArgumentException>(() => draft.ToRecurrenceRule(DateTime.Today));
+        Assert.Throws<ArgumentException>(() => draft.ToRecurrenceRule(DateTime.Today, TimeZoneInfo.Utc, false));
     }
 
     [Fact]
@@ -127,7 +122,7 @@ public sealed class CalendarEventRecurrenceDraftTests
             CustomFrequency = RecurrenceFrequency.Weekly
         };
 
-        Assert.Throws<ArgumentException>(() => draft.ToRecurrenceRule(DateTime.Today));
+        Assert.Throws<ArgumentException>(() => draft.ToRecurrenceRule(DateTime.Today, TimeZoneInfo.Utc, false));
     }
 
     [Fact]
@@ -142,7 +137,7 @@ public sealed class CalendarEventRecurrenceDraftTests
         };
 
         Assert.Throws<ArgumentException>(
-            () => draft.ToRecurrenceRule(new DateTime(2026, 8, 1, 9, 0, 0)));
+            () => draft.ToRecurrenceRule(new DateTime(2026, 8, 1, 9, 0, 0), TimeZoneInfo.Utc, false));
     }
 
     private static CalendarEventService CreateService()

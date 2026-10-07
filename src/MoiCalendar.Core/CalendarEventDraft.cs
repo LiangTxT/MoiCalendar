@@ -4,6 +4,9 @@ namespace MoiCalendar.Core;
 
 public sealed class CalendarEventDraft
 {
+    private TimeSpan? timedStart;
+    private TimeSpan timedDuration = TimeSpan.FromHours(1);
+    internal DateTimeOffset? ExpectedUpdatedAtUtc { get; private set; }
     public string Title { get; set; } = string.Empty;
 
     public string Description { get; set; } = string.Empty;
@@ -11,6 +14,25 @@ public sealed class CalendarEventDraft
     public string Location { get; set; } = string.Empty;
 
     public int ColorIndex { get; set; } = 1;
+    public int RemovedExclusionCount { get; internal set; }
+    public int? ReminderMinutesBeforeStart { get; set; }
+    public string? ReminderTimeZoneId { get; set; }
+    public int AllDayReminderMinuteOfDay { get; set; } = 420;
+    public TimeOnly AllDayReminderTime
+    {
+        get => TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(AllDayReminderMinuteOfDay));
+        set => AllDayReminderMinuteOfDay = value.Hour * 60 + value.Minute;
+    }
+    public string AllDayReminderTimeInput
+    {
+        get => TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(AllDayReminderMinuteOfDay)).ToString("HH:mm", CultureInfo.InvariantCulture);
+        set
+        {
+            if (TimeOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+                AllDayReminderMinuteOfDay = time.Hour * 60 + time.Minute;
+        }
+    }
+    public int ReminderChoice { get => ReminderMinutesBeforeStart ?? -1; set => ReminderMinutesBeforeStart = value < 0 ? null : value; }
 
     public DateTime StartLocal { get; set; }
 
@@ -36,13 +58,22 @@ public sealed class CalendarEventDraft
 
     public void SetAllDay(bool isAllDay)
     {
+        var wasAllDay = IsAllDay;
+        if (wasAllDay == isAllDay) return;
         IsAllDay = isAllDay;
 
         if (!isAllDay)
         {
+            if (wasAllDay)
+            {
+                StartLocal = StartLocal.Date + (timedStart ?? TimeSpan.FromHours(9));
+                EndLocal = StartLocal + timedDuration;
+            }
             return;
         }
 
+        timedStart = StartLocal.TimeOfDay;
+        timedDuration = EndLocal > StartLocal ? EndLocal - StartLocal : TimeSpan.FromHours(1);
         StartLocal = StartLocal.Date;
         EndLocal = EndLocal.Date <= StartLocal.Date
             ? StartLocal.Date.AddDays(1)
@@ -53,7 +84,8 @@ public sealed class CalendarEventDraft
     {
         StartLocal = date.ToDateTime(new TimeOnly(9, 0)),
         EndLocal = date.ToDateTime(new TimeOnly(10, 0)),
-        TimeZoneId = timeZoneId
+        TimeZoneId = timeZoneId,
+        ReminderTimeZoneId = timeZoneId
     };
 
     internal static CalendarEventDraft FromEvent(CalendarEvent calendarEvent, TimeZoneInfo timeZone)
@@ -67,12 +99,17 @@ public sealed class CalendarEventDraft
             Description = calendarEvent.Description,
             Location = calendarEvent.Location,
             ColorIndex = calendarEvent.ColorIndex,
+            ExpectedUpdatedAtUtc = calendarEvent.UpdatedAtUtc,
             StartLocal = DateTime.SpecifyKind(startLocal, DateTimeKind.Unspecified),
             EndLocal = DateTime.SpecifyKind(endLocal, DateTimeKind.Unspecified),
-            TimeZoneId = calendarEvent.TimeZoneId
+            TimeZoneId = calendarEvent.TimeZoneId,
+            ReminderMinutesBeforeStart = calendarEvent.ReminderMinutesBeforeStart,
+            AllDayReminderMinuteOfDay = calendarEvent.AllDayReminderMinuteOfDay,
+            ReminderTimeZoneId = calendarEvent.ReminderTimeZoneId ?? (calendarEvent.IsAllDay ? TimeZoneInfo.Local.Id : calendarEvent.TimeZoneId)
         };
 
-        draft.SetAllDay(calendarEvent.IsAllDay);
+        // Loading an existing all-day event has no remembered timed duration.
+        draft.IsAllDay = calendarEvent.IsAllDay;
         draft.Recurrence = CalendarEventRecurrenceDraft.FromRule(
             calendarEvent.RecurrenceRule,
             draft.StartLocal,

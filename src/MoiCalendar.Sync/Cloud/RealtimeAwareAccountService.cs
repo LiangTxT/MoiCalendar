@@ -1,3 +1,5 @@
+using MoiCalendar.Core;
+
 namespace MoiCalendar.Sync.Cloud;
 
 /// <summary>
@@ -6,7 +8,11 @@ namespace MoiCalendar.Sync.Cloud;
 /// </summary>
 internal sealed class RealtimeAwareAccountService(
     IAccountService inner,
-    IRealtimeNotifier realtimeNotifier) : IAccountService
+    IRealtimeNotifier realtimeNotifier,
+    AutoSyncSignal? autoSyncSignal = null,
+    IReminderStateStore? reminderState = null,
+    ICloudReminderTransport? reminders = null,
+    IDeviceService? devices = null) : IAccountService
 {
     public bool IsAvailable => inner.IsAvailable;
 
@@ -45,6 +51,7 @@ internal sealed class RealtimeAwareAccountService(
             emailRedirectUrl,
             cancellationToken);
         await AlignSubscriptionAsync(result.IsSignedIn ? result.Account : null, cancellationToken);
+        if (result.IsSignedIn) NotifyAccountReady();
         return result;
     }
 
@@ -55,11 +62,22 @@ internal sealed class RealtimeAwareAccountService(
     {
         var account = await inner.LoginAsync(emailAddress, password, cancellationToken);
         await AlignSubscriptionAsync(account, cancellationToken);
+        NotifyAccountReady();
         return account;
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
+        // Clear the service-worker gate even offline, before dropping the session.
+        if (reminderState is not null) await reminderState.SetPushOwnerAsync(null, cancellationToken);
+        if (reminders?.IsAvailable == true && devices is not null)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            try { await reminders.UnregisterAsync((await devices.GetDeviceIdentityAsync(timeout.Token)).DeviceId, timeout.Token); }
+            catch (Exception ex) when (ex is InvalidOperationException or AccountServiceException or HttpRequestException or OperationCanceledException)
+            { /* An offline logout still blocks old pushes locally. */ }
+        }
         try
         {
             await inner.LogoutAsync(cancellationToken);
@@ -82,7 +100,14 @@ internal sealed class RealtimeAwareAccountService(
     {
         var account = await inner.CompletePasswordResetAsync(newPassword, cancellationToken);
         await AlignSubscriptionAsync(account, cancellationToken);
+        NotifyAccountReady();
         return account;
+    }
+
+    private void NotifyAccountReady()
+    {
+        try { autoSyncSignal?.NotifyAccountReady(); }
+        catch { /* Synchronization failure must not invalidate successful authentication. */ }
     }
 
     private async Task AlignSubscriptionAsync(

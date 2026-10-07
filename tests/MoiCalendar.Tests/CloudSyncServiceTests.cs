@@ -503,7 +503,29 @@ public sealed class CloudSyncServiceTests
             TimeSpan.FromSeconds(30)));
     }
 
-    private static TestContext CreateContext(IOperationalDiagnosticsSink? diagnostics = null)
+    [Fact]
+    public async Task RemotePull_NotifiesViewsOnlyAfterDataIsCommitted()
+    {
+        var signal = new AutoSyncSignal();
+        var context = CreateContext(dataChanges: signal);
+        var remote = CreateEvent(Guid.NewGuid(), "另一台设备的新事件");
+        context.Transport.SeedEvent(remote);
+        var notifications = 0;
+        CalendarEvent? seen = null;
+        signal.Changed += (_, _) =>
+        {
+            notifications++;
+            seen = context.Events.GetByIdAsync(remote.Id).GetAwaiter().GetResult();
+        };
+        await context.Sync.SynchronizeAsync();
+        Assert.Equal(remote, seen);
+        Assert.Equal(1, notifications);
+        await context.Sync.SynchronizeAsync();
+        Assert.Equal(1, notifications);
+    }
+
+    private static TestContext CreateContext(IOperationalDiagnosticsSink? diagnostics = null,
+        ICalendarDataChangeNotifier? dataChanges = null)
     {
         var events = new InMemoryEventRepository();
         var operations = new InMemoryOperationRepository();
@@ -533,7 +555,8 @@ public sealed class CloudSyncServiceTests
             clock,
             new FakeRetryPolicy(),
             delay,
-            diagnostics);
+            diagnostics,
+            dataChanges);
         return new TestContext(
             calendar, sync, events, outbox, state, transport, cloudDevices, clock, account, delay);
     }

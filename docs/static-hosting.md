@@ -43,7 +43,7 @@ src/MoiCalendar.App/bin/Release/net10.0/publish/wwwroot/
 
 - `MoiCalendar:PublicBaseUrl`：应用公开绝对 URL；为空时使用浏览器实际加载地址。当前生产值为 `https://polite-rock-09eddaf00.7.azurestaticapps.net/`，认证回调清单见 [生产域名与认证回调](authentication-redirects.md)。
 - `MoiCalendar:MicrosoftAuthentication`：为未来 Microsoft 登录保留公开参数边界，目前未启用。
-- `MoiCalendar:Synchronization:Provider`：为未来同步提供者选择保留配置边界，目前未启用。
+- `MoiCalendar:Synchronization:Provider`：仅为未来保留的未启用字段，修改它不会改变实际提供者。当前外部备份提供者由设置页的本机选择决定；WebDAV 配置界面尚未开放。
 - `MoiCalendar:CloudBackend:Enabled`：是否启用云账户与增量同步。
 - `MoiCalendar:CloudBackend:BaseUrl`：兼容 Supabase API 网关的公开 URL。
 - `MoiCalendar:CloudBackend:PublicKey`：浏览器可见的 Publishable/anon key。

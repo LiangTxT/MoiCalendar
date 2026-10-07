@@ -261,6 +261,12 @@ export function createSupabaseRealtimeNotifier(dotNetReference, webSocketUrl, pu
 
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("online", resume);
+    // This is a missed-notification safety net, not the primary synchronization path.
+    const syncCheckTimer = setInterval(() => {
+        if (active && !document.hidden && navigator.onLine !== false) {
+            void wakeUp("PeriodicCheck");
+        }
+    }, 60000);
     void connect();
 
     return {
@@ -271,6 +277,7 @@ export function createSupabaseRealtimeNotifier(dotNetReference, webSocketUrl, pu
             active = false;
             generation++;
             clearTimers();
+            clearInterval(syncCheckTimer);
             document.removeEventListener("visibilitychange", resume);
             window.removeEventListener("online", resume);
             const currentSocket = socket;

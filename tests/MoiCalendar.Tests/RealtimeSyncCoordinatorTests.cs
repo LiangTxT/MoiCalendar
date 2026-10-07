@@ -46,7 +46,9 @@ public sealed class RealtimeSyncCoordinatorTests
                 typeof(IRealtimeNotifier),
                 typeof(ICloudSyncService),
                 typeof(IAccountService),
-                typeof(IOperationalDiagnosticsSink)
+                typeof(IOperationalDiagnosticsSink),
+                typeof(AutoSyncSignal),
+                typeof(TimeProvider)
             },
             dependencies);
         Assert.DoesNotContain(dependencies, type =>
@@ -220,6 +222,142 @@ public sealed class RealtimeSyncCoordinatorTests
         Assert.Equal(0, sync.LastResult.PulledCount);
     }
 
+    [Fact]
+    public async Task LocalCommits_DebounceUntilQuietFor300Milliseconds()
+    {
+        var clock = new ManualSyncTimeProvider();
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService();
+        await using var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals, timeProvider: clock);
+        await coordinator.InitializeAsync();
+        signals.NotifyCommitted();
+        clock.Advance(200);
+        signals.NotifyCommitted();
+        clock.Advance(299);
+        Assert.Equal(0, sync.CallCount);
+        clock.Advance(1);
+        await sync.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, sync.CallCount);
+    }
+
+    [Fact]
+    public async Task ContinuousEditing_FlushesAtTwoSecondDeadline()
+    {
+        var clock = new ManualSyncTimeProvider();
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService();
+        await using var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals, timeProvider: clock);
+        await coordinator.InitializeAsync();
+        signals.NotifyCommitted();
+        for (var index = 0; index < 9; index++)
+        {
+            clock.Advance(200);
+            signals.NotifyCommitted();
+        }
+        Assert.Equal(0, sync.CallCount);
+        clock.Advance(200);
+        await sync.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task LocalCommitDuringSync_ImmediatelyRunsOneFollowUpWithoutOverlap()
+    {
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService(blockFirstCall: true);
+        await using var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals);
+        await coordinator.InitializeAsync();
+        signals.NotifyAccountReady();
+        await sync.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(2));
+        for (var i = 0; i < 10; i++) signals.NotifyCommitted();
+        sync.ReleaseFirstCall();
+        await sync.WaitForCallAsync(2).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(2, sync.CallCount);
+        Assert.Equal(1, sync.MaximumConcurrency);
+    }
+
+    [Fact]
+    public async Task Login_SyncsEvenWhenRealtimeCannotStart()
+    {
+        var notifier = new FakeRealtimeNotifier { ThrowOnStart = true };
+        var signals = new AutoSyncSignal();
+        var accounts = new RealtimeAwareAccountService(new FakeAccountService(), notifier, signals);
+        var sync = new ControlledCloudSyncService();
+        await using var coordinator = new RealtimeSyncCoordinator(notifier, sync, accounts,
+            autoSyncSignal: signals);
+        await coordinator.InitializeAsync();
+        await accounts.LoginAsync("test@example.com", "password123");
+        await sync.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task FailedSync_RetriesAtReportedDeadlineAndCancelsTimerAfterSuccess()
+    {
+        var clock = new ManualSyncTimeProvider();
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService(response: call => call == 1
+            ? new(CloudSyncOutcome.Failed, CloudSyncStatus.RetryScheduled, 0, 0, 0,
+                NextRetryAtUtc: clock.GetUtcNow().AddSeconds(3))
+            : new(CloudSyncOutcome.Succeeded, CloudSyncStatus.Idle, 0, 0, 0));
+        await using var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals, timeProvider: clock);
+        await coordinator.InitializeAsync();
+        signals.NotifyAccountReady();
+        await WaitForCompletedAsync(sync, 1);
+        clock.Advance(2999);
+        Assert.Equal(1, sync.CallCount);
+        clock.Advance(1);
+        await WaitForCompletedAsync(sync, 2);
+        clock.Advance(60000);
+        Assert.Equal(2, sync.CallCount);
+    }
+
+    [Theory]
+    [InlineData(CloudSyncStatus.Conflict)]
+    [InlineData(CloudSyncStatus.Error)]
+    [InlineData(CloudSyncStatus.AuthenticationRequired)]
+    public async Task BlockedSync_DoesNotAutomaticallyRetry(CloudSyncStatus status)
+    {
+        var clock = new ManualSyncTimeProvider();
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService(response: _ =>
+            new(CloudSyncOutcome.Failed, status, 0, 0, 0));
+        await using var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals, timeProvider: clock);
+        await coordinator.InitializeAsync();
+        signals.NotifyAccountReady();
+        await WaitForCompletedAsync(sync, 1);
+        clock.Advance(60000);
+        Assert.Equal(1, sync.CallCount);
+    }
+
+    [Fact]
+    public async Task Dispose_CancelsDebounceAndUnsubscribesLocalSignals()
+    {
+        var clock = new ManualSyncTimeProvider();
+        var signals = new AutoSyncSignal();
+        var sync = new ControlledCloudSyncService();
+        var coordinator = new RealtimeSyncCoordinator(new FakeRealtimeNotifier(), sync,
+            new FakeAccountService(), autoSyncSignal: signals, timeProvider: clock);
+        await coordinator.InitializeAsync();
+        signals.NotifyCommitted();
+        await coordinator.DisposeAsync();
+        signals.NotifyCommitted();
+        signals.NotifyAccountReady();
+        clock.Advance(60000);
+        Assert.Equal(0, sync.CallCount);
+    }
+
+    private static async Task WaitForCompletedAsync(ControlledCloudSyncService sync, int count)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (sync.CompletedCallCount < count) await Task.Delay(1, timeout.Token);
+        // Let the coordinator finish processing the result and scheduling its timer.
+        await Task.Delay(10, timeout.Token);
+    }
+
     private sealed class FakeRealtimeNotifier : IRealtimeNotifier
     {
         private readonly TaskCompletionSource stopped =
@@ -306,13 +444,16 @@ public sealed class RealtimeSyncCoordinatorTests
         }
     }
 
-    private sealed class ControlledCloudSyncService(bool blockFirstCall = false) : ICloudSyncService
+    private sealed class ControlledCloudSyncService(bool blockFirstCall = false,
+        Func<int, CloudSyncResult>? response = null) : ICloudSyncService
     {
         private readonly TaskCompletionSource firstCallRelease =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Dictionary<int, TaskCompletionSource> callSignals = [];
         private readonly object gate = new();
         private int concurrency;
+        private int completedCallCount;
+        public int CompletedCallCount => Volatile.Read(ref completedCallCount);
 
         public bool IsAvailable => true;
         public CloudSyncStatus CurrentStatus { get; private set; } = CloudSyncStatus.Idle;
@@ -345,7 +486,7 @@ public sealed class RealtimeSyncCoordinatorTests
                 {
                     await firstCallRelease.Task.WaitAsync(cancellationToken);
                 }
-                LastResult = new CloudSyncResult(
+                LastResult = response?.Invoke(call) ?? new CloudSyncResult(
                     CloudSyncOutcome.Succeeded,
                     CloudSyncStatus.Idle,
                     0,
@@ -359,6 +500,7 @@ public sealed class RealtimeSyncCoordinatorTests
                 lock (gate)
                 {
                     concurrency--;
+                    Interlocked.Increment(ref completedCallCount);
                 }
             }
         }

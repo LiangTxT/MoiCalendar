@@ -14,6 +14,15 @@ public sealed class InMemoryEventChangeRepository(
         IReadOnlyList<CalendarImportChange> changes,
         CancellationToken cancellationToken = default)
     {
+        // Validate the complete batch before making any changes, just like IndexedDB.
+        foreach (var change in changes)
+        {
+            var existing = await eventRepository.GetByIdIncludingDeletedAsync(change.CalendarEvent.Id, cancellationToken);
+            if (change.ExpectedExistingEventId is null ? existing is not null :
+                existing is null || existing.DeletedAtUtc is not null || existing.Id != change.ExpectedExistingEventId ||
+                existing.UpdatedAtUtc != change.ExpectedExistingUpdatedAtUtc)
+                throw new EventRepositoryException("日历已变化，请刷新后重试。", new InvalidOperationException("事件版本不匹配。"));
+        }
         foreach (var change in changes)
         {
             if (change.ExpectedExistingEventId is null)

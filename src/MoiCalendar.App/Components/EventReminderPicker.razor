@@ -1,0 +1,19 @@
+<div class="editor-row">
+    <label for="@Id">提醒</label>
+    <select id="@Id" @bind="Draft.ReminderChoice">
+        <option value="-1">不提醒</option>
+        @foreach (var minutes in ReminderPolicy.Minutes) { <option value="@minutes">@ReminderPolicy.Label(minutes)</option> }
+    </select>
+</div>
+@if (Draft.IsAllDay && Draft.ReminderMinutesBeforeStart is not null)
+{
+    <div class="editor-row">
+        <label for="@(Id + "-time")">当天提醒时间</label>
+        <input id="@(Id + "-time")" type="time" step="60" @bind="Draft.AllDayReminderTime" @bind:event="oninput" required />
+    </div>
+    <p class="date-time-input-hint">默认 07:00，可自定义；按 @Draft.ReminderTimeZoneId 计算，再减去提前时间。</p>
+}
+@code {
+    [Parameter, EditorRequired] public CalendarEventDraft Draft { get; set; } = null!;
+    [Parameter] public string Id { get; set; } = "event-reminder";
+}

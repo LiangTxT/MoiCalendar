@@ -317,14 +317,6 @@ public sealed class CalendarInteractionService(CalendarEventService eventService
                 return Rejected(intent, "事件已不存在，请刷新日历后重试。");
             }
 
-            if (!string.IsNullOrWhiteSpace(existing.RecurrenceRule))
-            {
-                return new CalendarInteractionResult(
-                    CalendarInteractionStatus.RecurrenceScopeRequired,
-                    intent,
-                    "重复事件需要先在编辑器中确认修改范围，尚未更改日历。");
-            }
-
             var originalStart = intent switch
             {
                 MoveEventIntent move => move.OriginalStartUtc,
@@ -337,6 +329,12 @@ public sealed class CalendarInteractionService(CalendarEventService eventService
                 ResizeEventIntent resize => resize.OriginalEndUtc,
                 _ => default
             };
+            var isRecurring = !string.IsNullOrWhiteSpace(existing.RecurrenceRule);
+            if (isRecurring)
+            {
+                existing = eventService.GetOccurrence(existing, originalStart);
+                if (existing is null) return Rejected(intent, "这次重复事件已不存在，请刷新后重试。");
+            }
             if (originalStart != existing.StartUtc || originalEnd != existing.EndUtc)
             {
                 return Rejected(intent, "事件已在其他位置更新，请刷新后重试。");
@@ -356,6 +354,10 @@ public sealed class CalendarInteractionService(CalendarEventService eventService
                     intent,
                     "事件时间没有变化。");
             }
+
+            if (isRecurring)
+                return new CalendarInteractionResult(CalendarInteractionStatus.RecurrenceScopeRequired, intent,
+                    "重复事件需要先在编辑器中确认修改范围，尚未更改日历。");
 
             var updated = await eventService.UpdateAsync(eventId, draft, cancellationToken);
             return new CalendarInteractionResult(

@@ -4,14 +4,15 @@
         title="@CalendarEvent.Title"
         aria-disabled="@CalendarEvent.IsReadOnly"
         aria-pressed="@(SelectedCalendarEventId == CalendarEvent.Id)"
-        @onfocus="() => Focused.InvokeAsync(CalendarEvent.Id)"
+        @onfocus="() => Focused.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @onpointerdown="HandlePointerDown"
         @onpointerdown:stopPropagation="true"
         @onpointerup:stopPropagation="true"
         @onclick="() => Selected.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @ondblclick="() => Edit.InvokeAsync(new CalendarOccurrenceReference(CalendarEvent.Id, CalendarEvent.OriginalStartUtc, CalendarEvent.OriginalEndUtc))"
         @ondblclick:stopPropagation="true"
-        @onclick:stopPropagation="true">
+        @onclick:stopPropagation="true"
+        @onkeydown:stopPropagation="true">
     @if (ContinuesBefore)
     {
         <span class="event-continuation" aria-hidden="true">‹</span>
@@ -36,7 +37,7 @@
     [Parameter, EditorRequired] public CalendarEventListItem CalendarEvent { get; set; } = null!;
     [Parameter, EditorRequired] public DateOnly Date { get; set; }
     [Parameter] public bool IsInteractionSource { get; set; }
-    [Parameter] public EventCallback<Guid> Focused { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> Focused { get; set; }
     [Parameter] public EventCallback<MonthEventPointerArgs> PointerDown { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> Selected { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> Edit { get; set; }

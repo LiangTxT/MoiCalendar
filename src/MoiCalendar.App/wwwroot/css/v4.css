@@ -1223,10 +1223,6 @@ a {
     background: color-mix(in srgb, var(--v4-information) 3%, var(--v4-elevated));
 }
 
-.month-view .month-boundary-week .calendar-date:hover {
-    background: var(--v4-elevated);
-}
-
 .month-view .calendar-date.outside-month {
     background: color-mix(in srgb, var(--v4-canvas) 74%, var(--v4-elevated));
     color: var(--v4-ink-tertiary);
@@ -2815,6 +2811,40 @@ a {
         padding-inline: 2px;
     }
 
+    /* 七列在手机上不能容纳日期、农历和月初标记的横向组合。 */
+    .month-view .month-day-header {
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 0;
+        min-height: 58px;
+        padding: 0;
+    }
+
+    .month-view .date-number {
+        order: -1;
+        flex-shrink: 0;
+    }
+
+    .month-view .month-day-meta {
+        flex-direction: column;
+        align-items: center;
+        gap: 0;
+        width: 100%;
+        overflow: visible;
+    }
+
+    .month-view .month-marker,
+    .month-view .lunar-date {
+        max-width: 100%;
+        font-size: 10px;
+        line-height: 16px;
+        letter-spacing: 0;
+        overflow: visible;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: center;
+    }
+
     .month-density-regular {
         display: none !important;
     }
@@ -3014,6 +3044,37 @@ a {
 .event-color-option input:focus-visible + .event-color-swatch { outline: 2px solid var(--v4-focus); outline-offset: 3px; }
 .event-color-picker:disabled { opacity: .6; }
 
+/* 手机工具栏分两行：日期导航与视图操作不再争抢同一行宽度。 */
+@media (max-width: 540px) {
+    .calendar-main {
+        grid-template-rows: 96px minmax(0, 1fr);
+    }
+
+    .calendar-toolbar {
+        grid-template-columns: 44px minmax(0, 1fr);
+        grid-template-rows: repeat(2, 48px);
+    }
+
+    .toolbar-leading { grid-column: 1; grid-row: 1; }
+    .toolbar-period { grid-column: 2; grid-row: 1; }
+    .toolbar-actions {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-content: space-between;
+        min-width: 0;
+    }
+
+    .calendar-toolbar button { min-width: 44px; min-height: 44px; }
+    .command-period-title { margin-left: auto; }
+    .calendar-toolbar.month-mode .command-period-title {
+        flex-shrink: 0;
+        overflow: visible;
+    }
+    .month-period-title .period-number { font-size: 20px; letter-spacing: 0; }
+    .month-period-title .period-unit + .period-number { margin-left: 4px; }
+    .month-view { min-height: calc(100dvh - 96px); }
+}
+
 @media (max-width: 400px) {
     .event-color-options {
         display: grid;
@@ -3037,3 +3098,23 @@ a {
         animation-iteration-count: 1 !important;
     }
 }
+.reminder-toast {
+    position: fixed;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    right: 20px;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: min(380px, calc(100vw - 40px));
+    padding: 12px 16px;
+    background: var(--v4-surface, #fff);
+    color: var(--v4-ink, #293133);
+    border: 1px solid var(--v4-line, #d4d8d5);
+    border-left: 1px solid var(--v4-information, #5b8290);
+    border-radius: 12px;
+}
+.reminder-toast > div { min-width: 0; }
+.reminder-toast strong { display: block; overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
+.reminder-toast a { white-space: nowrap; font-size: 12px; color: inherit; }
+.reminder-toast button { flex: none; }

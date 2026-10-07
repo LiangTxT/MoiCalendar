@@ -98,12 +98,12 @@ public sealed class ICalendarImportParserTests
             END:VEVENT
             """));
 
-        Assert.Null(Assert.Single(result.CandidateEvents).RecurrenceRule);
+        Assert.Empty(result.CandidateEvents);
         Assert.Contains(result.Warnings, warning => warning.Code == "UNSUPPORTED_RRULE");
     }
 
     [Fact]
-    public void Parse_RecurrenceException_WarnsAndSkipsEventInsteadOfChangingSchedule()
+    public void Parse_ExDate_PreservesSingleOccurrenceDeletion()
     {
         var result = parser.Parse(Calendar("""
             BEGIN:VEVENT
@@ -116,9 +116,8 @@ public sealed class ICalendarImportParserTests
             END:VEVENT
             """));
 
-        Assert.Empty(result.CandidateEvents);
-        Assert.Contains(result.Warnings, warning => warning.Code == "UNSUPPORTED_RECURRENCE_FEATURE");
-        Assert.Equal(1, result.ErrorCount);
+        Assert.Equal([DateTimeOffset.Parse("2026-09-04T01:00:00Z")], Assert.Single(result.CandidateEvents).ExcludedOccurrenceStartsUtc!);
+        Assert.Equal(0, result.ErrorCount);
     }
 
     [Fact]

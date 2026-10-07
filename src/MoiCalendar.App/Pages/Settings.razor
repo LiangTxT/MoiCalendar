@@ -18,6 +18,7 @@
 @inject ILocalBackupRestoreService LocalBackupRestoreService
 @inject ICalendarExportService ICalendarExportService
 @inject ICalendarImportService ICalendarImportService
+@inject CalendarEventService EventService
 @inject IBrowserFileDownloadService BrowserFileDownloadService
 @inject ISyncDiagnosticsService SyncDiagnosticsService
 @inject AppearanceService Appearance
@@ -41,6 +42,7 @@
             <a href="settings#cloud-account-heading" @onclick='() => NavigateSectionAsync("cloud-account-heading")' @onclick:preventDefault><span>云账户</span><span aria-hidden="true">›</span></a>
             <a href="settings#cloud-devices-heading" @onclick='() => NavigateSectionAsync("cloud-devices-heading")' @onclick:preventDefault><span>我的设备</span><span aria-hidden="true">›</span></a>
             <a href="settings#appearance-heading" @onclick='() => NavigateSectionAsync("appearance-heading")' @onclick:preventDefault><span>外观</span><span aria-hidden="true">›</span></a>
+            <a href="settings#reminders-heading" @onclick='() => NavigateSectionAsync("reminders-heading")' @onclick:preventDefault><span>日程提醒</span><span aria-hidden="true">›</span></a>
         </section>
         <section>
             <h2>备份与文件</h2>
@@ -409,6 +411,8 @@
         }
     </section>
 
+    <ReminderSettings />
+
     <fieldset id="external-backup" tabindex="-1" class="settings-group">
         <legend>可选外部备份提供商</legend>
 
@@ -631,6 +635,28 @@
         }
     </section>
 
+    <section class="data-file-group" aria-labelledby="invalid-events-heading">
+        <h3 id="invalid-events-heading">无法显示的日程</h3>
+        <p class="settings-note">检查不受支持的重复规则和时区。日程仍保存在本地；建议先导出 JSON 备份，再删除异常记录。</p>
+        <button type="button" disabled="@checkingInvalidEvents" @onclick="CheckInvalidEventsAsync">检查日程</button>
+        @if (invalidEvents is not null)
+        {
+            @if (invalidEvents.Count == 0) { <p class="settings-note">未发现规则或时区异常。</p> }
+            @foreach (var issue in invalidEvents)
+            {
+                <div class="data-file-row" @key="issue.Id">
+                    <div class="data-file-description"><strong>@issue.Title</strong><p>@issue.Reason</p></div>
+                    <button class="danger-button" type="button" disabled="@checkingInvalidEvents" @onclick="() => DeleteInvalidEventAsync(issue.Id)">
+                        @(invalidEventToDelete == issue.Id ? "确认删除此日程" : "删除异常日程")
+                    </button>
+                    @if (invalidEventToDelete == issue.Id)
+                    { <button type="button" @onclick="() => invalidEventToDelete = null">取消</button> }
+                </div>
+            }
+        }
+        @if (invalidEventsError is not null) { <p class="editor-error" role="alert">@invalidEventsError</p> }
+    </section>
+
     <section class="data-file-group" aria-labelledby="calendar-transfer-heading">
         <div class="data-file-row">
         <div class="data-file-description">
@@ -694,7 +720,11 @@
                                 <strong>@item.Candidate.Title</strong>
                                 <span>@FormatImportTime(item.Candidate)</span>
                             </div>
-                            @if (item.IsPotentialDuplicate)
+                            @if (item.IsDeletedDuplicate)
+                            {
+                                <span class="settings-note compact">相同 UID 的事件已删除，将跳过以保留删除记录。</span>
+                            }
+                            else if (item.IsPotentialDuplicate)
                             {
                                 <label>
                                     相同 UID 已存在：
@@ -806,6 +836,36 @@
     private const long MaximumBackupFileSize = 20 * 1024 * 1024;
     private bool isExportingICalendar;
     private bool calendarTransferSucceeded;
+    private IReadOnlyList<CalendarEventDisplayIssue>? invalidEvents;
+    private Guid? invalidEventToDelete;
+    private bool checkingInvalidEvents;
+    private string? invalidEventsError;
+
+    private async Task CheckInvalidEventsAsync()
+    {
+        checkingInvalidEvents = true;
+        invalidEventsError = null;
+        invalidEventToDelete = null;
+        try { invalidEvents = await EventService.GetInvalidEventsAsync(); }
+        catch (EventRepositoryException exception) { invalidEventsError = exception.Message; }
+        finally { checkingInvalidEvents = false; }
+    }
+
+    private async Task DeleteInvalidEventAsync(Guid id)
+    {
+        if (invalidEventToDelete != id) { invalidEventToDelete = id; return; }
+        checkingInvalidEvents = true;
+        invalidEventsError = null;
+        try
+        {
+            await EventService.DeleteAsync(id);
+            invalidEvents = await EventService.GetInvalidEventsAsync();
+            invalidEventToDelete = null;
+        }
+        catch (Exception exception) when (exception is EventRepositoryException or SyncOperationException)
+        { invalidEventsError = exception.Message; }
+        finally { checkingInvalidEvents = false; }
+    }
     private string? calendarTransferMessage;
     private CalendarImportPreview? calendarImportPreview;
     private readonly Dictionary<int, CalendarImportDuplicateAction> duplicateActions = [];
@@ -1332,7 +1392,8 @@
             var export = await ICalendarExportService.CreateExportAsync();
             await BrowserFileDownloadService.DownloadICalendarAsync(export.FileName, export.Content);
             calendarTransferSucceeded = true;
-            calendarTransferMessage = $"日历已导出：{export.FileName}";
+            calendarTransferMessage = $"日历已导出：{export.FileName}" +
+                (export.Warnings.Count > 0 ? "。" + string.Join("；", export.Warnings) : string.Empty);
         }
         catch (Exception exception) when (
             exception is ICalendarExportException or ICalendarDownloadException or

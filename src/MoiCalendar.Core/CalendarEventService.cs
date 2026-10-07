@@ -12,6 +12,8 @@ public sealed class CalendarEventService(
     ICalendarObservanceProvider? observanceProvider = null)
 {
     private const int MaximumTitleLength = 200;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> displayIssues = new();
+    public int DisplayIssueCount => displayIssues.Count;
     private const int MaximumDescriptionLength = 4_000;
     private const int MaximumLocationLength = 300;
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new(JsonSerializerDefaults.Web);
@@ -50,6 +52,9 @@ public sealed class CalendarEventService(
             IsAllDay = draft.IsAllDay,
             RecurrenceRule = values.RecurrenceRule,
             ColorIndex = draft.ColorIndex,
+            ReminderMinutesBeforeStart = draft.ReminderMinutesBeforeStart,
+            ReminderTimeZoneId = ReminderPolicy.NormalizeTimeZone(draft),
+            AllDayReminderMinuteOfDay = draft.AllDayReminderMinuteOfDay,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
@@ -70,6 +75,9 @@ public sealed class CalendarEventService(
         await using var operationLease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException("找不到要更新的日历事件。");
+        draft.RemovedExclusionCount = 0;
+        if (draft.ExpectedUpdatedAtUtc is { } expected && expected != existing.UpdatedAtUtc)
+            throw new EventRepositoryException("编辑期间日程已变化，请重新打开后再修改。", new InvalidOperationException("事件版本不匹配。"));
         var values = ValidateAndConvert(draft);
         var updated = existing with
         {
@@ -82,15 +90,22 @@ public sealed class CalendarEventService(
             IsAllDay = draft.IsAllDay,
             RecurrenceRule = values.RecurrenceRule,
             ColorIndex = draft.ColorIndex,
+            ReminderMinutesBeforeStart = draft.ReminderMinutesBeforeStart,
+            ReminderTimeZoneId = ReminderPolicy.NormalizeTimeZone(draft),
+            AllDayReminderMinuteOfDay = draft.AllDayReminderMinuteOfDay,
             UpdatedAtUtc = timeProvider.GetUtcNow()
         };
+
+        updated = updated with { ExcludedOccurrenceStartsUtc = RecurrenceExclusionPolicy.Remap(existing, updated, recurrenceExpansionService) };
+        draft.RemovedExclusionCount = Math.Max(0, (existing.ExcludedOccurrenceStartsUtc?.Length ?? 0) - updated.ExcludedOccurrenceStartsUtc.Length);
 
         var operation = await CreateOperationAsync(
             updated,
             SyncOperationType.Update,
             updated.UpdatedAtUtc,
             cancellationToken);
-        return await localEventChanges.UpdateEventAsync(updated, operation, cancellationToken);
+        await localEventChanges.ApplyImportAsync([new(updated, operation, existing.Id, existing.UpdatedAtUtc)], cancellationToken);
+        return updated;
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -121,10 +136,13 @@ public sealed class CalendarEventService(
         await using var lease = await operationLock.AcquireAsync(cancellationToken);
         var existing = await repository.GetByIdAsync(id, cancellationToken)
             ?? throw new KeyNotFoundException("找不到此重复事件系列。");
+        if ((existing.ExcludedOccurrenceStartsUtc?.Length ?? 0) >= 100_000)
+            throw new ArgumentException("此系列已达到 100000 条单次排除记录上限，请拆分系列后再操作。");
         if (string.IsNullOrWhiteSpace(existing.RecurrenceRule)) throw new ArgumentException("此事件不是重复事件。");
         var start = occurrenceStartUtc.ToUniversalTime();
         var excluded = existing.ExcludedOccurrenceStartsUtc ?? [];
-        if (excluded.Contains(start)) return existing;
+        if (excluded.Length >= 100_000) throw new ArgumentException("此系列已达到 100000 条单次排除记录上限，请拆分系列后再操作。");
+        if (excluded.Contains(start)) throw new ArgumentException("这次重复事件已删除，请刷新日历后重试。");
         if (start == DateTimeOffset.MaxValue || !recurrenceExpansionService.Expand([existing], start, start.AddTicks(1)).Any(item => item.StartUtc == start))
             throw new ArgumentException("这次重复事件已不存在，请刷新日历后重试。");
         var updated = existing with
@@ -133,11 +151,36 @@ public sealed class CalendarEventService(
             UpdatedAtUtc = timeProvider.GetUtcNow()
         };
         var operation = await CreateOperationAsync(updated, SyncOperationType.Update, updated.UpdatedAtUtc, cancellationToken);
-        return await localEventChanges.UpdateEventAsync(updated, operation, cancellationToken);
+        await localEventChanges.ApplyImportAsync([new(updated, operation, existing.Id, existing.UpdatedAtUtc)], cancellationToken);
+        return updated;
     }
 
     public Task<CalendarEvent?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         repository.GetByIdAsync(id, cancellationToken);
+
+    public async Task<IReadOnlyList<CalendarEventDisplayIssue>> GetInvalidEventsAsync(CancellationToken cancellationToken = default)
+    {
+        var issues = new List<CalendarEventDisplayIssue>();
+        foreach (var item in await repository.GetAllIncludingDeletedAsync(cancellationToken))
+        {
+            if (item.DeletedAtUtc is not null) continue;
+            try
+            {
+                _ = ResolveTimeZone(item.TimeZoneId);
+                if (item.EndUtc <= item.StartUtc) throw new ArgumentException("结束时间不晚于开始时间。");
+                if (!string.IsNullOrWhiteSpace(item.RecurrenceRule)) _ = RecurrenceRuleParser.Parse(item.RecurrenceRule);
+            }
+            catch (Exception exception) when (exception is RecurrenceRuleException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                issues.Add(new(item.Id, item.Title, exception.Message));
+            }
+        }
+        return issues;
+    }
+
+    public CalendarEvent? GetOccurrence(CalendarEvent master, DateTimeOffset startUtc) =>
+        startUtc == DateTimeOffset.MaxValue ? null : recurrenceExpansionService
+            .Expand([master], startUtc, startUtc.AddTicks(1)).FirstOrDefault(item => item.StartUtc == startUtc);
 
     /// <summary>将一次出现独立保存；系列排除与新事件共用现有批量事务和本地变更记录。</summary>
     public async Task<CalendarEvent> UpdateOccurrenceAsync(Guid id, DateTimeOffset occurrenceStartUtc,
@@ -166,6 +209,9 @@ public sealed class CalendarEventService(
             Location = values.Location, StartUtc = values.StartUtc, EndUtc = values.EndUtc,
             TimeZoneId = draft.TimeZoneId, IsAllDay = draft.IsAllDay,
             ColorIndex = draft.ColorIndex,
+            ReminderMinutesBeforeStart = draft.ReminderMinutesBeforeStart,
+            ReminderTimeZoneId = ReminderPolicy.NormalizeTimeZone(draft),
+            AllDayReminderMinuteOfDay = draft.AllDayReminderMinuteOfDay,
             CreatedAtUtc = now, UpdatedAtUtc = now
         };
         var update = await CreateOperationAsync(updated, SyncOperationType.Update, now, cancellationToken);
@@ -212,6 +258,21 @@ public sealed class CalendarEventService(
             .ToArray();
 
         return new CalendarAgendaView(days);
+    }
+
+    public async Task<IReadOnlyDictionary<CalendarMonth, CalendarAgendaView>> GetAgendaViewsAsync(
+        IReadOnlyList<CalendarMonth> months, string displayTimeZoneId, CancellationToken cancellationToken = default)
+    {
+        var ordered = months.Distinct().OrderBy(month => month.Year).ThenBy(month => month.Month).ToArray();
+        if (ordered.Length == 0) return new Dictionary<CalendarMonth, CalendarAgendaView>();
+        var first = new DateOnly(ordered[0].Year, ordered[0].Month, 1);
+        var end = new DateOnly(ordered[^1].Year, ordered[^1].Month, 1).AddMonths(1);
+        var groups = await GetEventGroupsAsync(first, end, displayTimeZoneId, cancellationToken);
+        var daysByMonth = groups.Where(pair => pair.Value.Count > 0)
+            .GroupBy(pair => CalendarMonth.FromDate(pair.Key))
+            .ToDictionary(group => group.Key, group => new CalendarAgendaView(group.OrderBy(pair => pair.Key)
+                .Select(pair => new CalendarAgendaDay(pair.Key, pair.Value)).ToArray()));
+        return ordered.ToDictionary(month => month, month => daysByMonth.GetValueOrDefault(month, CalendarAgendaView.Empty));
     }
 
     public async Task<CalendarWeekEventView> GetWeekViewAsync(
@@ -331,7 +392,24 @@ public sealed class CalendarEventService(
             .GroupBy(calendarEvent => calendarEvent.Id)
             .Select(group => group.First())
             .ToArray();
-        var calendarEvents = recurrenceExpansionService.Expand(candidates, rangeStartUtc, rangeEndUtc);
+        var calendarEvents = new List<CalendarEvent>();
+        var candidateIds = candidates.Select(item => item.Id).ToHashSet();
+        foreach (var id in displayIssues.Keys)
+            if (!candidateIds.Contains(id)) displayIssues.TryRemove(id, out _);
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                _ = ResolveTimeZone(candidate.TimeZoneId);
+                if (candidate.EndUtc <= candidate.StartUtc) throw new RecurrenceRuleException("事件结束时间无效。");
+                calendarEvents.AddRange(recurrenceExpansionService.Expand([candidate], rangeStartUtc, rangeEndUtc));
+                displayIssues.TryRemove(candidate.Id, out _);
+            }
+            catch (Exception exception) when (exception is RecurrenceRuleException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                displayIssues[candidate.Id] = exception.Message;
+            }
+        }
         return new EventRangeResult(displayTimeZone, calendarEvents);
     }
 
@@ -463,6 +541,9 @@ public sealed class CalendarEventService(
 
     private static ValidatedEventValues ValidateAndConvert(CalendarEventDraft draft)
     {
+        ReminderPolicy.Validate(draft.ReminderMinutesBeforeStart);
+        ReminderPolicy.ValidateAllDayTime(draft.AllDayReminderMinuteOfDay);
+        _ = ReminderPolicy.NormalizeTimeZone(draft);
         if (draft.ColorIndex is < 1 or > 8)
             throw new ArgumentException("请选择内置的日程颜色。", nameof(draft));
         var title = draft.Title.Trim();
@@ -507,7 +588,7 @@ public sealed class CalendarEventService(
             location,
             startUtc,
             endUtc,
-            draft.Recurrence.ToRecurrenceRule(startLocal));
+            draft.Recurrence.ToRecurrenceRule(startLocal, timeZone, draft.IsAllDay));
     }
 
     private static DateTimeOffset ConvertLocalToUtc(DateTime localDateTime, TimeZoneInfo timeZone)
@@ -517,10 +598,7 @@ public sealed class CalendarEventService(
             throw new ArgumentException("所选时间处于夏令时跳过区间，请选择其他时间。");
         }
 
-        var utc = TimeZoneInfo.ConvertTimeToUtc(
-            DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified),
-            timeZone);
-        return new DateTimeOffset(utc, TimeSpan.Zero);
+        return CalendarTimeZone.ToUtc(localDateTime, timeZone);
     }
 
     private static TimeZoneInfo ResolveTimeZone(string timeZoneId)
@@ -537,7 +615,7 @@ public sealed class CalendarEventService(
 
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return CalendarTimeZone.Resolve(timeZoneId);
         }
         catch (TimeZoneNotFoundException exception)
         {

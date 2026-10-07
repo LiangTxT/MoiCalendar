@@ -12,7 +12,7 @@
 
         <dl class="event-detail-list">
             <dt>日历</dt><dd><span class="calendar-color" aria-hidden="true"></span>本地日历</dd>
-            <dt>提醒</dt><dd>未设置</dd>
+            <dt>提醒</dt><dd>@ReminderPolicy.Label(CalendarEvent.ReminderMinutesBeforeStart)@(CalendarEvent.IsAllDay && CalendarEvent.ReminderMinutesBeforeStart is not null ? $"（全天 {TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(CalendarEvent.AllDayReminderMinuteOfDay)):HH:mm}）" : "")</dd>
             @if (!string.IsNullOrWhiteSpace(CalendarEvent.Location))
             {
                 <dt>地点</dt><dd>@CalendarEvent.Location</dd>

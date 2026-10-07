@@ -19,13 +19,14 @@ function setup({ uid = null, stale = false, failCreate = false } = {}) {
     const transaction = { objectStore: name => name === 'events' ? store : name === 'ops' ? { add: op => operations.push(op) } : name === 'outbox' ? { add: op => outbox.push(op) } : { get: () => null } };
     const context = vm.createContext({
         configuredEventStoreName: 'events', configuredOperationStoreName: 'ops', configuredSyncOutboxStoreName: 'outbox', configuredCloudEntityStateStoreName: 'state',
-        validateEventAndOperation() {}, validateEvent() {},
+        validateEventAndOperation() {}, validateEvent() {}, validateDateValue() {},
         getDatabase: async () => ({ transaction: () => transaction }),
         transactionAsPromise: async () => {}, requestAsPromise: async value => value,
         createCloudEntityStateKey: () => '', createSyncOutboxEntry: op => op,
         abortTransactionAfterFailure: async () => { aborted = true; records.splice(0, records.length, original); operations.length = 0; outbox.length = 0; }
     });
-    vm.runInContext(functionSource, context);
+    const ticks = source.slice(source.indexOf('function dateTimeTicks'), source.indexOf('function validateCloudSyncState'));
+    vm.runInContext(ticks + functionSource, context);
     const changes = [
         { calendarEvent: { ...original, title: 'series', excludedOccurrenceStartsUtc: ['2026-10-06T09:00:00Z'] }, operation: { id: 'update' }, expectedExistingEventId: 'master', expectedExistingUpdatedAtUtc: stale ? '2026-10-04T00:00:00Z' : original.updatedAtUtc },
         { calendarEvent: { id: 'single', externalUid: null }, operation: { id: 'create' }, expectedExistingEventId: null }

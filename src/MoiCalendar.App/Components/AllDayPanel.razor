@@ -18,7 +18,7 @@
                             title="@calendarEvent.Title"
                             aria-disabled="@calendarEvent.IsReadOnly"
                             aria-pressed="@(SelectedCalendarEventId == calendarEvent.Id)"
-                            @onfocus="() => EventFocused.InvokeAsync(calendarEvent.Id)"
+                            @onfocus="() => EventFocused.InvokeAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))"
                             @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         @if (ContinuesBefore(calendarEvent.SegmentPosition))
                         {
@@ -72,7 +72,7 @@
     public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
 
     [Parameter]
-    public EventCallback<Guid> EventFocused { get; set; }
+    public EventCallback<CalendarOccurrenceReference> EventFocused { get; set; }
 
     private void Expand(DateOnly date) => expandedDates.Add(date);
 

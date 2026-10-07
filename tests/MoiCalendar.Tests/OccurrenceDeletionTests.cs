@@ -32,8 +32,7 @@ public sealed class OccurrenceDeletionTests
         await repository.CreateAsync(master);
         var excluded = master.StartUtc.AddDays(1);
         var updated = await service.DeleteOccurrenceAsync(master.Id, excluded);
-        var again = await service.DeleteOccurrenceAsync(master.Id, excluded.ToOffset(TimeSpan.FromHours(8)));
-        Assert.Same(updated, again);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.DeleteOccurrenceAsync(master.Id, excluded.ToOffset(TimeSpan.FromHours(8))));
         var restored = JsonSerializer.Deserialize<CalendarEvent>(JsonSerializer.Serialize(updated))!;
         var (reloadedRepository, reloadedService) = CreateContext();
         await reloadedRepository.CreateAsync(restored);
@@ -103,6 +102,39 @@ public sealed class OccurrenceDeletionTests
         var restored = JsonSerializer.Deserialize<CalendarEvent>(json)!;
         Assert.Empty(restored.ExcludedOccurrenceStartsUtc);
         Assert.Equal(5, Expand(restored).Count);
+    }
+
+    [Fact]
+    public async Task ChangingRule_RemovesOnlyExceptionsNoLongerInSeries()
+    {
+        var (repository, service) = CreateContext();
+        var master = CreateEvent();
+        await repository.CreateAsync(master);
+        var deleted = await service.DeleteOccurrenceAsync(master.Id, master.StartUtc.AddDays(1));
+        var draft = service.CreateDraft(deleted);
+        draft.Recurrence.RepeatOption = CalendarEventRepeatOption.Weekly;
+        var updated = await service.UpdateAsync(master.Id, draft);
+        Assert.Empty(updated.ExcludedOccurrenceStartsUtc);
+        Assert.Equal(1, draft.RemovedExclusionCount);
+    }
+
+    [Fact]
+    public async Task MovingSeriesTime_KeepsPreviouslyDeletedCalendarDateDeleted()
+    {
+        var (repository, service) = CreateContext();
+        var master = CreateEvent();
+        await repository.CreateAsync(master);
+        var deleted = await service.DeleteOccurrenceAsync(master.Id, master.StartUtc.AddDays(1));
+        var draft = service.CreateDraft(deleted);
+        draft.StartLocal = draft.StartLocal.AddHours(1);
+        draft.EndLocal = draft.EndLocal.AddHours(1);
+        var updated = await service.UpdateAsync(master.Id, draft);
+
+        Assert.Equal(new[] { master.StartUtc.AddDays(1).AddHours(1) }, updated.ExcludedOccurrenceStartsUtc);
+        var occurrences = Expand(updated);
+        Assert.Equal(4, occurrences.Count);
+        Assert.DoesNotContain(occurrences, item => item.StartUtc.Date == master.StartUtc.AddDays(1).Date);
+        Assert.All(occurrences, item => Assert.Equal(10, item.StartUtc.Hour));
     }
 
     [Theory]

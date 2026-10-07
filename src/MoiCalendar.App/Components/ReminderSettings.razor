@@ -1,0 +1,46 @@
+@inject BrowserReminderService Reminders
+
+<section class="settings-card" aria-labelledby="reminders-heading">
+    <h2 id="reminders-heading" tabindex="-1">日程提醒</h2>
+    <p class="settings-note">在日程里选择提醒时间。全天默认早上 7 点，可在日程中自定义；系统通知会显示标题。</p>
+    <div class="settings-heading-row">
+        <div><strong>本地提醒</strong><p class="settings-note compact">@(state?.LocalEnabled == true ? "已开启" : "未开启") · 应用运行时可离线提醒；权限不足时使用页面内提醒。</p></div>
+        <button type="button" disabled="@(busy || state is null)" @onclick="ToggleLocalAsync">@(state?.LocalEnabled == true ? "关闭本地提醒" : "开启本地提醒")</button>
+    </div>
+    <div class="settings-heading-row">
+        <div><strong>后台推送</strong><p class="settings-note compact">@(state?.Subscribed == true ? "此浏览器已订阅" : "未订阅") · 关闭应用后仍可接收，需要云账户、同步和联网。</p></div>
+        <button type="button" disabled="@(busy || state is null || !Reminders.CloudAvailable)" @onclick="TogglePushAsync">@(state?.Subscribed == true ? "关闭后台推送" : "开启后台推送")</button>
+    </div>
+    <p class="settings-note">iPad 需先添加到主屏幕并允许通知。系统省电、勿扰模式和网络可能延迟推送，不能用于紧急报警。</p>
+    @if (state?.Permission == "denied") { <p class="settings-note">系统通知已被阻止，请在浏览器的网站权限中改为允许。</p> }
+    @if (!Reminders.CloudAvailable) { <p class="settings-note">未配置云后端；本地提醒仍可使用。</p> }
+    @if (message is not null) { <p class="settings-status" role="status">@message</p> }
+</section>
+
+@code {
+    private BrowserReminderStatus? state;
+    private string? message;
+    private bool busy;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RunAsync(async () => state = await Reminders.StatusAsync());
+    }
+    private Task ToggleLocalAsync() => RunAsync(async () => {
+        if (state?.LocalEnabled == true) { await Reminders.DisableLocalAsync(); message = "本地提醒已关闭。"; }
+        else { var permission = await Reminders.EnableLocalAsync(); message = permission == "granted" ? "本地提醒已开启。" : "本地提醒已开启；系统通知不可用，将使用页面内提醒。"; }
+    });
+    private Task TogglePushAsync() => RunAsync(async () => {
+        if (state?.Subscribed == true) { await Reminders.DisableBackgroundAsync(); message = "后台推送已关闭。"; }
+        else { await Reminders.EnableBackgroundAsync(); message = "后台推送已登记；只有成功同步到云端的日程才会后台提醒。"; }
+    });
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true;
+        try { await action(); state = await Reminders.StatusAsync(); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or MoiCalendar.Sync.Cloud.AccountServiceException or HttpRequestException or TaskCanceledException)
+        { message = ex is InvalidOperationException or MoiCalendar.Sync.Cloud.AccountServiceException ? ex.Message : "提醒设置未完成。请检查网络和浏览器通知权限后重试。"; }
+        finally { busy = false; StateHasChanged(); }
+    }
+}

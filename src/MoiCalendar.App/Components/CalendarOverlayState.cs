@@ -30,7 +30,7 @@ public sealed record NoCalendarOverlay() : CalendarOverlayState(CalendarOverlayK
 public sealed record QuickCreateOverlayState(CalendarEventDraft Draft) :
     CalendarOverlayState(CalendarOverlayKind.QuickCreate);
 
-public sealed record EventDetailsOverlayState(CalendarEvent CalendarEvent) :
+public sealed record EventDetailsOverlayState(CalendarEvent CalendarEvent, CalendarOccurrenceReference? Occurrence = null) :
     CalendarOverlayState(CalendarOverlayKind.EventDetails);
 
 public sealed record MoreEventsOverlayState(DateOnly Date) :
@@ -43,7 +43,9 @@ public sealed record RecurrenceScopeOverlayState(
     CalendarEvent CalendarEvent,
     CalendarRecurrenceAction Action,
     CalendarInteractionIntent? PendingIntent = null,
-    DateTimeOffset? OccurrenceStartUtc = null) :
+    DateTimeOffset? OccurrenceStartUtc = null,
+    CalendarOverlayState? ReturnState = null,
+    CalendarOccurrenceReference? Occurrence = null) :
     CalendarOverlayState(CalendarOverlayKind.RecurrenceScope);
 
 public sealed record FullEditorOverlayState(CalendarEventDraft Draft, CalendarOccurrenceReference? Occurrence = null) :
@@ -63,8 +65,8 @@ public static class CalendarOverlayTransitions
             ? new FullEditorOverlayState(quickCreate.Draft)
             : state;
 
-    public static CalendarOverlayState OpenEventDetails(CalendarEvent calendarEvent) =>
-        new EventDetailsOverlayState(calendarEvent);
+    public static CalendarOverlayState OpenEventDetails(CalendarEvent calendarEvent, CalendarOccurrenceReference? occurrence = null) =>
+        new EventDetailsOverlayState(calendarEvent, occurrence);
 
     public static CalendarOverlayState OpenMoreEvents(DateOnly date) =>
         new MoreEventsOverlayState(date);
@@ -82,6 +84,7 @@ public static class CalendarOverlayTransitions
         CalendarEvent calendarEvent,
         CalendarRecurrenceAction action,
         CalendarInteractionIntent? pendingIntent = null,
-        DateTimeOffset? occurrenceStartUtc = null) =>
-        new RecurrenceScopeOverlayState(calendarEvent, action, pendingIntent, occurrenceStartUtc);
+        DateTimeOffset? occurrenceStartUtc = null,
+        CalendarOccurrenceReference? occurrence = null) =>
+        new RecurrenceScopeOverlayState(calendarEvent, action, pendingIntent, occurrenceStartUtc, Occurrence: occurrence);
 }

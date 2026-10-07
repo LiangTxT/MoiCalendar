@@ -583,6 +583,10 @@ public sealed class InMemorySyncOutboxRepository(IEventRepository? eventReposito
                 conflict.EntityId,
                 cancellationToken)
                 ?? throw new SyncOperationException("找不到冲突的本地事件版本。");
+            localEvent = RecurrenceExclusionMerge.Merge(localEvent, remoteEvent);
+            if (localEvent.ExcludedOccurrenceStartsUtc.Length > 100_000)
+                throw new SyncOperationException("合并后的系列超过 100000 条排除记录上限，请先导出备份并拆分系列。");
+            await events.UpdateAsync(localEvent, cancellationToken);
             var operation = localEvent.DeletedAtUtc is null
                 ? SyncOperationType.Update
                 : SyncOperationType.Delete;
@@ -713,6 +717,8 @@ public sealed class InMemoryCloudChangeApplyRepository(
         DateTimeOffset synchronizedAtUtc,
         CancellationToken cancellationToken = default)
     {
+        var previous = await syncStateRepository.GetAsync(scope, cancellationToken);
+        var deferred = previous?.DeferredEntityRevisions?.ToDictionary(pair => pair.Key, pair => pair.Value) ?? [];
         var pendingEntityIds = outboxRepository is null
             ? []
             : (await outboxRepository.GetPendingAsync(1_000, cancellationToken))
@@ -723,14 +729,21 @@ public sealed class InMemoryCloudChangeApplyRepository(
             if (!pendingEntityIds.Contains(change.CalendarEvent.Id))
             {
                 await eventRepository.UpsertAsync(change.CalendarEvent, cancellationToken);
+                deferred.Remove(change.CalendarEvent.Id);
+            }
+            else
+            {
+                deferred[change.CalendarEvent.Id] = Math.Min(change.ServerRevision,
+                    deferred.GetValueOrDefault(change.CalendarEvent.Id, change.ServerRevision));
             }
         }
 
         await syncStateRepository.SaveAsync(new SyncState
         {
             Scope = scope,
-            LastSuccessfulServerRevision = cursor,
-            LastSuccessfulSyncAtUtc = synchronizedAtUtc.ToUniversalTime()
+            LastSuccessfulServerRevision = deferred.Count == 0 ? cursor : Math.Min(cursor, deferred.Values.Min() - 1),
+            LastSuccessfulSyncAtUtc = synchronizedAtUtc.ToUniversalTime(),
+            DeferredEntityRevisions = deferred
         }, cancellationToken);
     }
 }

@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @using MoiCalendar.App.Components
 @inject CalendarEventService EventService
+@inject ICalendarDataChangeNotifier DataChanges
 @inject CalendarInteractionService InteractionService
 @inject ICalendarViewPreferenceStore ViewPreferences
 @inject NavigationManager Navigation
@@ -115,6 +116,7 @@
                                                    VisibleMonthChanged="ChangeVisibleMonthAsync"
                                                    DisplayedMonthChanged="SetDisplayedMonth"
                                                    PointerMove="HandleMonthPointerMoveAsync"
+                                                   BackgroundClicked="() => suppressNextMonthClick = false"
                                                    PointerUp="CommitMonthPointerInteractionAsync"
                                                    PointerCancel="CancelMonthPointerInteraction" />
         </section>
@@ -122,6 +124,7 @@
             else if (displayMode == CalendarViewMode.Agenda)
             {
         <AgendaStream Month="monthView.Month" Today="today" TimeZoneId="@displayTimeZoneId"
+                      ReloadVersion="agendaReloadVersion"
                       CalendarVisible="calendarVisible" EventSelected="HandleMonthEventClickAsync"
                       EventEdit="OpenEventEditorAsync" OpenDay="OpenMonthDay" CreateEvent="OpenQuickCreate"
                       VisibleMonthChanged="SetDisplayedMonth" />
@@ -214,7 +217,7 @@
                     <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
                             style="@GetCalendarColorStyle(calendarEvent)"
                             type="button"
-                            @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
+                            @onfocus="() => SetFocusedEvent(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))"
                             @onclick="() => OpenEventDetailsFromOverflowAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
                         <span class="agenda-event-title">@calendarEvent.Title</span>
@@ -227,7 +230,7 @@
                     <button class="agenda-event @(calendarEvent.IsAllDay ? "all-day" : null)"
                             style="@GetCalendarColorStyle(calendarEvent)"
                             type="button"
-                            @onfocus="() => SetFocusedEvent(calendarEvent.Id)"
+                            @onfocus="() => SetFocusedEvent(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))"
                             @onclick="() => OpenEventDetailsFromOverflowAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                         <span class="agenda-event-time">@calendarEvent.TimeLabel</span>
                         <span class="agenda-event-title">@calendarEvent.Title</span>
@@ -276,7 +279,7 @@
                     {
                         <button type="button"
                                 role="listitem"
-                                @onclick="() => OpenEventDetailsFromSearchAsync(calendarEvent.Id)">
+                                @onclick="() => OpenEventDetailsFromSearchAsync(new CalendarOccurrenceReference(calendarEvent.Id, calendarEvent.OriginalStartUtc, calendarEvent.OriginalEndUtc))">
                             <span>@calendarEvent.TimeLabel</span>
                             <strong>@calendarEvent.Title</strong>
                         </button>
@@ -317,6 +320,10 @@
                 <p class="recurrence-series-notice" role="status">
                     这是重复事件系列。保存或删除将影响整个系列。
                 </p>
+                @if (seriesExclusionCount > 0)
+                {
+                    <p class="recurrence-series-notice">已排除或单独调整 @seriesExclusionCount 次；修改系列时按事件时区保留相同日期，不再符合规则的排除记录会移除。</p>
+                }
             }
 
             @if (EditingOccurrence is not null)
@@ -355,6 +362,7 @@
 
                 <section class="editor-group" aria-label="更多信息">
                 <EventColorPicker @bind-Value="editor.ColorIndex" />
+                <EventReminderPicker Draft="editor" />
                 <div class="editor-row">
                     <label for="event-repeat">重复</label>
                     <select id="event-repeat"
@@ -469,7 +477,7 @@
 
                 </fieldset>
                 <footer class="editor-actions">
-                    @if (editingEventId is not null && EditingOccurrence is null)
+                    @if (editingEventId is not null)
                     {
                         <button class="danger-button" type="button" disabled="@isSavingEvent" @onclick="DeleteEventAsync">
                             @(IsEditingRecurringEvent ? "删除整个系列" : "删除")
@@ -488,7 +496,6 @@
 }
 
 @code {
-    private const int AgendaEventPageSize = 25;
     private static readonly (DayOfWeek Day, string Label)[] RecurrenceWeekdays =
     [
         (DayOfWeek.Monday, "一"),
@@ -523,11 +530,9 @@
     private CalendarMonthLayoutView nextMonthLayout = null!;
     private CalendarMonthEventView nextNextMonthEvents = CalendarMonthEventView.Empty;
     private CalendarMonthLayoutView nextNextMonthLayout = null!;
-    private CalendarAgendaView agendaEvents = CalendarAgendaView.Empty;
     private CalendarWeekView weekView = null!;
     private CalendarWeekEventView weekEvents = CalendarWeekEventView.Empty;
     private CalendarViewMode displayMode;
-    private readonly Dictionary<DateOnly, int> visibleAgendaEventCounts = new();
     private bool isInitialized;
     private readonly CalendarOverlayRequestGate overlayRequests = new();
     private CalendarOverlayState currentOverlayState = CalendarOverlayState.None;
@@ -548,7 +553,9 @@
     private string? editorError;
     private string? quickCreateError;
     private string? detailError;
-    private CalendarOccurrenceReference? selectedOccurrence;
+    private CalendarOccurrenceReference? selectedOccurrence =>
+        overlayState is EventDetailsOverlayState details ? details.Occurrence
+            : (overlayState as RecurrenceScopeOverlayState)?.Occurrence;
     private string? detailAnchorStyle;
     private string? storageError;
     private string? preferenceError;
@@ -569,13 +576,15 @@
     private DotNetObjectReference<Home>? shortcutReference;
     private CancellationTokenSource? eventClickCancellation;
     private Guid? focusedEventId;
+    private CalendarOccurrenceReference? focusedOccurrence;
+    private int seriesExclusionCount;
 
     private CalendarEventDraft? quickCreateDraft
     {
         get => (overlayState as QuickCreateOverlayState)?.Draft;
         set
         {
-            if (value is not null)
+            if (value is not null && (overlayState.Kind == CalendarOverlayKind.QuickCreate || CalendarOverlayTransitions.CanOpenEventFromCalendar(overlayState.Kind)))
             {
                 overlayState = CalendarOverlayTransitions.OpenQuickCreate(value);
             }
@@ -670,7 +679,8 @@
         _ => "下一个月"
     };
 
-    private string? LocalError => storageError ?? preferenceError;
+    private string? LocalError => storageError ?? preferenceError ??
+        (EventService.DisplayIssueCount > 0 ? $"有 {EventService.DisplayIssueCount} 个日程因规则或时区无效暂时无法显示；可在设置的“无法显示的日程”中检查，本地数据仍保留。" : null);
 
     private DateOnly AgendaCreateDate =>
         monthView.Month == CalendarMonth.FromDate(today)
@@ -682,19 +692,24 @@
     private const string RecurrenceDateInputType = "date";
 
     private bool IsEditingRecurringEvent =>
-        editor?.Recurrence.RepeatOption is not null and not CalendarEventRepeatOption.Never;
+        editor is not null && editor.Recurrence.RepeatOption != CalendarEventRepeatOption.Never;
 
     [SupplyParameterFromQuery(Name = "view")]
     public string? RequestedView { get; set; }
+    [SupplyParameterFromQuery(Name = "date")]
+    public string? RequestedDate { get; set; }
+    private string? handledRequestedDate;
 
     protected override async Task OnParametersSetAsync()
     {
         var requestedMode = ParseRequestedView(RequestedView);
+        if (RequestedDate is null) handledRequestedDate = null;
 
         if (!isInitialized)
         {
             today = DateOnly.FromDateTime(DateTime.Today);
-            selectedDate = today;
+            selectedDate = DateOnly.TryParseExact(RequestedDate, "yyyy-MM-dd", out var notificationDate) ? notificationDate : today;
+            handledRequestedDate = RequestedDate;
             displayTimeZoneId = TimeZoneInfo.Local.Id;
             monthView = CalendarMonth.FromDate(today).CreateView(today);
             displayedMonth = monthView.Month;
@@ -703,7 +718,7 @@
             previousMonthLayout = previousMonthEvents.CreateLayout(monthView.Month.Previous().CreateView(today));
             nextMonthLayout = nextMonthEvents.CreateLayout(monthView.Month.Next().CreateView(today));
             nextNextMonthLayout = nextNextMonthEvents.CreateLayout(monthView.Month.Next().Next().CreateView(today));
-            weekView = CalendarWeek.FromDate(today).CreateView(today);
+            weekView = CalendarWeek.FromDate(selectedDate).CreateView(today);
             displayMode = requestedMode ?? await LoadPreferredViewAsync();
             isInitialized = true;
             if (requestedMode is not null)
@@ -713,12 +728,43 @@
 
             await LoadEventsAsync();
         }
+        else if (RequestedDate != handledRequestedDate && DateOnly.TryParseExact(RequestedDate, "yyyy-MM-dd", out var notificationDate))
+        {
+            handledRequestedDate = RequestedDate;
+            displayMode = requestedMode ?? CalendarViewMode.Day;
+            await ShowDayAsync(notificationDate);
+        }
         else if (requestedMode is { } mode && displayMode != mode)
         {
             displayMode = mode;
             await SavePreferredViewAsync(displayMode);
             await LoadEventsAsync();
         }
+    }
+
+    private bool disposed;
+
+    protected override void OnInitialized() => DataChanges.Changed += OnSyncedDataChanged;
+
+    private void OnSyncedDataChanged(object? sender, EventArgs args) => _ = RefreshSyncedEventsAsync();
+
+    private async Task RefreshSyncedEventsAsync()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (disposed || !isInitialized) return;
+                timelinePrefetch?.Cancel();
+                timelineViewCache.Clear();
+                monthEventCache.Clear();
+                monthLayoutCache.Clear();
+                await LoadEventsAsync(showLoading: false);
+                if (!disposed) StateHasChanged();
+            });
+        }
+        catch (Exception) when (disposed) { }
+        catch (EventRepositoryException) { /* The next refresh can retry; local data remains intact. */ }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -747,6 +793,8 @@
 
     public async ValueTask DisposeAsync()
     {
+        disposed = true;
+        DataChanges.Changed -= OnSyncedDataChanged;
         ++timelineNavigationVersion;
         timelinePrefetch?.Cancel();
         timelinePrefetch?.Dispose();
@@ -828,10 +876,14 @@
                 EditSelectedEvent();
                 break;
             case CalendarShortcutAction.OpenSelected when focusedEventId is Guid focusedId:
-                await OpenEventDetailsAsync(focusedId);
+                await OpenFocusedEventAsync(focusedId);
                 break;
             case CalendarShortcutAction.DeleteSelected when selectedEvent is not null:
                 await DeleteSelectedEventAsync();
+                break;
+            case CalendarShortcutAction.DeleteSelected when focusedEventId is Guid deleteId:
+                await OpenFocusedEventAsync(deleteId);
+                if (selectedEvent is not null) await DeleteSelectedEventAsync();
                 break;
             case CalendarShortcutAction.Search:
                 await OpenSearch();
@@ -854,13 +906,13 @@
     private IReadOnlyList<CalendarEventListItem> SearchResults => monthLayout.Weeks
         .SelectMany(week => week.Days)
         .SelectMany(day => day.AllEvents)
-        .DistinctBy(calendarEvent => calendarEvent.Id)
+        .DistinctBy(calendarEvent => (calendarEvent.Id, calendarEvent.OriginalStartUtc))
         .Where(calendarEvent => calendarEvent.Title.Contains(searchQuery, StringComparison.CurrentCultureIgnoreCase))
         .Take(20)
         .ToArray();
 
-    private Task OpenEventDetailsFromSearchAsync(Guid id) =>
-        OpenEventDetailsCoreAsync(id, rememberFocus: false);
+    private Task OpenEventDetailsFromSearchAsync(CalendarOccurrenceReference occurrence) =>
+        OpenEventDetailsCoreAsync(occurrence.Id, rememberFocus: false, occurrence);
 
     private async Task CloseCurrentOverlayAsync()
     {
@@ -886,7 +938,7 @@
         }
         else if (overlayState is RecurrenceScopeOverlayState)
         {
-            overlayState = CalendarOverlayState.None;
+            overlayState = ((RecurrenceScopeOverlayState)overlayState).ReturnState ?? CalendarOverlayState.None;
             await RestoreFocusAsync();
         }
         else if (overlayState is SearchOverlayState)
@@ -961,6 +1013,8 @@
 
     private async Task ShowMonthAsync(CalendarMonth month, bool seamless = false, bool showLoading = true)
     {
+        focusedEventId = null;
+        focusedOccurrence = null;
         if (!seamless)
         {
             displayedMonth = month;
@@ -985,6 +1039,7 @@
 
     private async Task ShowWeekAsync(CalendarWeek week)
     {
+        focusedEventId = null;
         await LoadEventsAsync(showLoading: false, requestedWeek: week.CreateView(today),
             requestedDate: week.StartDate.AddDays(((int)selectedDate.DayOfWeek + 6) % 7));
     }
@@ -999,6 +1054,7 @@
 
     private async Task ShowDayAsync(DateOnly date)
     {
+        focusedEventId = null;
         await LoadEventsAsync(showLoading: false,
             requestedWeek: CalendarWeek.FromDate(date).CreateView(today), requestedDate: date);
     }
@@ -1022,6 +1078,7 @@
             CalendarViewMode.Agenda => "agenda",
             _ => "month"
         };
+        focusedEventId = null;
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("view", view));
     }
 
@@ -1061,6 +1118,8 @@
             await ShowMonthAsync(CalendarMonth.FromDate(date));
         }
     }
+
+    private int agendaReloadVersion;
 
     private async Task LoadEventsAsync(
         bool showLoading = true,
@@ -1121,8 +1180,7 @@
             }
             else if (displayMode == CalendarViewMode.Agenda)
             {
-                agendaEvents = await EventService.GetAgendaViewAsync(monthView.Month, displayTimeZoneId);
-                visibleAgendaEventCounts.Clear();
+                ++agendaReloadVersion;
             }
             else
             {
@@ -1167,7 +1225,6 @@
             nextMonthLayout = nextMonthEvents.CreateLayout(monthView.Month.Next().CreateView(today));
             nextNextMonthEvents = CalendarMonthEventView.Empty;
             nextNextMonthLayout = nextNextMonthEvents.CreateLayout(monthView.Month.Next().Next().CreateView(today));
-            agendaEvents = CalendarAgendaView.Empty;
             weekEvents = CalendarWeekEventView.Empty;
             storageError = exception.Message;
         }
@@ -1297,7 +1354,7 @@
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
-        catch (Exception exception) when (exception is ArgumentException or EventRepositoryException)
+        catch (Exception exception) when (exception is ArgumentException or EventRepositoryException or RecurrenceRuleException)
         {
             quickCreateError = exception.Message;
         }
@@ -1338,6 +1395,10 @@
         {
             ShowInteractionFeedback(result.Message, false);
         }
+        else if (result.Status == CalendarInteractionStatus.NoChange)
+        {
+            ShowInteractionFeedback(result.Message, true);
+        }
 
         if (result.Status == CalendarInteractionStatus.SelectionReady &&
             result.Intent is SelectTimeRangeIntent timeRange)
@@ -1360,12 +1421,12 @@
             if (recurringEvent is not null)
             {
                 await RememberFocusAsync();
-                selectedOccurrence = new(recurringEvent.Id, recurringIntent.OriginalStartUtc, recurringIntent.OriginalEndUtc);
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     recurringEvent,
                     CalendarRecurrenceAction.ApplyInteractionToSeries,
                     result.Intent,
-                    occurrenceStartUtc: recurringIntent.OriginalStartUtc);
+                    occurrenceStartUtc: recurringIntent.OriginalStartUtc,
+                    occurrence: new(recurringEvent.Id, recurringIntent.OriginalStartUtc, recurringIntent.OriginalEndUtc));
                 detailError = null;
             }
             return;
@@ -1379,6 +1440,7 @@
 
     private void BeginMonthMove(CalendarEventListItem calendarEvent, DateOnly date, PointerEventArgs args)
     {
+        suppressNextMonthClick = false;
         if (args.Button != 0 || calendarEvent.IsReadOnly)
         {
             return;
@@ -1428,10 +1490,10 @@
             }
         }
 
-        CalendarElementBounds bounds;
+        string? targetDateText;
         try
         {
-            bounds = await JS.InvokeAsync<CalendarElementBounds>("moicalendarInteraction.getElementBounds", MonthGridElement);
+            targetDateText = await JS.InvokeAsync<string?>("moicalendarInteraction.getMonthDateAtPoint", MonthGridElement, args.ClientX, args.ClientY);
         }
         catch (JSException)
         {
@@ -1439,15 +1501,12 @@
             return;
         }
 
-        var index = CalendarInteractionGeometry.MonthDateIndexFromPointer(
-            args.ClientX,
-            args.ClientY,
-            bounds.Left,
-            bounds.Top,
-            bounds.Width,
-            bounds.Height,
-            monthView.Dates.Count);
-        var targetDate = monthView.Dates[index].Date;
+        if (!DateOnly.TryParseExact(targetDateText, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var targetDate))
+        {
+            monthPreview = null;
+            return;
+        }
         monthPreview = new MoiCalendar.App.Components.MonthDragPreviewModel(
             targetDate,
             current.CalendarEvent.Title,
@@ -1519,7 +1578,17 @@
 
     private void SelectTimelineDate(DateOnly date) => selectedDate = date;
 
-    private void SetFocusedEvent(Guid eventId) => focusedEventId = eventId;
+    private void SetFocusedEvent(CalendarOccurrenceReference occurrence)
+    {
+        focusedEventId = occurrence.Id;
+        focusedOccurrence = occurrence;
+    }
+
+    private async Task OpenFocusedEventAsync(Guid id)
+    {
+        if (focusedOccurrence is { } occurrence && occurrence.Id == id)
+            await OpenEventDetailsAsync(occurrence);
+    }
 
     private async Task HandleMonthDatePointerUp(MoiCalendar.App.Components.MonthDatePointerArgs interaction)
     {
@@ -1536,9 +1605,6 @@
     private static bool IsMonthTouchWaiting(MonthPointerGesture current) =>
         string.Equals(current.PointerType, "touch", StringComparison.OrdinalIgnoreCase) &&
         DateTimeOffset.UtcNow - current.StartedAt < TimeSpan.FromMilliseconds(350);
-
-    private Task OpenEventDetailsAsync(Guid id) =>
-        OpenEventDetailsCoreAsync(id, rememberFocus: true);
 
     private Task OpenEventDetailsAsync(CalendarOccurrenceReference occurrence) =>
         OpenEventDetailsCoreAsync(occurrence.Id, rememberFocus: true, occurrence);
@@ -1568,8 +1634,7 @@
             {
                 return;
             }
-            selectedEvent = calendarEvent;
-            selectedOccurrence = occurrence;
+            overlayState = CalendarOverlayTransitions.OpenEventDetails(calendarEvent, occurrence);
             quickCreateDraft = null;
             detailError = null;
         }
@@ -1605,16 +1670,16 @@
             }
             if (!string.IsNullOrWhiteSpace(calendarEvent.RecurrenceRule))
             {
-                selectedOccurrence = occurrence;
                 overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                     calendarEvent,
                     CalendarRecurrenceAction.EditSeries,
-                    occurrenceStartUtc: occurrence.StartUtc);
+                    occurrenceStartUtc: occurrence.StartUtc, occurrence: occurrence);
                 detailError = null;
                 return;
             }
 
             editingEventId = calendarEvent.Id;
+            seriesExclusionCount = calendarEvent.ExcludedOccurrenceStartsUtc.Length;
             editorError = null;
             editor = EventService.CreateDraft(calendarEvent);
             selectedEvent = null;
@@ -1642,7 +1707,7 @@
             overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                 selectedEvent,
                 CalendarRecurrenceAction.EditSeries,
-                occurrenceStartUtc: selectedOccurrence?.StartUtc);
+                occurrenceStartUtc: selectedOccurrence?.StartUtc, occurrence: selectedOccurrence);
             detailError = null;
             return;
         }
@@ -1673,6 +1738,7 @@
                 ? InteractionService.PrepareOccurrenceInteractionDraft(scope.CalendarEvent, pending)
                 : EventService.CreateDraft(scope.CalendarEvent with { StartUtc = start, EndUtc = end, RecurrenceRule = null });
             editingEventId = scope.CalendarEvent.Id;
+            seriesExclusionCount = 0;
             editorError = null;
             detailError = null;
             overlayState = new FullEditorOverlayState(draft, new(scope.CalendarEvent.Id, start, end));
@@ -1695,7 +1761,7 @@
             overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(
                 selectedEvent,
                 CalendarRecurrenceAction.DeleteSeries,
-                occurrenceStartUtc: selectedOccurrence?.StartUtc);
+                occurrenceStartUtc: selectedOccurrence?.StartUtc, occurrence: selectedOccurrence);
             detailError = null;
             return;
         }
@@ -1748,7 +1814,7 @@
                 overlayState = CalendarOverlayTransitions.OpenEventFromMore(
                     overlayState,
                     calendarEvent);
-                selectedOccurrence = occurrence;
+                overlayState = CalendarOverlayTransitions.OpenEventDetails(calendarEvent, occurrence);
                 detailError = null;
             }
         }
@@ -1776,12 +1842,11 @@
         {
             await EventService.DeleteOccurrenceAsync(scope.CalendarEvent.Id, start);
             overlayState = CalendarOverlayState.None;
-            selectedOccurrence = null;
             ShowInteractionFeedback("已删除这一次", true);
             await LoadEventsAsync();
             await RestoreFocusAsync();
         }
-        catch (Exception exception) when (exception is ArgumentException or KeyNotFoundException or EventRepositoryException)
+        catch (Exception exception) when (exception is ArgumentException or KeyNotFoundException or EventRepositoryException or RecurrenceRuleException)
         {
             detailError = exception.Message;
         }
@@ -1824,11 +1889,12 @@
                 ? InteractionService.PrepareSeriesInteractionDraft(scope.CalendarEvent, pending)
                 : EventService.CreateDraft(scope.CalendarEvent);
             editingEventId = scope.CalendarEvent.Id;
+            seriesExclusionCount = scope.CalendarEvent.ExcludedOccurrenceStartsUtc.Length;
             editorError = null;
             detailError = null;
             editor = draft;
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (exception is ArgumentException or RecurrenceRuleException)
         {
             detailError = exception.Message;
         }
@@ -1917,15 +1983,20 @@
             }
 
             isSavingEvent = false;
+            var removedExceptions = editor.RemovedExclusionCount;
             await CloseEditor();
             await LoadEventsAsync();
-            ShowInteractionFeedback("已保存", true);
+            ShowInteractionFeedback(removedExceptions == 0 ? "已保存" : $"已保存；{removedExceptions} 个单次排除不再属于新规则，已清理。", true);
         }
         catch (ArgumentException exception)
         {
             editorError = exception.Message;
         }
         catch (KeyNotFoundException exception)
+        {
+            editorError = exception.Message;
+        }
+        catch (RecurrenceRuleException exception)
         {
             editorError = exception.Message;
         }
@@ -1956,7 +2027,9 @@
             if (existing is not null && !string.IsNullOrWhiteSpace(existing.RecurrenceRule))
             {
                 detailError = null;
-                overlayState = CalendarOverlayTransitions.OpenRecurrenceScope(existing, CalendarRecurrenceAction.DeleteSeries);
+                var previousOverlay = overlayState;
+                overlayState = new RecurrenceScopeOverlayState(existing, CalendarRecurrenceAction.DeleteSeries,
+                    OccurrenceStartUtc: EditingOccurrence?.StartUtc, ReturnState: previousOverlay, Occurrence: EditingOccurrence);
                 return;
             }
             await EventService.DeleteAsync(id);
@@ -2095,26 +2168,6 @@
         };
 
         return $"{date.Month}月{date.Day}日 {weekday}";
-    }
-
-    private IEnumerable<CalendarEventListItem> GetVisibleAgendaEvents(CalendarAgendaDay day) =>
-        calendarVisible
-            ? day.Events.Take(GetVisibleAgendaEventCount(day))
-            : Array.Empty<CalendarEventListItem>();
-
-    private int GetVisibleAgendaEventCount(CalendarAgendaDay day) =>
-        Math.Min(
-            visibleAgendaEventCounts.GetValueOrDefault(day.Date, AgendaEventPageSize),
-            day.Events.Count);
-
-    private int GetRemainingAgendaEventCount(CalendarAgendaDay day) =>
-        calendarVisible ? day.Events.Count - GetVisibleAgendaEventCount(day) : 0;
-
-    private void ShowMoreAgendaEvents(CalendarAgendaDay day)
-    {
-        visibleAgendaEventCounts[day.Date] = Math.Min(
-            GetVisibleAgendaEventCount(day) + AgendaEventPageSize,
-            day.Events.Count);
     }
 
     private async Task<CalendarViewMode> LoadPreferredViewAsync()

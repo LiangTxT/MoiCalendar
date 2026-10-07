@@ -19,14 +19,15 @@ test('导航分类均衡、名称准确，统一行高并适配窄屏', () => {
     const nav = markup.match(/<nav class="settings-index"[\s\S]*?<\/nav>/)?.[0];
     assert.ok(nav);
     const groups = [...nav.matchAll(/<section>([\s\S]*?)<\/section>/g)].map(match => match[1]);
-    assert.deepEqual(groups.map(group => (group.match(/<a /g) ?? []).length), [3, 3, 3, 2]);
+    assert.deepEqual(groups.map(group => (group.match(/<a /g) ?? []).length), [4, 3, 3, 2]);
+    assert.match(nav, /settings#reminders-heading/);
     assert.deepEqual(groups.map(group => group.match(/<h2>(.*?)<\/h2>/)[1]),
         ['账户与外观', '备份与文件', '同步与诊断', '帮助与隐私']);
-    assert.equal(new Set([...nav.matchAll(/href="([^"]+)"/g)].map(match => match[1])).size, 11);
+    assert.equal(new Set([...nav.matchAll(/href="([^"]+)"/g)].map(match => match[1])).size, 12);
     assert.match(nav, /<span>云账户<\/span>/);
     assert.match(nav, /<span>日历导入 \/ 导出<\/span>/);
     assert.match(nav, /<span>备份同步日志<\/span>/);
-    assert.equal((nav.match(/aria-hidden="true">›/g) ?? []).length, 11);
+    assert.equal((nav.match(/aria-hidden="true">›/g) ?? []).length, 12);
     assert.match(nav, /settings-index-trailing"><SyncIndicator \/>/);
     assert.match(css, /\.settings-index \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
     assert.match(css, /@media \(min-width: 560px\)/);
@@ -85,7 +86,9 @@ test('设置布局具有手机收敛、语义反馈和上传焦点，不隐藏�
 test('合并数据文件区域，按钮紧凑并在说明下一行，保留确认流程', () => {
     const area = markup.slice(markup.indexOf('<section class="settings-card data-files"'), markup.indexOf('</main>'));
     assert.equal((area.match(/class="settings-card/g) ?? []).length, 1);
-    assert.equal((area.match(/class="data-file-group"/g) ?? []).length, 2);
+    assert.equal((area.match(/class="data-file-group"/g) ?? []).length, 3);
+    assert.ok(area.includes('invalid-events-heading'));
+    assert.ok(area.includes('DeleteInvalidEventAsync'));
     for (const method of ['ExportBackupAsync', 'ExportICalendarAsync']) {
         const button = area.match(new RegExp(`<button[^>]+@onclick="${method}"`))?.[0];
         assert.ok(button);

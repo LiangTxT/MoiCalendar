@@ -16,14 +16,14 @@
         </button>
         @if (DisplayMode == CalendarViewMode.Month)
         {
-            <strong @key="PeriodTitle" class="command-period-title month-period-title" aria-live="polite">
+            <strong class="command-period-title month-period-title" aria-live="polite">
                 <span class="period-number">@MonthYear</span><span class="period-unit">年</span>
                 <span class="period-number">@MonthNumber</span><span class="period-unit">月</span>
             </strong>
         }
         else
         {
-            <strong @key="PeriodTitle" class="command-period-title" aria-live="polite" aria-label="@PeriodTitle" title="@PeriodTitle">
+            <strong class="command-period-title" aria-live="polite" aria-label="@PeriodTitle" title="@PeriodTitle">
                 <span class="period-title-full" aria-hidden="true">@PeriodTitle</span>
                 <span class="period-title-compact" aria-hidden="true">@(CompactPeriodTitle ?? PeriodTitle)</span>
             </strong>

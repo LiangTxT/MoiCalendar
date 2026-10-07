@@ -38,7 +38,7 @@
     [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
     [Parameter] public EventCallback<MonthDatePointerArgs> DatePointerUp { get; set; }
     [Parameter] public EventCallback<MonthDateKeyboardArgs> DateKeyDown { get; set; }
-    [Parameter] public EventCallback<Guid> EventFocused { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> EventFocused { get; set; }
     [Parameter] public EventCallback<MonthEventPointerArgs> EventPointerDown { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
     [Parameter] public EventCallback<CalendarOccurrenceReference> EventEdit { get; set; }

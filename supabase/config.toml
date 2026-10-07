@@ -390,6 +390,13 @@ verify_jwt = true
 # 登录前无用户 JWT；函数自身校验公开项目 key、Origin 和数据库级限流。
 verify_jwt = false
 
+[functions.push-configuration]
+verify_jwt = true
+
+[functions.dispatch-reminders]
+# Uses a server-only, constant-time checked scheduler secret.
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
