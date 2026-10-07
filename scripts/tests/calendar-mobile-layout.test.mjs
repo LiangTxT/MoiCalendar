@@ -26,3 +26,16 @@ test('手机月格将公历农历和月份标记纵向排布，不截断标签',
     assert.match(cell, /Observances.GetLunarLabel/);
     assert.match(cell, /Day.Date.DayNumber/);
 });
+test('时间网格允许横向滚动传递到外层七天画布，仅纵向限制穿透', () => {
+    const css = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/css/v4.css', import.meta.url), 'utf8');
+    const scroll = css.match(/\.week-timed-scroll\s*\{([^}]+)\}/)[1];
+    assert.match(scroll, /overscroll-behavior-x:\s*auto/);
+    assert.match(scroll, /overscroll-behavior-y:\s*contain/);
+    assert.doesNotMatch(scroll, /overscroll-behavior:\s*contain/);
+});
+test('快速创建捕获安全锁失败，保留输入而不触发全局崩溃', () => {
+    const home = readFileSync(new URL('../../src/MoiCalendar.App/Pages/Home.razor', import.meta.url), 'utf8');
+    const save = home.slice(home.indexOf('private async Task CreateQuickEventAsync()'), home.indexOf('private void PromoteQuickCreateToEditor()'));
+    assert.match(save, /catch \(SyncOperationException\)/);
+    assert.match(save, /quickCreateError = .*HTTPS/);
+});
