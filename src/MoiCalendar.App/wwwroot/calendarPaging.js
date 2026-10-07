@@ -108,9 +108,25 @@
                 offset: 0, animations: [], lastWheel: -Infinity, suppressUntil: 0, wheelAmount: 0 };
             sessions.set(surface, s);
             surface.classList.add("has-period-paging");
+            const syncOverflow = () => {
+                const horizontal = surface.querySelector(".week-horizontal-scroll");
+                s.horizontalOverflow = horizontal.scrollWidth > horizontal.clientWidth + 1;
+                if (s.horizontalOverflow) surface.classList.add("has-week-overflow");
+                else surface.classList.remove("has-week-overflow");
+            };
+            s.syncOverflow = syncOverflow;
+            syncOverflow();
+            if (window.ResizeObserver) {
+                s.resizeObserver = new window.ResizeObserver(syncOverflow);
+                s.resizeObserver.observe(surface.querySelector(".week-horizontal-scroll"));
+                s.resizeObserver.observe(s.frame);
+            }
             const blocked = () => !s.enabled || s.busy || surface.classList.contains("is-browser-interacting");
             s.down = event => {
                 if (blocked() || event.button !== 0 || event.isPrimary === false) return;
+                syncOverflow();
+                // 超宽周表格的触摸由浏览器滚动，不能抢走查看本周剩余日期的手势。
+                if (event.pointerType !== "mouse" && s.horizontalOverflow) return;
                 const header = event.target.closest(".week-day-headings");
                 if (event.pointerType === "mouse" && !header) return;
                 if (!header && !event.target.closest(".week-timed-days,.week-all-day-row")) return;
@@ -157,6 +173,8 @@
             };
             s.wheel = event => {
                 if (event.ctrlKey || !s.enabled) return; // 保留触控板缩放。
+                syncOverflow();
+                if (s.horizontalOverflow && (event.deltaX || event.shiftKey)) return;
                 const header = event.target.closest(".week-day-headings");
                 const dx = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX;
                 if (!header && Math.abs(dx) <= Math.abs(event.deltaY) * 1.3) return;
@@ -209,12 +227,14 @@
             surface.classList.add("has-period-paging");
             if (s.busy || s.pointer?.axis === "x") surface.classList.add("is-period-paging");
             s.enabled = enabled;
+            s.syncOverflow();
             if (s.key !== key) { s.key = key; s.resolveRender?.(); }
         },
         dispose(surface) {
             const s = sessions.get(surface);
             if (!s) return;
             s.disposed = true;
+            s.resizeObserver?.disconnect();
             s.resolveRender?.();
             clearTimeout(s.wheelTimer);
             clearTimeout(s.timeout);
@@ -227,6 +247,7 @@
             surface.removeEventListener("wheel", s.wheel);
             surface.removeEventListener("click", s.click, true);
             surface.classList.remove("has-period-paging");
+            surface.classList.remove("has-week-overflow");
             sessions.delete(surface);
         }
     };
