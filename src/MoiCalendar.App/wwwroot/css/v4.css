@@ -1166,6 +1166,7 @@ a {
     overflow-x: hidden;
     overflow-y: auto;
     overflow-anchor: none;
+    scroll-behavior: auto;
     overscroll-behavior-y: contain;
     scrollbar-gutter: stable;
 }
@@ -1744,7 +1745,6 @@ a {
 
 .week-calendar.day-mode .week-grid-frame {
     min-width: 0;
-    grid-template-rows: 70px auto minmax(0, 1fr);
 }
 
 .week-calendar.day-mode .week-timed-event {
@@ -1769,11 +1769,11 @@ a {
 
 .day-date-navigation {
     grid-template-columns: 52px repeat(7, minmax(0, 1fr));
-    min-height: 70px;
+    min-height: 54px;
 }
 
 .day-date-navigation .week-day-heading {
-    gap: 3px;
+    gap: 2px;
     border-right: 0;
 }
 
@@ -1785,9 +1785,10 @@ a {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     color: var(--v4-ink);
-    font-size: 12px;
+    font-size: 10px;
+    line-height: 14px;
     letter-spacing: normal;
     font-weight: 400;
 }
@@ -1795,9 +1796,9 @@ a {
 .day-date-navigation strong {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
-    font-size: 17px;
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
     border-radius: 50%;
 }
@@ -1814,6 +1815,8 @@ a {
 }
 
 .day-date-navigation .day-lunar-label {
+    font-size: 9px;
+    line-height: 12px;
     font-weight: 400;
     letter-spacing: normal;
     text-transform: none;
@@ -1824,8 +1827,8 @@ a {
         grid-template-columns: repeat(7, minmax(0, 1fr));
     }
     .day-date-navigation .week-corner { display: none; }
-    .day-date-navigation .day-date-main { flex-direction: column-reverse; gap: 0; font-size: 10px; }
-    .day-date-navigation strong { width: 27px; height: 27px; font-size: 15px; }
+    .day-date-navigation .day-date-main { flex-direction: column-reverse; gap: 0; font-size: 9px; line-height: 12px; }
+    .day-date-navigation strong { width: 22px; height: 22px; font-size: 12px; }
     .day-date-navigation .day-lunar-label { font-size: 9px; }
 }
 
@@ -3047,24 +3050,46 @@ a {
 .event-color-option input:focus-visible + .event-color-swatch { outline: 2px solid var(--v4-focus); outline-offset: 3px; }
 .event-color-picker:disabled { opacity: .6; }
 
-/* 手机工具栏分两行：日期导航与视图操作不再争抢同一行宽度。 */
+/* 手机保留单行日期导航；同一组视图按钮移到底部浮动，不复制状态。 */
 @media (max-width: 540px) {
     .calendar-main {
-        grid-template-rows: 96px minmax(0, 1fr);
+        grid-template-rows: 48px minmax(0, 1fr);
     }
 
     .calendar-toolbar {
         grid-template-columns: 44px minmax(0, 1fr);
-        grid-template-rows: repeat(2, 48px);
+        grid-template-rows: 48px;
     }
 
     .toolbar-leading { grid-column: 1; grid-row: 1; }
     .toolbar-period { grid-column: 2; grid-row: 1; }
     .toolbar-actions {
-        grid-column: 1 / -1;
-        grid-row: 2;
-        justify-content: space-between;
+        position: fixed;
+        bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        justify-content: center;
         min-width: 0;
+        width: max-content;
+        max-width: calc(100vw - 32px);
+        padding: var(--space-1);
+        gap: var(--space-2);
+        border-radius: var(--radius-overlay);
+        background: var(--v4-surface);
+        box-shadow: var(--shadow-popover);
+    }
+
+    .calendar-toolbar.month-mode .toolbar-actions {
+        left: calc((100% - 44px) / 2);
+        max-width: calc(100vw - 64px);
+    }
+
+    .toolbar-actions .view-switcher { flex-shrink: 0; border: 0; }
+    .toolbar-actions .view-switcher button { min-width: 44px; padding-inline: var(--space-2); white-space: nowrap; }
+    .toolbar-actions .add-event-button { flex-shrink: 0; }
+    .calendar-content {
+        padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
     }
 
     .calendar-toolbar button { min-width: 44px; min-height: 44px; }
@@ -3075,7 +3100,7 @@ a {
     }
     .month-period-title .period-number { font-size: 20px; letter-spacing: 0; }
     .month-period-title .period-unit + .period-number { margin-left: 4px; }
-    .month-view { min-height: calc(100dvh - 96px); }
+    .month-view { min-height: 0; }
 }
 
 @media (max-width: 400px) {

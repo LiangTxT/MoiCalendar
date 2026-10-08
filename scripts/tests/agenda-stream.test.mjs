@@ -4,14 +4,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 function setup() {
-    const handlers = new Map(), frames = new Map(), calls = [], observers = [];
+    const handlers = new Map(), frames = new Map(), calls = [], observers = [], timers = new Map();
+    const listeners = new Map();
     let frameId = 0, rejectNext = false;
     const next = { disabled: false };
     const section = { dataset: { agendaMonth: '2026-10' }, getBoundingClientRect: () => ({ bottom: 400 }) };
     const root = {
-        scrollTop: 0, scrollHeight: 1600,
-        addEventListener: (name, callback) => handlers.set(name, callback),
-        removeEventListener: name => handlers.delete(name),
+        scrollTop: 0, scrollHeight: 1600, clientHeight: 600,
+        addEventListener: (name, callback) => {
+            if (!listeners.has(name)) listeners.set(name, new Set());
+            listeners.get(name).add(callback);
+            handlers.set(name, (...args) => { for (const fn of listeners.get(name) ?? []) fn(...args); });
+        },
+        removeEventListener: (name, callback) => { listeners.get(name)?.delete(callback); if (!listeners.get(name)?.size) handlers.delete(name); },
         getBoundingClientRect: () => ({ top: 100 }),
         querySelectorAll: () => [section], querySelector: () => next
     };
@@ -26,12 +31,15 @@ function setup() {
         observe(element) { this.observed.push(element); }
         disconnect() { this.disconnects++; }
     }
-    const context = vm.createContext({ IntersectionObserver: Observer,
+    const context = vm.createContext({ window: {}, IntersectionObserver: Observer,
+        setTimeout: fn => { const id = ++frameId; timers.set(id, fn); return id; },
+        clearTimeout: id => timers.delete(id),
         requestAnimationFrame: fn => { const id = ++frameId; frames.set(id, fn); return id; },
         cancelAnimationFrame: id => frames.delete(id) });
+    vm.runInContext(readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/calendarUi.js', import.meta.url), 'utf8'), context);
     vm.runInContext(readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/agendaStream.js', import.meta.url), 'utf8').replaceAll('export function ', 'function '), context);
     const connect = (allow = true, key = 'October') => context.connect(root, reference, allow, key);
-    const flush = () => { for (const [id, fn] of [...frames]) { frames.delete(id); fn(); } };
+    const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } for (const [id, fn] of [...frames]) { frames.delete(id); fn(); } };
     const extendCalls = () => calls.filter(call => call[0] === 'ExtendAsync');
     return { root, next, section, reference, context, handlers, frames, calls, observers, connect, flush, extendCalls,
         finish: () => finish?.(), failReport: () => { rejectNext = true; } };
@@ -42,16 +50,29 @@ test('首次进入不向过去自动循环加载；普通重渲染不重复观�
     assert.equal(s.extendCalls().length, 0);
     assert.equal(s.observers[0].observed.length, 1);
 });
+
+test('日程预读可开始，但插入月份必须等待触摸和惯性结束', async () => {
+    const s = setup(); s.connect(); s.flush();
+    s.handlers.get('touchstart')({touches:[{clientY:100}]});
+    s.handlers.get('touchmove')({touches:[{clientY:150}]});
+    assert.equal(s.extendCalls().length, 1);
+    let settled = false;
+    const waiting = s.context.waitForIdle(s.root).then(() => { settled = true; });
+    s.flush(); await Promise.resolve(); assert.equal(settled, false);
+    s.handlers.get('touchend')();
+    s.handlers.get('scroll')(); await Promise.resolve(); assert.equal(settled, false);
+    s.flush(); await waiting; assert.equal(settled, true);
+});
 test('顶部向上滚轮自动加载过去月份，不拦截原生滚动', () => {
     const s = setup(); s.connect();
     s.handlers.get('wheel')({ deltaY: -100 });
     assert.deepEqual(s.extendCalls(), [['ExtendAsync', -1]]);
 });
 test('只有接近顶部且向上滚动才读取更早月份', () => {
-    const s = setup(); s.root.scrollTop = 500; s.connect();
-    s.root.scrollTop = 450; s.handlers.get('scroll')();
+    const s = setup(); s.root.scrollTop = 900; s.connect();
+    s.root.scrollTop = 850; s.handlers.get('scroll')();
     assert.equal(s.extendCalls().length, 0);
-    s.root.scrollTop = 250; s.handlers.get('scroll')();
+    s.root.scrollTop = 550; s.handlers.get('scroll')();
     assert.deepEqual(s.extendCalls(), [['ExtendAsync', -1]]);
 });
 test('加载中多次滚轮、触屏和观察器回调只发出一次请求', () => {

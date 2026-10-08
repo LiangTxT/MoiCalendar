@@ -215,7 +215,7 @@ public sealed class CalendarFrontendArchitectureTests
     }
 
     [Fact]
-    public void MonthView_UsesCachedFivePanelContinuousLocalStream()
+    public void MonthView_UsesBufferedContinuousLocalStreamWithoutActiveScrollRecycling()
     {
         var root = FindRepositoryRoot();
         var component = File.ReadAllText(Path.Combine(
@@ -235,11 +235,11 @@ public sealed class CalendarFrontendArchitectureTests
         Assert.Contains("initializeMonthStream", script, StringComparison.Ordinal);
         Assert.Contains("ChangeVisibleMonth", script, StringComparison.Ordinal);
         Assert.Contains("SetDisplayedMonth", script, StringComparison.Ordinal);
-        Assert.Contains("panels.length !== 5", script, StringComparison.Ordinal);
-        Assert.Contains("panelTop(currentPanels[3])", script, StringComparison.Ordinal);
-        Assert.Contains("panelTop(currentPanels[1])", script, StringComparison.Ordinal);
-        Assert.Contains("top >= nextBoundary - 2", script, StringComparison.Ordinal);
-        Assert.Contains("top <= previousBoundary + 2", script, StringComparison.Ordinal);
+        Assert.Contains("BufferedLayouts", component, StringComparison.Ordinal);
+        Assert.Contains("activity.busy()", script, StringComparison.Ordinal);
+        Assert.Contains("targetIndex - centerIndex", script, StringComparison.Ordinal);
+        Assert.Contains("Enumerable.Range(-4, 9)", home, StringComparison.Ordinal);
+        Assert.Contains("moicalendarUi.waitForScrollIdle", home, StringComparison.Ordinal);
         Assert.DoesNotContain("ignoreUntil", script, StringComparison.Ordinal);
         Assert.DoesNotContain("distances.indexOf", script, StringComparison.Ordinal);
         Assert.Contains("monthEventCache", home, StringComparison.Ordinal);

@@ -1,0 +1,40 @@
+@inject BrowserReminderService Reminders
+
+@if (message is not null && !Hidden)
+{
+    <aside class="reminder-setup-tip" role="status" aria-live="polite">
+        <span>@message</span>
+        <a href="settings#reminders-heading">去开启</a>
+        <button type="button" aria-label="关闭提醒设置提示" @onclick="Dismiss">×</button>
+    </aside>
+}
+
+@code {
+    [Parameter] public int RequestVersion { get; set; }
+    [Parameter] public bool Hidden { get; set; }
+    private int processedVersion;
+    private string? message;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (RequestVersion <= processedVersion) return;
+        var version = processedVersion = RequestVersion;
+        string? next;
+        try { next = MessageFor(await Reminders.StatusAsync(), Reminders.CloudAvailable); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or EventRepositoryException or SyncOperationException)
+        {
+            // 日程已提交；设置状态读取失败不能把成功保存变成失败。
+            next = "日程已保存，请确认提醒开关已开启。";
+        }
+        if (version != RequestVersion) return;
+        message = next;
+        StateHasChanged();
+    }
+
+    public static string? MessageFor(BrowserReminderStatus state, bool cloudAvailable) =>
+        !state.LocalEnabled
+            ? state.Subscribed ? "本地提醒未开启，离线时不会提醒。" : "提醒未开启，日程已保存。"
+            : cloudAvailable && !state.Subscribed ? "后台推送未开启，关闭应用后不会提醒。" : null;
+
+    private void Dismiss() => message = null;
+}

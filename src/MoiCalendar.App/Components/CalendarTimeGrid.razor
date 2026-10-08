@@ -84,7 +84,7 @@
     private string? initializedScrollContext;
     private bool scrollInitializationPending = true;
     private PointerGesture? gesture;
-    private bool suppressNextClick;
+    private readonly PostGestureClickGuard clickGuard = new();
     private string lastPointerType = string.Empty;
     private CancellationTokenSource? eventClickCancellation;
     private DotNetObjectReference<CalendarTimeGrid>? dotNetReference;
@@ -405,7 +405,7 @@
             result.EndMinute,
             current.CalendarEvent?.Title ?? "新事件");
         gesture = null;
-        suppressNextClick = true;
+        clickGuard.Suppress(DateTimeOffset.UtcNow);
         if (IntentRequested.HasDelegate)
         {
             await IntentRequested.InvokeAsync(BuildIntent(current, committedPreview));
@@ -535,13 +535,7 @@
 
     private bool ConsumeSuppressedClick()
     {
-        if (!suppressNextClick)
-        {
-            return false;
-        }
-
-        suppressNextClick = false;
-        return true;
+        return clickGuard.Consume(DateTimeOffset.UtcNow);
     }
 
     private bool IsInteracting(Guid eventId) =>

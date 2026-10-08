@@ -4,15 +4,17 @@ import { readFileSync } from 'node:fs';
 
 const css = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/css/v4.css', import.meta.url), 'utf8');
 
-test('手机工具栏为日期和视图分别保留独立行，画布扣除真实高度', () => {
+test('手机单行日期导航与底部悬浮栏，预留安全区域且避开月份轨道', () => {
     const phone = css.slice(css.indexOf('@media (max-width: 540px)'), css.indexOf('@media (max-width: 400px)'));
-    assert.match(phone, /grid-template-rows: 96px minmax\(0, 1fr\)/);
+    assert.match(phone, /grid-template-rows: 48px minmax\(0, 1fr\)/);
     assert.match(phone, /grid-template-columns: 44px minmax\(0, 1fr\)/);
-    assert.match(phone, /grid-template-rows: repeat\(2, 48px\)/);
-    assert.match(phone, /\.toolbar-actions \{[^}]*grid-column: 1 \/ -1;[^}]*grid-row: 2;/);
+    assert.match(phone, /grid-template-rows: 48px;/);
+    assert.match(phone, /\.toolbar-actions \{[^}]*position: fixed;[^}]*safe-area-inset-bottom[^}]*z-index: 20;/);
+    assert.match(phone, /left: calc\(\(100% - 44px\) \/ 2\)/);
+    assert.match(phone, /padding-bottom: calc\(84px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     assert.match(phone, /min-width: 44px; min-height: 44px/);
     assert.match(phone, /\.month-period-title \.period-number \{ font-size: 20px/);
-    assert.match(phone, /min-height: calc\(100dvh - 96px\)/);
+    assert.match(phone, /\.month-view \{ min-height: 0; \}/);
 });
 
 test('手机月格将公历农历和月份标记纵向排布，不截断标签', () => {

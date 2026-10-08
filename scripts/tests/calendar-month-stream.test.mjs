@@ -5,11 +5,62 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/calendarUi.js', import.meta.url), 'utf8');
 
+test('手指未松开时，即使滚动间隔超过静默时间也不回收月份或重设位置', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.handlers.get('touchstart')();
+    f.scrollTo(0); f.flushTimers();
+    assert.equal(f.frames.size, 0);
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.stream.scrollTop, 0);
+    f.handlers.get('touchend')();
+    await f.takeFrame()();
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 1);
+});
+
+test('快速越过多个月份，只按最终可见月份一次补充窗口', async () => {
+    const f = setup();
+    f.setMonths(['2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02'], Array(9).fill(600));
+    f.initialize(); f.takeFrame()();
+    assert.equal(f.stream.scrollTop, 2400);
+    f.scrollTo(1700); f.scrollTo(900); f.scrollTo(100);
+    assert.equal(f.calls.length, 0);
+    await f.takeFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'ChangeVisibleMonth'), [['ChangeVisibleMonth', -4]]);
+});
+
+test('查询返回时重新开始触摸，提交必须继续等待松手和惯性滚动结束', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.handlers.get('touchstart')();
+    let settled = false;
+    const waiting = f.ui.waitForScrollIdle(f.stream).then(() => { settled = true; });
+    f.flushTimers(); await Promise.resolve(); assert.equal(settled, false);
+    f.handlers.get('touchend')();
+    f.scrollTo(1150); await Promise.resolve(); assert.equal(settled, false);
+    f.flushTimers(); await waiting; assert.equal(settled, true);
+});
+
+test('卸载释放等待滚动结束的请求，不留下悬挂 Promise', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.handlers.get('touchstart')();
+    const waiting = f.ui.waitForScrollIdle(f.stream);
+    f.ui.disposeMonthStream(f.stream); await waiting;
+    assert.equal(f.timers.size, 0); assert.equal(f.handlers.size, 0);
+});
+
+test('多指操作只抬起一根手指时，仍不允许回收月份', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.handlers.get('touchstart')(); f.scrollTo(0);
+    f.handlers.get('touchend')({touches:[{}]}); f.flushTimers();
+    assert.equal(f.frames.size, 0); assert.equal(f.calls.length, 0);
+    f.handlers.get('touchend')({touches:[]}); await f.takeFrame()();
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 1);
+});
+
 function setup() {
     const frames = new Map();
     const observers = [];
     const calls = [];
-    const listeners = new Set();
+    const listeners = new Set(), handlers = new Map(), timers = new Map();
     let nextFrame = 1;
     let months = ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12'];
     let heights = [600, 600, 600, 600, 600];
@@ -25,12 +76,14 @@ function setup() {
                 getBoundingClientRect: () => ({ top: contentTop - stream.scrollTop })
             };
         }),
-        addEventListener: (_, handler) => listeners.add(handler),
-        removeEventListener: (_, handler) => listeners.delete(handler)
+        addEventListener: (name, handler) => { if (name === 'scroll') listeners.add(handler); else handlers.set(name, handler); },
+        removeEventListener: (name, handler) => { if (name === 'scroll') listeners.delete(handler); else handlers.delete(name); }
     };
     const window = {};
     vm.runInNewContext(source, {
         window,
+        setTimeout: callback => { const id = nextFrame++; timers.set(id, callback); return id; },
+        clearTimeout: id => timers.delete(id),
         requestAnimationFrame: callback => { const id = nextFrame++; frames.set(id, callback); return id; },
         cancelAnimationFrame: id => frames.delete(id),
         MutationObserver: class {
@@ -46,15 +99,19 @@ function setup() {
             return name === 'ChangeVisibleMonth' && pendingChange ? pendingChange : Promise.resolve();
         }
     };
+    const flushTimers = () => {
+        for (const [id, callback] of [...timers]) { timers.delete(id); callback(); }
+    };
     const takeFrame = () => {
+        flushTimers();
         const [id, callback] = frames.entries().next().value;
         frames.delete(id);
         return callback;
     };
     return {
-        ui: window.moicalendarUi, stream, frames, observers, calls, listeners,
+        ui: window.moicalendarUi, stream, frames, observers, calls, listeners, handlers, timers,
         initialize: () => window.moicalendarUi.initializeMonthStream(stream, dotnet),
-        takeFrame,
+        takeFrame, flushTimers,
         scrollTo(top) { stream.scrollTop = top; for (const handler of listeners) handler(); },
         deferChange(promise) { pendingChange = promise; },
         deferDisplay(promise) { pendingDisplay = promise; },
@@ -78,7 +135,7 @@ test('重复初始化只保留一个首次定位回调和监听器', () => {
     f.initialize();
     f.initialize();
     assert.equal(f.frames.size, 1);
-    assert.equal(f.listeners.size, 1);
+    assert.equal(f.listeners.size, 2);
     assert.equal(f.observers.filter(o => o.connected).length, 1);
     f.takeFrame()();
     assert.equal(f.stream.scrollTop, 1200);
@@ -97,7 +154,7 @@ test('中心月份内滚动只合并到一帧，不触发窗口换月', async ()
     const f = setup();
     f.initialize(); f.takeFrame()();
     f.scrollTo(1300); f.scrollTo(1400);
-    assert.equal(f.frames.size, 1);
+    assert.equal(f.timers.size, 1);
     await f.takeFrame()();
     assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
 });
