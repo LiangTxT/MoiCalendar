@@ -1,0 +1,79 @@
+        <section class="agenda-month" data-agenda-month="@($"{Month.Year:D4}-{Month.Month:D2}")" aria-label="@($"{Month.Year}年{Month.Month}月")">
+            <header class="agenda-month-banner">
+                <img class="agenda-month-art" src="@BannerSource(Month.Month)" width="@BannerSize(Month.Month).Width" height="@BannerSize(Month.Month).Height" alt="" loading="lazy" decoding="async" />
+                <h2 aria-label="@($"{Month.Year}年{Month.Month}月")">
+                    <time class="agenda-month-stamp" datetime="@($"{Month.Year:D4}-{Month.Month:D2}")" aria-hidden="true">
+                        <span class="agenda-month-number">@Month.Month<small>月</small></span>
+                        <span class="agenda-month-year">@Month.Year<small>年</small></span>
+                    </time>
+                </h2>
+            </header>
+            @foreach (var week in weeks)
+            {
+                @if (week.Days.Count == 0)
+                {
+                    <p class="agenda-empty-week"><time datetime="@week.Start.ToString("yyyy-MM-dd")">@($"{week.Start.Month}月{week.Start.Day}日")</time><span>至</span><time datetime="@week.End.ToString("yyyy-MM-dd")">@($"{week.End.Month}月{week.End.Day}日")</time></p>
+                }
+                else
+                {
+                    @foreach (var day in week.Days)
+                    {
+                        <article class="agenda-stream-day">
+                            <button class="agenda-date @(day.Date == Today ? "today" : null)" type="button" aria-label="@($"查看{day.Date:yyyy年M月d日}")" @onclick="() => OpenDay.InvokeAsync(day.Date)">
+                                <span>@Weekday(day.Date)</span><time datetime="@day.Date.ToString("yyyy-MM-dd")">@day.Date.Day</time>
+                            </button>
+                            <div class="agenda-stream-events">
+                                @if (day.Events.Count == 0)
+                                {
+                                    <button class="agenda-free-day" type="button" @onclick="() => CreateEvent.InvokeAsync(day.Date)">今天暂无日程，留一点时间给自己。</button>
+                                }
+                                @foreach (var item in day.Events)
+                                {
+                                    <button class="agenda-stream-event" type="button" style="@EventStyle(item)" title="@item.Title"
+                                            @onclick="() => EventSelected.InvokeAsync(new CalendarOccurrenceReference(item.Id, item.OriginalStartUtc, item.OriginalEndUtc))"
+                                            @ondblclick="() => EventEdit.InvokeAsync(new CalendarOccurrenceReference(item.Id, item.OriginalStartUtc, item.OriginalEndUtc))" @ondblclick:stopPropagation="true">
+                                        <span class="agenda-stream-title">@item.Title</span>
+                                        <span class="agenda-stream-time">@(item.IsAllDay ? "全天" : item.TimeLabel)</span>
+                                        @if (item.IsRecurring)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-label="重复事件"><path d="M20 7H8a5 5 0 0 0 0 10m-4 0h12a5 5 0 0 0 0-10M17 4l3 3-3 3M7 14l-3 3 3 3" /></svg>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        </article>
+                    }
+                }
+            }
+        </section>
+
+@code {
+    [Parameter] public CalendarMonth Month { get; set; }
+    [Parameter, EditorRequired] public CalendarAgendaView View { get; set; } = null!;
+    [Parameter] public DateOnly Today { get; set; }
+    [Parameter] public bool CalendarVisible { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> EventSelected { get; set; }
+    [Parameter] public EventCallback<CalendarOccurrenceReference> EventEdit { get; set; }
+    [Parameter] public EventCallback<DateOnly> OpenDay { get; set; }
+    [Parameter] public EventCallback<DateOnly> CreateEvent { get; set; }
+    private IReadOnlyList<AgendaWeekSection> weeks = [];
+    private (CalendarMonth, CalendarAgendaView?, DateOnly, bool, EventCallback<CalendarOccurrenceReference>,
+        EventCallback<CalendarOccurrenceReference>, EventCallback<DateOnly>, EventCallback<DateOnly>) renderedState;
+    private bool renderRequired;
+    protected override void OnParametersSet()
+    {
+        var state = (Month, (CalendarAgendaView?)View, Today, CalendarVisible, EventSelected, EventEdit, OpenDay, CreateEvent);
+        renderRequired = !state.Equals(renderedState);
+        if (renderRequired) weeks = AgendaWeekProjection.Create(Month, View, CalendarVisible, Today);
+        renderedState = state;
+    }
+    protected override bool ShouldRender() => renderRequired;
+    private static string BannerSource(int month) => $"images/agenda-month-{month:D2}-pixel-v1.png";
+    private static (int Width, int Height) BannerSize(int month) => month switch
+    {
+        3 or 4 or 9 => (1983, 793), 6 or 10 or 12 => (2048, 768), 8 => (2087, 754), _ => (2172, 724)
+    };
+    private static string EventStyle(CalendarEventListItem item) => $"--calendar-entity-color:var(--calendar-color-{Math.Clamp(item.CalendarColorIndex, 1, 8)})";
+    private static string Weekday(DateOnly date) => new[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" }[(int)date.DayOfWeek];
+}
+

@@ -194,6 +194,28 @@ public sealed class FollowupAuditRegressionTests
     }
 
     [Fact]
+    public async Task MonthBufferBatch_MatchesIndividualGrids_WithOnlyOneRecurrenceExpansion()
+    {
+        var repository = new InMemoryEventRepository();
+        await repository.CreateAsync(Master() with { RecurrenceRule = "FREQ=DAILY;COUNT=70" });
+        var counter = new CountingExpansion();
+        var service = new CalendarEventService(repository, new InMemoryDeviceService("batch"),
+            new InMemoryEventChangeRepository(repository, new InMemoryOperationRepository()), TimeProvider.System, counter);
+        var views = new[] { new CalendarMonth(2026, 10), new CalendarMonth(2026, 11), new CalendarMonth(2026, 12) }
+            .Select(month => month.CreateView(new(2026, 10, 1))).ToArray();
+        var batch = await service.GetMonthViewsAsync(views, "UTC");
+        Assert.Equal(1, counter.Calls);
+        foreach (var view in views)
+        {
+            var individual = await service.GetMonthViewAsync(view, "UTC");
+            foreach (var date in view.Dates)
+                Assert.Equal(individual.GetEvents(date.Date), batch[view.Month].GetEvents(date.Date));
+        }
+        var empty = await service.GetMonthViewsAsync([], "UTC");
+        Assert.Empty(empty);
+    }
+
+    [Fact]
     public void RemappingManyExclusions_ExpandsOnlyOnce()
     {
         var master = Master();

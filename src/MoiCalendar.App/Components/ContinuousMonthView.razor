@@ -13,35 +13,15 @@
     <div class="month-stream app-scrollable scrollbar-hidden" @ref="streamElement"
          @onclick="BackgroundClicked"
          @onpointermove="PointerMove" @onpointerup="PointerUp" @onpointercancel="PointerCancel">
-        <MonthPanel @key="PreviousPreviousLayout.Month.Month" Layout="PreviousPreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
+        @foreach (var panel in Panels)
+        {
+        <MonthPanel @key="panel.Month.Month" Layout="panel" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
                     DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
                     SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
                     DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
                     EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
 
-        <MonthPanel @key="PreviousLayout.Month.Month" Layout="PreviousLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
-                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
-                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
-                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
-
-        <MonthPanel @key="Layout.Month.Month" @ref="currentPanel" Layout="Layout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
-                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
-                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
-                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
-
-        <MonthPanel @key="NextLayout.Month.Month" Layout="NextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
-                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
-                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
-                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
-
-        <MonthPanel @key="NextNextLayout.Month.Month" Layout="NextNextLayout" SelectedDate="SelectedDate" ActiveEventId="ActiveEventId"
-                    DragTargetDate="DragTargetDate" DragPreview="DragPreview" IsDirectManipulation="IsDirectManipulation"
-                    SelectDateRange="SelectDateRange" OpenDay="OpenDay" DatePointerUp="DatePointerUp"
-                    DateKeyDown="DateKeyDown" EventFocused="EventFocused" EventPointerDown="EventPointerDown"
-                    EventSelected="EventSelected" EventEdit="EventEdit" MoreRequested="MoreRequested" />
+        }
     </div>
 
     <MonthNavigationRail DisplayedMonth="DisplayedMonth" Navigate="NavigateToMonth" />
@@ -49,7 +29,6 @@
 
 @code {
     private ElementReference streamElement;
-    private MonthPanel? currentPanel;
     private DotNetObjectReference<ContinuousMonthView>? dotNetReference;
     private int initializedNavigationVersion = -1;
 
@@ -58,6 +37,9 @@
     [Parameter, EditorRequired] public CalendarMonthLayoutView Layout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextLayout { get; set; } = null!;
     [Parameter, EditorRequired] public CalendarMonthLayoutView NextNextLayout { get; set; } = null!;
+    [Parameter] public IReadOnlyList<CalendarMonthLayoutView> BufferedLayouts { get; set; } = [];
+    private IEnumerable<CalendarMonthLayoutView> Panels => BufferedLayouts.Count > 0 ? BufferedLayouts :
+        [PreviousPreviousLayout, PreviousLayout, Layout, NextLayout, NextNextLayout];
     [Parameter] public int NavigationVersion { get; set; }
     [Parameter] public EventCallback BackgroundClicked { get; set; }
     [Parameter] public CalendarMonth DisplayedMonth { get; set; }

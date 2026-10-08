@@ -15,8 +15,8 @@ function setup(saved) {
     vm.runInNewContext(source,{window,Math,Number,localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
         requestAnimationFrame:fn=>{frames.set(++next,fn);return next;},cancelAnimationFrame:id=>frames.delete(id)});
     window.moicalendarZoom.attach(timeline);
-    const fire = (name,gap=100,count=2) => {
-        const event={touches:Array.from({length:count},(_,i)=>({clientX:100,clientY:300+(i-.5)*gap})),preventDefault(){this.prevented=true;}};
+    const fire = (name,gap=100,count=2,cancelable=true) => {
+        const event={cancelable,touches:Array.from({length:count},(_,i)=>({clientX:100,clientY:300+(i-.5)*gap})),preventDefault(){this.prevented=true;}};
         handlers.get(name)?.(event);return event;
     };
     const flush=()=>{const list=[...frames.values()];frames.clear();list.forEach(fn=>fn());};
@@ -31,6 +31,16 @@ test('双指缩放只改变时间高度，并保持中心时刻不跳动',()=>{
     assert.equal(f.cancels(),1);
     f.fire('touchend',100,0);
     assert.equal([...f.storage.values()][0],'104');
+});
+test('滚动惯性期间不可取消的触摸不调用 preventDefault，缩放仍可结束并继续单指滚动',()=>{
+    const f=setup();
+    assert.equal(f.fire('touchstart',100,2,false).prevented,undefined);
+    assert.equal(f.fire('touchmove',150,2,false).prevented,undefined);
+    f.flush();
+    assert.equal(f.height(),78);
+    f.fire('touchend',100,0);
+    assert.equal(f.fire('touchmove',100,1).prevented,undefined);
+    assert.equal(f.handlers.size,4);
 });
 test('缩放上限下限，持久化恢复与不可用缓存安全默认',()=>{
     const f=setup(80);assert.equal(f.height(),80);

@@ -1,4 +1,91 @@
+// 原生滚动期间不得回收列表或写 scrollTop，否则 WebKit 的惯性滚动会被打断。
+function observeCalendarScrollActivity(root, onIdle = () => {}) {
+    let timer = 0, touching = false, disposed = false;
+    const waiters = [];
+    const schedule = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = 0;
+            if (disposed || touching) return;
+            for (const resolve of waiters.splice(0)) resolve();
+            onIdle();
+        }, 180);
+    };
+    const start = () => { touching = true; schedule(); };
+    const end = event => { touching = (event?.touches?.length ?? 0) > 0; schedule(); };
+    root.addEventListener('scroll', schedule, { passive: true });
+    root.addEventListener('wheel', schedule, { passive: true });
+    root.addEventListener('touchstart', start, { passive: true });
+    root.addEventListener('touchend', end, { passive: true });
+    root.addEventListener('touchcancel', end, { passive: true });
+    return {
+        busy: () => touching || timer !== 0,
+        whenIdle: () => disposed || (!touching && !timer) ? Promise.resolve() : new Promise(resolve => waiters.push(resolve)),
+        dispose() {
+            disposed = true; clearTimeout(timer);
+            root.removeEventListener('scroll', schedule);
+            root.removeEventListener('wheel', schedule);
+            root.removeEventListener('touchstart', start);
+            root.removeEventListener('touchend', end);
+            root.removeEventListener('touchcancel', end);
+            for (const resolve of waiters.splice(0)) resolve();
+        }
+    };
+}
+
+// 尺寸变化时保留可见内容，而不是保留旧像素位置。普通滚动只记录数值，
+// 不逐帧测量整个列表；横竖屏切换也必须等原生滚动结束后再补偿。
+function observeCalendarResizeAnchor(root, selector, activity) {
+    if (typeof ResizeObserver === 'undefined') return { refresh() {}, dispose() {} };
+    let snapshot = null, disposed = false, version = 0;
+    const dimensionsMatch = () => snapshot && snapshot.width === root.clientWidth && snapshot.height === root.clientHeight;
+    const measure = () => {
+        const viewportTop = root.getBoundingClientRect().top;
+        snapshot = {
+            width: root.clientWidth, height: root.clientHeight, top: root.scrollTop,
+            items: [...root.querySelectorAll(selector)].map(node => {
+                const rect = node.getBoundingClientRect();
+                return { node, top: rect.top - viewportTop + root.scrollTop, height: rect.height };
+            })
+        };
+    };
+    const refresh = () => {
+        // DOM 更新和 resize 同时发生时，不覆盖旋转前的锚点。
+        if (!disposed && (!snapshot || dimensionsMatch())) measure();
+    };
+    const remember = () => {
+        // 浏览器可能在 resize 后先派发被钳制的 scroll；不要记成用户滚动。
+        if (dimensionsMatch()) snapshot.top = root.scrollTop;
+    };
+    measure();
+    const observer = new ResizeObserver(async () => {
+        if (disposed || dimensionsMatch()) return;
+        const previous = snapshot, request = ++version;
+        await activity.whenIdle();
+        if (disposed || request !== version) return;
+        const anchor = previous.items.find(item => item.node.isConnected && item.height > 0 && item.top + item.height > previous.top + 1);
+        if (anchor) {
+            const rect = anchor.node.getBoundingClientRect();
+            const contentTop = rect.top - root.getBoundingClientRect().top + root.scrollTop;
+            root.scrollTop = contentTop + (previous.top - anchor.top) / anchor.height * rect.height;
+        }
+        measure();
+    });
+    observer.observe(root);
+    root.addEventListener('scroll', remember, { passive: true });
+    return {
+        refresh,
+        dispose() {
+            disposed = true; ++version;
+            observer.disconnect(); root.removeEventListener('scroll', remember);
+        }
+    };
+}
+
 window.moicalendarUi = {
+    observeScrollActivity: observeCalendarScrollActivity,
+    observeResizeAnchor: observeCalendarResizeAnchor,
+    waitForScrollIdle: root => root?._moicalendarScrollActivity?.whenIdle() ?? Promise.resolve(),
     scrollToSection: (id) => {
         // Route content can finish loading after its first render.
         const findSection = (attempt) => {
@@ -176,31 +263,33 @@ window.moicalendarUi = {
         window.moicalendarUi.disposeMonthStream(stream);
         const getPanels = () => Array.from(stream.querySelectorAll(":scope > .month-panel"));
         const panels = getPanels();
-        if (panels.length !== 5) return;
+        if (panels.length < 5) return;
+        const centerIndex = Math.floor(panels.length / 2);
         const panelTop = panel => panel.getBoundingClientRect().top - stream.getBoundingClientRect().top + stream.scrollTop;
 
         let frame = 0;
         let changing = true;
         let pendingAnchor = null;
         let disposed = false;
-        let reportedMonth = panels[2].dataset.month;
+        let reportedMonth = panels[centerIndex].dataset.month;
         let reportVersion = 0;
         frame = requestAnimationFrame(() => {
             frame = 0;
             if (disposed) return;
-            stream.scrollTop = panelTop(panels[2]);
+            stream.scrollTop = panelTop(panels[centerIndex]);
             changing = false;
+            resizeAnchor.refresh();
         });
 
         const handler = () => {
             if (disposed) return;
             if (pendingAnchor) pendingAnchor.scrollTop = stream.scrollTop;
-            if (frame || changing) return;
+            if (frame || changing || activity.busy()) return;
             frame = requestAnimationFrame(async () => {
                 frame = 0;
-                if (disposed) return;
+                if (disposed || activity.busy()) return;
                 const currentPanels = getPanels();
-                if (currentPanels.length !== 5) return;
+                if (currentPanels.length !== panels.length) return;
                 const top = stream.scrollTop;
                 const viewportCenter = top + stream.clientHeight / 2;
                 const positions = currentPanels.map(panel => ({ panel, top: panelTop(panel), height: panel.offsetHeight }));
@@ -219,17 +308,16 @@ window.moicalendarUi = {
                         if (!disposed && reportVersion === requestVersion) reportedMonth = null;
                     });
                 }
-                const previousBoundary = panelTop(currentPanels[1]);
-                const nextBoundary = panelTop(currentPanels[3]);
-                const targetIndex = top <= previousBoundary + 2
-                    ? 1
-                    : top >= nextBoundary - 2 ? 3 : 2;
-                if (targetIndex === 2) return;
+                const previousBoundary = positions[centerIndex - 1].top;
+                const nextBoundary = positions[centerIndex + 1].top;
+                if (top > previousBoundary + 2 && top < nextBoundary - 2) return;
+                const targetIndex = currentPanels.indexOf(displayedPanel);
+                if (targetIndex === centerIndex) return;
                 changing = true;
                 const anchorMonth = currentPanels[targetIndex].dataset.month;
                 pendingAnchor = { month: anchorMonth, contentTop: positions[targetIndex].top, scrollTop: top };
                 try {
-                    await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex === 1 ? -1 : 1);
+                    await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex - centerIndex);
                     preserveAnchor();
                 } catch {
                     pendingAnchor = null;
@@ -242,19 +330,26 @@ window.moicalendarUi = {
         const preserveAnchor = () => {
             if (disposed || !pendingAnchor) return;
             const updatedPanels = getPanels();
-            if (updatedPanels[2]?.dataset.month !== pendingAnchor.month) return;
-            const anchor = updatedPanels[2];
+            if (updatedPanels[centerIndex]?.dataset.month !== pendingAnchor.month) return;
+            const anchor = updatedPanels[centerIndex];
             const expectedViewportTop = pendingAnchor.contentTop - pendingAnchor.scrollTop;
             stream.scrollTop = panelTop(anchor) - expectedViewportTop;
             pendingAnchor = null;
             changing = false;
+            resizeAnchor.refresh();
             handler();
         };
+        const activity = observeCalendarScrollActivity(stream, handler);
+        const resizeAnchor = observeCalendarResizeAnchor(stream, ':scope > .month-panel .month-week-row', activity);
+        stream._moicalendarScrollActivity = activity;
         const observer = new MutationObserver(preserveAnchor);
         observer.observe(stream, { childList: true });
         stream._moicalendarMonthStreamDispose = () => {
             disposed = true;
             observer.disconnect();
+            resizeAnchor.dispose();
+            activity.dispose();
+            delete stream._moicalendarScrollActivity;
         };
         stream._moicalendarMonthStreamHandler = handler;
         stream._moicalendarMonthStreamFrame = () => frame;

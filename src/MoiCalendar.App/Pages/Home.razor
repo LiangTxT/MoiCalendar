@@ -96,6 +96,7 @@
                                                    Layout="monthLayout"
                                                    NextLayout="nextMonthLayout"
                                                    NextNextLayout="nextNextMonthLayout"
+                                                   BufferedLayouts="monthBufferLayouts"
                                                    NavigationVersion="monthStreamNavigationVersion"
                                                    DisplayedMonth="displayedMonth"
                                                    NavigateToMonth="month => ShowMonthAsync(month, showLoading: false)"
@@ -181,6 +182,8 @@
     }
 </main>
 </CascadingValue>
+
+<ReminderSetupTip RequestVersion="reminderSetupTipVersion" Hidden="@(HasOpenOverlay || selectedEvent is not null)" />
 
 @if (HasOpenOverlay)
 {
@@ -520,6 +523,7 @@
     private DateOnly? pendingTimelineDate;
     private readonly Dictionary<(CalendarMonth Month, bool Visible), CalendarMonthLayoutView> monthLayoutCache = new();
     private int monthStreamNavigationVersion;
+    private IReadOnlyList<CalendarMonthLayoutView> monthBufferLayouts = [];
     private CalendarMonthEventView previousPreviousMonthEvents = CalendarMonthEventView.Empty;
     private CalendarMonthLayoutView previousPreviousMonthLayout = null!;
     private CalendarMonthEventView monthEvents = CalendarMonthEventView.Empty;
@@ -552,6 +556,7 @@
     private string searchQuery = string.Empty;
     private string? editorError;
     private string? quickCreateError;
+    private int reminderSetupTipVersion;
     private string? detailError;
     private CalendarOccurrenceReference? selectedOccurrence =>
         overlayState is EventDetailsOverlayState details ? details.Occurrence
@@ -1030,10 +1035,11 @@
         }
     }
 
-    private Task ChangeVisibleMonthAsync(int direction) =>
-        direction < 0
-            ? ShowMonthAsync(monthView.Month.Previous(), seamless: true)
-            : ShowMonthAsync(monthView.Month.Next(), seamless: true);
+    private Task ChangeVisibleMonthAsync(int direction)
+    {
+        var date = new DateOnly(monthView.Month.Year, monthView.Month.Month, 1).AddMonths(Math.Clamp(direction, -4, 4));
+        return ShowMonthAsync(CalendarMonth.FromDate(date), seamless: true);
+    }
 
     private void SetDisplayedMonth(CalendarMonth month) => displayedMonth = month;
 
@@ -1100,6 +1106,8 @@
         nextNextMonthLayout = nextNextMonthEvents.CreateLayout(
             monthView.Month.Next().Next().CreateView(today),
             includeEvents: visible);
+        monthBufferLayouts = monthBufferLayouts.Select(layout => GetCachedMonthLayout(layout.Month,
+            monthEventCache.GetValueOrDefault(layout.Month.Month, CalendarMonthEventView.Empty))).ToArray();
     }
 
     private async Task SelectDateAsync(DateOnly date)
@@ -1147,31 +1155,38 @@
             if (displayMode == CalendarViewMode.Month)
             {
                 var center = requestedMonth ?? monthView.Month;
-                var months = new[]
-                {
-                    center.Previous().Previous(), center.Previous(), center,
-                    center.Next(), center.Next().Next()
-                };
+                var first = new DateOnly(center.Year, center.Month, 1);
+                var months = Enumerable.Range(-4, 9)
+                    .Select(offset => CalendarMonth.FromDate(first.AddMonths(offset))).ToArray();
                 var views = months.Select(month => month.CreateView(today)).ToArray();
-                var tasks = views.Select(GetCachedMonthEventsAsync).ToArray();
-                await Task.WhenAll(tasks);
-                var events = tasks.Select(task => task.Result).ToArray();
+                var missing = views.Where(view => !monthEventCache.ContainsKey(view.Month)).ToArray();
+                if (missing.Length > 0)
+                {
+                    var loaded = await EventService.GetMonthViewsAsync(missing, displayTimeZoneId);
+                    if (timelineVersion != timelineNavigationVersion || displayMode != CalendarViewMode.Month) return;
+                    foreach (var pair in loaded) monthEventCache[pair.Key] = pair.Value;
+                }
+                var events = views.Select(view => monthEventCache[view.Month]).ToArray();
+                if (preserveMonthCache && requestedMonth is not null && monthViewComponent is not null)
+                    await JS.InvokeVoidAsync("moicalendarUi.waitForScrollIdle", MonthGridElement);
+                if (timelineVersion != timelineNavigationVersion || displayMode != CalendarViewMode.Month) return;
 
-                monthView = views[2];
-                previousPreviousMonthEvents = events[0];
-                previousMonthEvents = events[1];
-                monthEvents = events[2];
-                nextMonthEvents = events[3];
-                nextNextMonthEvents = events[4];
-                previousPreviousMonthLayout = GetCachedMonthLayout(views[0], events[0]);
-                previousMonthLayout = GetCachedMonthLayout(views[1], events[1]);
-                monthLayout = GetCachedMonthLayout(views[2], events[2]);
-                nextMonthLayout = GetCachedMonthLayout(views[3], events[3]);
-                nextNextMonthLayout = GetCachedMonthLayout(views[4], events[4]);
+                monthBufferLayouts = views.Select((view, index) => GetCachedMonthLayout(view, events[index])).ToArray();
+                monthView = views[4];
+                previousPreviousMonthEvents = events[2];
+                previousMonthEvents = events[3];
+                monthEvents = events[4];
+                nextMonthEvents = events[5];
+                nextNextMonthEvents = events[6];
+                previousPreviousMonthLayout = monthBufferLayouts[2];
+                previousMonthLayout = monthBufferLayouts[3];
+                monthLayout = monthBufferLayouts[4];
+                nextMonthLayout = monthBufferLayouts[5];
+                nextNextMonthLayout = monthBufferLayouts[6];
                 monthView = monthLayout.Month;
 
                 foreach (var cachedMonth in monthEventCache.Keys.Where(month =>
-                    Math.Abs((month.Year - center.Year) * 12 + month.Month - center.Month) > 4).ToArray())
+                    Math.Abs((month.Year - center.Year) * 12 + month.Month - center.Month) > 6).ToArray())
                 {
                     monthEventCache.Remove(cachedMonth);
                     monthLayoutCache.Remove((cachedMonth, true));
@@ -1211,6 +1226,7 @@
             timelineViewCache.Clear();
             monthEventCache.Clear();
             monthLayoutCache.Clear();
+            monthBufferLayouts = [];
             if (requestedMonth is { } failedMonth)
             {
                 monthView = failedMonth.CreateView(today);
@@ -1269,18 +1285,6 @@
             monthLayoutCache[key] = layout;
         }
         return layout;
-    }
-
-    private async Task<CalendarMonthEventView> GetCachedMonthEventsAsync(CalendarMonthView view)
-    {
-        if (monthEventCache.TryGetValue(view.Month, out var cached))
-        {
-            return cached;
-        }
-
-        var events = await EventService.GetMonthViewAsync(view, displayTimeZoneId);
-        monthEventCache[view.Month] = events;
-        return events;
     }
 
     private void OpenCreateEditor(DateOnly date)
@@ -1349,6 +1353,7 @@
         try
         {
             await EventService.CreateAsync(quickCreateDraft);
+            if (quickCreateDraft.ReminderMinutesBeforeStart is not null) reminderSetupTipVersion++;
             quickCreateDraft = null;
             ShowInteractionFeedback("已保存", true);
             await LoadEventsAsync();
@@ -1988,6 +1993,7 @@
 
             isSavingEvent = false;
             var removedExceptions = editor.RemovedExclusionCount;
+            if (editor.ReminderMinutesBeforeStart is not null) reminderSetupTipVersion++;
             await CloseEditor();
             await LoadEventsAsync();
             ShowInteractionFeedback(removedExceptions == 0 ? "已保存" : $"已保存；{removedExceptions} 个单次排除不再属于新规则，已清理。", true);
@@ -2099,7 +2105,8 @@
 
     private IReadOnlyList<CalendarEventListItem> GetOverflowEvents(DateOnly date, bool compact)
         => MonthOverflowProjection.GetHiddenEvents(
-            [previousPreviousMonthLayout, previousMonthLayout, monthLayout, nextMonthLayout, nextNextMonthLayout],
+            monthBufferLayouts.Count > 0 ? monthBufferLayouts :
+                [previousPreviousMonthLayout, previousMonthLayout, monthLayout, nextMonthLayout, nextNextMonthLayout],
             date, compact);
 
     private static string GetCalendarColorStyle(CalendarEventListItem calendarEvent) =>

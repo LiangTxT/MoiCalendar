@@ -13,16 +13,16 @@ export function connect(root, reference, allowAutoLoad, contextKey = '') {
             });
         };
         state.tryEarlier = () => {
-            if (root.scrollTop <= 260) state.extend(-1);
+            if (root.scrollTop <= Math.max(260, root.clientHeight)) state.extend(-1);
         };
         state.onScroll = () => {
             const currentTop = root.scrollTop;
             if (currentTop < state.previousTop) state.tryEarlier();
             state.previousTop = currentTop;
-            if (state.frame) return;
+            if (state.frame || state.activity.busy()) return;
             state.frame = requestAnimationFrame(() => {
                 state.frame = 0;
-                if (state.disposed) return;
+                if (state.disposed || state.activity.busy()) return;
                 const top = root.getBoundingClientRect().top;
                 const sections = [...root.querySelectorAll('[data-agenda-month]')];
                 const active = sections.find(section => section.getBoundingClientRect().bottom > top + 60);
@@ -36,6 +36,9 @@ export function connect(root, reference, allowAutoLoad, contextKey = '') {
                 }
             });
         };
+        state.activity = window.moicalendarUi.observeScrollActivity(root, state.onScroll);
+        state.resizeAnchor = window.moicalendarUi.observeResizeAnchor(root,
+            '.agenda-month-banner, .agenda-stream-day, .agenda-empty-week', state.activity);
         root.addEventListener('scroll', state.onScroll, { passive: true });
         // 位于 scrollTop=0 时，向上滚轮不会产生 scroll；仍要响应用户继续向前浏览。
         state.onWheel = event => { if (event.deltaY < 0) state.tryEarlier(); };
@@ -56,7 +59,7 @@ export function connect(root, reference, allowAutoLoad, contextKey = '') {
         root.addEventListener('keydown', state.onKey);
         state.observer = new IntersectionObserver(entries => {
             if (entries.some(entry => entry.target === state.next && entry.isIntersecting)) state.extend(1);
-        }, { root, rootMargin: '0px 0px 300px 0px' });
+        }, { root, rootMargin: '0px 0px 1200px 0px' });
         states.set(root, state);
     }
     state.reference = reference;
@@ -80,17 +83,23 @@ export function connect(root, reference, allowAutoLoad, contextKey = '') {
         state.observing = observing;
         if (state.observing) state.observer.observe(next);
     }
+    state.resizeAnchor.refresh();
     state.onScroll();
 }
 export function rememberPosition(root) {
     const state = states.get(root);
     if (state) state.height = root.scrollHeight;
 }
+export function waitForIdle(root) {
+    return states.get(root)?.activity.whenIdle() ?? Promise.resolve();
+}
 export function disconnect(root) {
     const state = states.get(root);
     state?.observer.disconnect();
     if (state) {
         state.disposed = true;
+        state.resizeAnchor.dispose();
+        state.activity.dispose();
         root.removeEventListener('scroll', state.onScroll);
         root.removeEventListener('wheel', state.onWheel);
         root.removeEventListener('touchstart', state.onTouchStart);

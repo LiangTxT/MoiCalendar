@@ -239,6 +239,21 @@ public sealed class CalendarEventService(
         return new CalendarMonthEventView(orderedGroups);
     }
 
+    public async Task<IReadOnlyDictionary<CalendarMonth, CalendarMonthEventView>> GetMonthViewsAsync(
+        IReadOnlyList<CalendarMonthView> monthViews,
+        string displayTimeZoneId,
+        CancellationToken cancellationToken = default)
+    {
+        var views = monthViews.DistinctBy(view => view.Month).ToArray();
+        if (views.Length == 0) return new Dictionary<CalendarMonth, CalendarMonthEventView>();
+        var first = views.Min(view => view.Dates[0].Date);
+        var end = views.Max(view => view.Dates[^1].Date).AddDays(1);
+        // 共用一次本地读取及重复展开，仍保留每个月网格中的跨月日期。
+        var groups = await GetEventGroupsAsync(first, end, displayTimeZoneId, cancellationToken);
+        return views.ToDictionary(view => view.Month, view => new CalendarMonthEventView(
+            view.Dates.ToDictionary(date => date.Date, date => groups[date.Date])));
+    }
+
     public async Task<CalendarAgendaView> GetAgendaViewAsync(
         CalendarMonth month,
         string displayTimeZoneId,

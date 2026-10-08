@@ -41,7 +41,7 @@
                 if (blocked || surface.classList.contains('is-period-paging')) return;
                 const gap = distance(event.touches);
                 if (gap < 10) return;
-                event.preventDefault();
+                if (event.cancelable) event.preventDefault();
                 window.moicalendarInteraction?.cancelActiveInteraction(surface);
                 const y = center(event.touches);
                 pinch = { distance: gap, height,
@@ -49,7 +49,7 @@
             };
             const move = event => {
                 if (!pinch || event.touches.length !== 2) return;
-                event.preventDefault();
+                if (event.cancelable) event.preventDefault();
                 pending = { height: clamp(pinch.height * distance(event.touches) / pinch.distance),
                     center: center(event.touches) - timeline.getBoundingClientRect().top };
                 if (!frame) frame = requestAnimationFrame(apply);
