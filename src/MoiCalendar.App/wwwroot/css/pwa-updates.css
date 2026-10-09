@@ -1,0 +1,19 @@
+.pwa-update-notice {
+    position: fixed;
+    inset-inline-end: max(16px, env(safe-area-inset-right));
+    inset-block-end: max(16px, env(safe-area-inset-bottom));
+    z-index: 160;
+    max-inline-size: min(360px, calc(100vw - 32px));
+    margin: 0;
+    padding: 12px 16px;
+    border: 1px solid var(--v4-line-strong);
+    border-radius: var(--radius-control);
+    background: var(--v4-elevated);
+    color: var(--v4-ink);
+    font: 14px/1.6 var(--font-ui);
+    overflow-wrap: anywhere;
+}
+.pwa-update-notice[hidden] { display: none; }
+@media (max-width: 540px) {
+    .pwa-update-notice { inset-block-end: max(80px, calc(env(safe-area-inset-bottom) + 80px)); }
+}

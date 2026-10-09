@@ -543,13 +543,15 @@ a {
     white-space: nowrap;
 }
 
-.calendar-toolbar.month-mode .command-period-title {
+.calendar-toolbar.month-mode .command-period-title,
+.range-period-title {
     display: inline-flex;
     align-items: baseline;
     gap: 2px;
     font-weight: 400;
 }
 
+.range-period-title .period-number,
 .month-period-title .period-number {
     font-family: "Bahnschrift SemiCondensed", "Bahnschrift", "DIN Alternate", "Arial Narrow", var(--font-system);
     font-size: 24px;
@@ -558,6 +560,7 @@ a {
     letter-spacing: .025em;
 }
 
+.range-period-title .period-unit,
 .month-period-title .period-unit {
     color: var(--v4-ink-secondary);
     font-size: 11px;
@@ -568,6 +571,10 @@ a {
 .month-period-title .period-unit + .period-number {
     margin-left: 6px;
 }
+
+.period-year { display: inline-flex; align-items: baseline; gap: 2px; }
+.period-weekday { margin-left: var(--space-2); }
+.period-separator { font-weight: 400; }
 
 .calendar-toolbar button,
 .calendar-sidebar button,
@@ -2778,6 +2785,9 @@ a {
         font-size: 13px;
     }
 
+    /* 跨年周含两个年份，窄平板也需紧凑字号；月视图原有字号不变。 */
+    .range-period-title .period-number { font-size: 16px; }
+
     .period-title-full {
         display: none;
     }
@@ -3050,56 +3060,80 @@ a {
 .event-color-option input:focus-visible + .event-color-swatch { outline: 2px solid var(--v4-focus); outline-offset: 3px; }
 .event-color-picker:disabled { opacity: .6; }
 
-/* 手机保留单行日期导航；同一组视图按钮移到底部浮动，不复制状态。 */
+/* 手机日期和视图切换保持单行；仅新建按钮覆盖在表格左下角，不占底部行。 */
 @media (max-width: 540px) {
     .calendar-main {
         grid-template-rows: 48px minmax(0, 1fr);
     }
 
     .calendar-toolbar {
-        grid-template-columns: 44px minmax(0, 1fr);
+        grid-template-columns: 28px minmax(0, 1fr) auto;
         grid-template-rows: 48px;
+        column-gap: var(--space-1);
+        padding-inline: var(--space-1);
     }
 
     .toolbar-leading { grid-column: 1; grid-row: 1; }
-    .toolbar-period { grid-column: 2; grid-row: 1; }
+    .toolbar-period {
+        grid-column: 2;
+        grid-row: 1;
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) 24px;
+        gap: 0;
+    }
+    .toolbar-period > button:last-of-type { grid-column: 3; grid-row: 1; }
     .toolbar-actions {
+        grid-column: 3;
+        grid-row: 1;
+        min-width: 0;
+    }
+
+    .toolbar-actions .view-switcher { flex-shrink: 0; }
+    .toolbar-actions .view-switcher button {
+        min-width: 28px;
+        min-height: 40px;
+        padding-inline: var(--space-1);
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    .toolbar-actions .add-event-button {
         position: fixed;
         bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-        left: 50%;
-        transform: translateX(-50%);
+        left: calc(var(--space-4) + env(safe-area-inset-left, 0px));
         z-index: 20;
-        justify-content: center;
-        min-width: 0;
-        width: max-content;
-        max-width: calc(100vw - 32px);
-        padding: var(--space-1);
-        gap: var(--space-2);
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        padding: 0;
         border-radius: var(--radius-overlay);
-        background: var(--v4-surface);
         box-shadow: var(--shadow-popover);
+        font-size: 24px;
     }
 
-    .calendar-toolbar.month-mode .toolbar-actions {
-        left: calc((100% - 44px) / 2);
-        max-width: calc(100vw - 64px);
+    .toolbar-leading .icon-button,
+    .toolbar-period .icon-button {
+        min-width: 0;
+        min-height: 44px;
+        padding-inline: 0;
     }
-
-    .toolbar-actions .view-switcher { flex-shrink: 0; border: 0; }
-    .toolbar-actions .view-switcher button { min-width: 44px; padding-inline: var(--space-2); white-space: nowrap; }
-    .toolbar-actions .add-event-button { flex-shrink: 0; }
-    .calendar-content {
-        padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+    .command-period-title {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: center;
+        margin-left: 0;
     }
-
-    .calendar-toolbar button { min-width: 44px; min-height: 44px; }
-    .command-period-title { margin-left: auto; }
     .calendar-toolbar.month-mode .command-period-title {
         flex-shrink: 0;
         overflow: visible;
     }
     .month-period-title .period-number { font-size: 20px; letter-spacing: 0; }
     .month-period-title .period-unit + .period-number { margin-left: 4px; }
+    .range-period-title { gap: 1px; overflow: visible; }
+    .range-period-title .period-number { font-size: 16px; letter-spacing: 0; }
+    .range-period-title .period-unit { font-size: 9px; letter-spacing: 0; }
+    .period-year { display: none; }
+    .period-weekday, .period-start-day-unit { display: none; }
     .month-view { min-height: 0; }
 }
 

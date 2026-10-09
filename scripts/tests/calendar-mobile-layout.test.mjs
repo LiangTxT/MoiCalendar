@@ -4,17 +4,39 @@ import { readFileSync } from 'node:fs';
 
 const css = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/css/v4.css', import.meta.url), 'utf8');
 
-test('手机单行日期导航与底部悬浮栏，预留安全区域且避开月份轨道', () => {
+test('手机视图切换与日期保持单行，仅新建按钮覆盖在左下角表格上', () => {
     const phone = css.slice(css.indexOf('@media (max-width: 540px)'), css.indexOf('@media (max-width: 400px)'));
     assert.match(phone, /grid-template-rows: 48px minmax\(0, 1fr\)/);
-    assert.match(phone, /grid-template-columns: 44px minmax\(0, 1fr\)/);
+    assert.match(phone, /grid-template-columns: 28px minmax\(0, 1fr\) auto/);
     assert.match(phone, /grid-template-rows: 48px;/);
-    assert.match(phone, /\.toolbar-actions \{[^}]*position: fixed;[^}]*safe-area-inset-bottom[^}]*z-index: 20;/);
-    assert.match(phone, /left: calc\(\(100% - 44px\) \/ 2\)/);
-    assert.match(phone, /padding-bottom: calc\(84px \+ env\(safe-area-inset-bottom, 0px\)\)/);
-    assert.match(phone, /min-width: 44px; min-height: 44px/);
+    assert.match(phone, /\.toolbar-actions \{[^}]*grid-column: 3;[^}]*grid-row: 1;/);
+    assert.match(phone, /\.toolbar-actions \.add-event-button \{[^}]*position: fixed;[^}]*safe-area-inset-bottom[^}]*safe-area-inset-left[^}]*z-index: 20;/);
+    assert.doesNotMatch(phone, /\.toolbar-actions \{[^}]*position: fixed/);
+    assert.doesNotMatch(phone, /padding-bottom: calc\(84px/);
+    assert.match(phone, /width: 48px;[^}]*height: 48px/);
     assert.match(phone, /\.month-period-title \.period-number \{ font-size: 20px/);
     assert.match(phone, /\.month-view \{ min-height: 0; \}/);
+});
+
+test('日周顶部日期使用月视图数字与单位，保留完整可访问日期与年月格式', () => {
+    const toolbar = readFileSync(new URL('../../src/MoiCalendar.App/Components/CalendarToolbar.razor', import.meta.url), 'utf8');
+    const home = readFileSync(new URL('../../src/MoiCalendar.App/Pages/Home.razor', import.meta.url), 'utf8');
+    assert.match(toolbar, /DateOnly PeriodStartDate/);
+    assert.match(toolbar, /DateOnly PeriodEndDate/);
+    assert.match(toolbar, /period-number">@PeriodStartDate\.Day/);
+    assert.match(toolbar, /period-number">@PeriodEndDate\.Day/);
+    assert.match(toolbar, /class="command-period-title range-period-title"/);
+    assert.match(toolbar, /aria-label="@PeriodTitle"/);
+    assert.match(toolbar, /period-number">@MonthYear<\/span><span class="period-unit">年/);
+    assert.match(home, /PeriodStartDate="@\(displayMode == CalendarViewMode.Week \? weekView.Week.StartDate : selectedDate\)"/);
+    assert.match(css, /\.range-period-title \.period-number,/);
+    assert.match(css, /\.range-period-title \.period-unit,/);
+    assert.match(css, /\.period-year \{ display: none; \}/);
+});
+
+test('窄平板跨年周使用紧凑字号，不沿用桌面24px导致日期末尾被裁切', () => {
+    const tablet = css.slice(css.indexOf('@media (max-width: 720px)'), css.indexOf('/* 手机日期和视图切换'));
+    assert.match(tablet, /\.range-period-title \.period-number \{[^}]*font-size: 16px;/);
 });
 
 test('手机月格将公历农历和月份标记纵向排布，不截断标签', () => {

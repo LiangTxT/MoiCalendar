@@ -22,7 +22,10 @@ for (const relativePath of [
     "appsettings.Production.json",
     "staticwebapp.config.json",
     "service-worker.js",
-    "service-worker-assets.js"
+    "service-worker-assets.js",
+    "pwaUpdates.js",
+    "pwaUpdateWorker.js",
+    "css/pwa-updates.css"
 ]) {
     requireFile(relativePath);
 }
@@ -62,6 +65,9 @@ if (staticWebApp.navigationFallback?.rewrite !== "/index.html") {
     fail("staticwebapp.config.json 必须把客户端路由回退到 /index.html。");
 }
 const globalHeaders = requireObject(staticWebApp.globalHeaders, "staticwebapp.config.json:globalHeaders");
+if (globalHeaders["Cache-Control"] !== "no-cache") {
+    fail("应用入口和更新资源必须使用 Cache-Control: no-cache，避免 HTTP 缓存长期锁住旧版本。");
+}
 const contentSecurityPolicy = globalHeaders["Content-Security-Policy"];
 if (typeof contentSecurityPolicy !== "string") {
     fail("生产静态产物缺少 Content-Security-Policy。");
@@ -108,6 +114,11 @@ if (!assetManifest.includes("appsettings.Production.json")) {
     fail("Service Worker 资源清单缺少 appsettings.Production.json。");
 }
 const publishedServiceWorker = readText("service-worker.js");
+if (!publishedServiceWorker.includes("'./pwaUpdateWorker.js'") ||
+    !indexHtml.includes('src="pwaUpdates.js"') ||
+    !readText("pwaUpdateWorker.js").includes("self.skipWaiting()")) {
+    fail("生产静态产物缺少 PWA 安全自动更新入口或 Worker 激活协议。");
+}
 if (!publishedServiceWorker.includes("/^staticwebapp\\.config\\.json$/")) {
     fail("Service Worker 必须排除发布后加固的 staticwebapp.config.json，避免资源哈希不一致。");
 }

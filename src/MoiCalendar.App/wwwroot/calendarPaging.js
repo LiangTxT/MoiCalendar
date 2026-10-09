@@ -54,7 +54,7 @@
         return ghost;
     }
 
-    async function settle(s, direction) {
+    async function settle(s, direction, fromEdge = false) {
         if (s.busy || s.disposed) return;
         s.busy = true;
         if (s.raf) cancelAnimationFrame(s.raf);
@@ -85,6 +85,10 @@
             clearTimeout(s.timeout);
             if (s.key === oldKey) return;
             s.timeline.scrollTop = top;
+            if (fromEdge) {
+                const horizontal = s.surface.querySelector(".week-horizontal-scroll");
+                horizontal.scrollLeft = direction > 0 ? 0 : horizontal.scrollWidth - horizontal.clientWidth;
+            }
             await Promise.all([
                 animate(s, s.ghost, offset, -direction * width),
                 animate(s, s.frame, direction * width, 0)
@@ -121,11 +125,11 @@
                 s.resizeObserver.observe(surface.querySelector(".week-horizontal-scroll"));
                 s.resizeObserver.observe(s.frame);
             }
-            const blocked = () => !s.enabled || s.busy || surface.classList.contains("is-browser-interacting");
+            const blocked = () => !s.enabled || s.busy || s.edgeSettling || surface.classList.contains("is-browser-interacting");
             s.down = event => {
                 if (blocked() || event.button !== 0 || event.isPrimary === false) return;
                 syncOverflow();
-                // 超宽周表格的触摸由浏览器滚动，不能抢走查看本周剩余日期的手势。
+                // 超宽表格保留原生滚动；边缘翻周单独用 touch 事件，避免原生滚动的 pointercancel。
                 if (event.pointerType !== "mouse" && s.horizontalOverflow) return;
                 const header = event.target.closest(".week-day-headings");
                 if (event.pointerType === "mouse" && !header) return;
@@ -165,11 +169,69 @@
                 await s.cancelPromise;
                 await settle(s, commit ? dx < 0 ? 1 : -1 : 0);
             };
+            s.touchStart = event => {
+                if (s.edgeTouch?.axis === "x" && !s.busy) reset(s);
+                s.edgeTouch = null;
+                syncOverflow();
+                if (blocked() || !s.horizontalOverflow || event.touches.length !== 1) return;
+                const header = event.target.closest(".week-day-headings");
+                if (!header && !event.target.closest(".week-timed-days,.week-all-day-row")) return;
+                const horizontal = surface.querySelector(".week-horizontal-scroll");
+                const atStart = horizontal.scrollLeft <= 1;
+                // stable 滚动条槽可能使 clientWidth 小于实际滚动视口；用真实表格边界判断周日。
+                const atEnd = s.frame.getBoundingClientRect().right <= horizontal.getBoundingClientRect().right + 1;
+                if (!atStart && !atEnd) return;
+                const t = event.touches[0];
+                s.edgeTouch = { id: t.identifier, x: t.clientX, y: t.clientY,
+                    time: performance.now(), header: !!header, direction: atStart ? -1 : 1, axis: null };
+                s.gestureWidth = surface.clientWidth;
+            };
             s.touch = event => {
                 if (event.touches.length > 1) {
                     s.pointer = null;
+                    s.edgeTouch = null;
                     if (!s.busy) reset(s);
-                } else if (s.pointer?.axis === "x") event.preventDefault();
+                    return;
+                }
+                if (s.pointer?.axis === "x") event.preventDefault();
+                const p = s.edgeTouch;
+                const t = event.touches[0];
+                if (!p || !t || t.identifier !== p.id) return;
+                const dx = t.clientX - p.x, dy = t.clientY - p.y;
+                if (blocked()) {
+                    s.edgeTouch = null;
+                    if (!s.busy) reset(s);
+                    return;
+                }
+                if (!p.axis) {
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) < 8) return;
+                    // 只接管从边缘开始的向外滑动；周内滚动到边缘不能同一次手势误翻周。
+                    if (Math.abs(dx) <= Math.abs(dy) * 1.3 || dx * p.direction >= 0 ||
+                        (!p.header && performance.now() - p.time >= 350)) { s.edgeTouch = null; return; }
+                    p.axis = "x";
+                    s.suppressUntil = performance.now() + 500;
+                    window.moicalendarInteraction?.cancelActiveInteraction(surface);
+                    s.cancelPromise = dotNet.invokeMethodAsync("CancelTimeGridForPaging");
+                }
+                event.preventDefault();
+                paint(s, dx);
+            };
+            s.touchEnd = async event => {
+                const p = s.edgeTouch;
+                const t = [...event.changedTouches].find(t => t.identifier === p?.id);
+                if (!p || !t) return;
+                s.edgeTouch = null;
+                if (!p.axis) return;
+                s.suppressUntil = performance.now() + 500;
+                const dx = t.clientX - p.x;
+                const speed = Math.abs(dx) / Math.max(1, performance.now() - p.time);
+                const commit = event.type !== "touchcancel" && s.enabled && dx * p.direction < 0 &&
+                    (Math.abs(dx) >= Math.min(140, surface.clientWidth * .22) || (Math.abs(dx) > 32 && speed > .5));
+                s.edgeSettling = true;
+                try {
+                    await s.cancelPromise;
+                    await settle(s, commit ? p.direction : 0, true);
+                } finally { s.edgeSettling = false; }
             };
             s.wheel = event => {
                 if (event.ctrlKey || !s.enabled) return; // 保留触控板缩放。
@@ -208,7 +270,7 @@
                 }, 80);
             };
             s.click = event => {
-                if (performance.now() < s.suppressUntil || s.pointer?.axis === "x") {
+                if (performance.now() < s.suppressUntil || s.pointer?.axis === "x" || s.edgeTouch?.axis === "x") {
                     event.preventDefault(); event.stopImmediatePropagation();
                 }
             };
@@ -216,7 +278,10 @@
             window.addEventListener("pointermove", s.move, { capture: true, passive: false });
             window.addEventListener("pointerup", s.up, true);
             window.addEventListener("pointercancel", s.up, true);
+            surface.addEventListener("touchstart", s.touchStart, { passive: true });
             surface.addEventListener("touchmove", s.touch, { passive: false });
+            surface.addEventListener("touchend", s.touchEnd);
+            surface.addEventListener("touchcancel", s.touchEnd);
             surface.addEventListener("wheel", s.wheel, { passive: false });
             surface.addEventListener("click", s.click, true);
         },
@@ -225,7 +290,7 @@
             if (!s) return;
             // Blazor 更新拖动状态的 class 时可能替换增强类，渲染后恢复。
             surface.classList.add("has-period-paging");
-            if (s.busy || s.pointer?.axis === "x") surface.classList.add("is-period-paging");
+            if (s.busy || s.pointer?.axis === "x" || s.edgeTouch?.axis === "x") surface.classList.add("is-period-paging");
             s.enabled = enabled;
             s.syncOverflow();
             if (s.key !== key) { s.key = key; s.resolveRender?.(); }
@@ -243,7 +308,10 @@
             window.removeEventListener("pointermove", s.move, true);
             window.removeEventListener("pointerup", s.up, true);
             window.removeEventListener("pointercancel", s.up, true);
+            surface.removeEventListener("touchstart", s.touchStart);
             surface.removeEventListener("touchmove", s.touch);
+            surface.removeEventListener("touchend", s.touchEnd);
+            surface.removeEventListener("touchcancel", s.touchEnd);
             surface.removeEventListener("wheel", s.wheel);
             surface.removeEventListener("click", s.click, true);
             surface.classList.remove("has-period-paging");

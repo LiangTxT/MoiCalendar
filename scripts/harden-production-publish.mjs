@@ -27,7 +27,8 @@ for (const path of [indexPath, staticWebAppPath]) {
 
 const indexHtml = readFileSync(indexPath, "utf8");
 const inlineScriptHashes = [...indexHtml.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
-    .map(match => match[1])
+    // HTML 解析会把 CRLF / CR 统一为 LF，CSP 必须对解析后的脚本文本计算哈希。
+    .map(match => match[1].replace(/\r\n?/g, "\n"))
     .filter(content => content.trim().length > 0)
     .map(content => `'sha256-${createHash("sha256").update(content, "utf8").digest("base64")}'`);
 

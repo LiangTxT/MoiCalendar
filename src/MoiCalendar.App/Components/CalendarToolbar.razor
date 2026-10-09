@@ -21,6 +21,31 @@
                 <span class="period-number">@MonthNumber</span><span class="period-unit">月</span>
             </strong>
         }
+        else if (DisplayMode is CalendarViewMode.Day or CalendarViewMode.Week)
+        {
+            <strong class="command-period-title range-period-title" aria-live="polite" aria-label="@PeriodTitle" title="@PeriodTitle">
+                <span class="period-year"><span class="period-number">@PeriodStartDate.Year</span><span class="period-unit">年</span></span>
+                <span class="period-number">@PeriodStartDate.Month</span><span class="period-unit">月</span>
+                <span class="period-number">@PeriodStartDate.Day</span>
+                @if (DisplayMode == CalendarViewMode.Week)
+                {
+                    <span class="period-unit period-start-day-unit">日</span><span class="period-separator">–</span>
+                    @if (PeriodEndDate.Year != PeriodStartDate.Year)
+                    {
+                        <span class="period-year"><span class="period-number">@PeriodEndDate.Year</span><span class="period-unit">年</span></span>
+                    }
+                    @if (PeriodEndDate.Month != PeriodStartDate.Month || PeriodEndDate.Year != PeriodStartDate.Year)
+                    {
+                        <span class="period-number">@PeriodEndDate.Month</span><span class="period-unit">月</span>
+                    }
+                    <span class="period-number">@PeriodEndDate.Day</span><span class="period-unit">日</span>
+                }
+                else
+                {
+                    <span class="period-unit">日</span><span class="period-unit period-weekday">@WeekdayTitle</span>
+                }
+            </strong>
+        }
         else
         {
             <strong class="command-period-title" aria-live="polite" aria-label="@PeriodTitle" title="@PeriodTitle">
@@ -63,6 +88,9 @@
     [Parameter] public string? CompactPeriodTitle { get; set; }
     [Parameter] public int MonthYear { get; set; }
     [Parameter] public int MonthNumber { get; set; }
+    [Parameter] public DateOnly PeriodStartDate { get; set; }
+    [Parameter] public DateOnly PeriodEndDate { get; set; }
+    [Parameter] public string WeekdayTitle { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string PreviousAriaLabel { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string NextAriaLabel { get; set; } = string.Empty;
     [Parameter] public CalendarViewMode DisplayMode { get; set; }
