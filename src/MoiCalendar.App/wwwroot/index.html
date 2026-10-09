@@ -10,6 +10,7 @@
     <base href="/" />
     <link rel="preload" id="webassembly" />
     <link rel="stylesheet" href="css/v4.css" />
+    <link rel="stylesheet" href="css/pwa-updates.css" />
     <link href="MoiCalendar.App.styles.css" rel="stylesheet" />
     <link href="manifest.webmanifest" rel="manifest" />
     <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
@@ -42,12 +43,10 @@
     <script src="formPickerModel.js"></script>
     <script src="formPicker.js"></script>
     <script src="dateTimePicker.js"></script>
+    <script src="pwaUpdates.js"></script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' })
-                .catch(error => console.warn('离线缓存注册失败；在线日历仍可使用。', error));
-        }
+        window.moicalendarUpdates.start();
     </script>
 </body>
 

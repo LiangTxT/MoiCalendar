@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../src/MoiCalendar.App/wwwroot/calendarPaging.js', import.meta.url), 'utf8');
-function setup({ reduce = false, overflow = false } = {}) {
+function setup({ reduce = false, overflow = false, gutter = 0 } = {}) {
     let clock = 1000, nextTimer = 0;
     const timers = new Map(), calls = [], motions = [];
     const events = () => ({ handlers: new Map(),
@@ -20,7 +20,9 @@ function setup({ reduce = false, overflow = false } = {}) {
     const ghost = { style: {}, classList: classes(), setAttribute() {}, querySelectorAll: () => [],
         querySelector: selector => selector === '.week-grid-frame' ? { style: {} } : { scrollTop: 0 },
         remove() { removed++; }, animate: frame.animate };
-    const horizontal = { scrollLeft: 0, clientWidth: 400, scrollWidth: overflow ? 1000 : 400, cloneNode: () => ghost };
+    const horizontal = { scrollLeft: 0, clientWidth: 400 - gutter, scrollWidth: overflow ? 1000 : 400,
+        getBoundingClientRect: () => ({ right: 400 }), cloneNode: () => ghost };
+    frame.getBoundingClientRect = () => ({ right: horizontal.scrollWidth - horizontal.scrollLeft });
     const surface = { ...events(), style: {}, classList: classes(), clientWidth: 1000,
         querySelector: selector => selector === '.week-grid-frame' ? frame : selector === '.week-timed-scroll' ? timeline : horizontal,
         append() {}, setPointerCapture() {}, hasPointerCapture: () => false };
@@ -44,12 +46,15 @@ function setup({ reduce = false, overflow = false } = {}) {
         for (const [, callback] of scheduled) callback();
         for (let i = 0; i < 12; i++) await Promise.resolve();
     };
-    return { ui, surface, horizontal, window, timeline, ghost, dotNet, motions, calls, target, event, flush,
+    const touch = (x = 600, y = 100, extra = {}) => event({
+        touches: [{ identifier: 7, clientX: x, clientY: y }],
+        changedTouches: [{ identifier: 7, clientX: x, clientY: y }], ...extra });
+    return { ui, surface, horizontal, window, timeline, ghost, dotNet, motions, calls, target, event, touch, flush,
         tick: n => clock += n, removed: () => removed,
         navigation: () => calls.filter(x => x.name === 'NavigateTimeGridPeriod') };
 }
 
-test('超宽周表格在任意滚动位置保留触摸横滑，顶部和网格均不跳周', async () => {
+test('超宽周表格由原生触摸处理周内滚动，不使用指针捕获', async () => {
     for (const header of [true, false]) for (const left of [0, 300, 600]) {
         const f = setup({ overflow: true });
         f.horizontal.scrollLeft = left;
@@ -62,6 +67,96 @@ test('超宽周表格在任意滚动位置保留触摸横滑，顶部和网格�
         assert.equal(f.calls.length, 0);
         assert.equal(f.surface.classList.contains('has-week-overflow'), true);
     }
+});
+
+test('超宽周表格两侧向外触摸滑动切换周，进入相邻周的连续边缘', async () => {
+    for (const header of [true, false]) for (const [left, dx, direction] of [[0, 250, -1], [600, -250, 1]]) {
+        const f = setup({ overflow: true });
+        f.horizontal.scrollLeft = left;
+        const extra = { target: f.target(header) };
+        f.surface.fire('touchstart', f.touch(600, 100, extra));
+        const move = f.touch(600 + dx, 100, extra);
+        f.surface.fire('touchmove', move);
+        f.tick(500);
+        await f.surface.fire('touchend', f.touch(600 + dx, 100, { ...extra, touches: [] }));
+        assert.equal(move.prevented, true);
+        assert.equal(f.navigation().length, 1);
+        assert.equal(f.navigation()[0].direction, direction);
+        assert.equal(f.horizontal.scrollLeft, direction > 0 ? 0 : 600);
+        assert.equal(f.timeline.scrollTop, 640);
+        assert.equal(f.surface.classList.contains('is-period-paging'), false);
+        const click = f.event(); f.surface.fire('click', click);
+        assert.equal(click.stopped, true, '跨周滑动不能误打开日程编辑器');
+    }
+});
+
+test('周内触摸和边缘向内滑动不翻周，即使同一次滚动到达边缘', async () => {
+    for (const [left, dx] of [[0, -250], [600, 250], [300, -250], [300, 250]]) {
+        const f = setup({ overflow: true });
+        f.horizontal.scrollLeft = left;
+        f.surface.fire('touchstart', f.touch());
+        f.horizontal.scrollLeft = dx < 0 ? 600 : 0;
+        const move = f.touch(600 + dx);
+        f.surface.fire('touchmove', move);
+        await f.surface.fire('touchend', f.touch(600 + dx, 100, { touches: [] }));
+        assert.equal(move.prevented, undefined);
+        assert.equal(f.calls.length, 0);
+    }
+});
+
+test('稳定滚动条槽使 clientWidth 偏小，实际右边缘仍可切换下一周', async () => {
+    const f = setup({ overflow: true, gutter: 8 });
+    f.horizontal.scrollLeft = 600;
+    f.surface.fire('touchstart', f.touch());
+    f.surface.fire('touchmove', f.touch(350));
+    await f.surface.fire('touchend', f.touch(350, 100, { touches: [] }));
+    assert.equal(f.navigation()[0]?.direction, 1);
+});
+
+test('边缘短滑、取消、纵滑、长按和多指手势不切换周', async () => {
+    for (const mode of ['short', 'cancel', 'vertical', 'hold', 'pinch']) {
+        const f = setup({ overflow: true });
+        f.surface.fire('touchstart', f.touch(600, 100, { target: f.target(false) }));
+        if (mode === 'hold') f.tick(400);
+        const x = mode === 'short' ? 630 : 850;
+        const move = f.touch(x, mode === 'vertical' ? 400 : 100);
+        f.surface.fire('touchmove', move);
+        if (mode === 'pinch') f.surface.fire('touchmove', f.touch(x, 100, { touches: [move.touches[0], { identifier: 8 }] }));
+        f.tick(500);
+        const type = mode === 'cancel' ? 'touchcancel' : 'touchend';
+        await f.surface.fire(type, f.touch(x, 100, { touches: [], type }));
+        assert.equal(f.navigation().length, 0, mode);
+        assert.equal(f.surface.classList.contains('is-period-paging'), false, mode);
+    }
+});
+
+test('边缘触摸保留浮层、日程拖动及减少动效的约束，并清理监听器', async () => {
+    for (const mode of ['overlay', 'drag', 'reduce']) {
+        const f = setup({ overflow: true, reduce: mode === 'reduce' });
+        if (mode === 'overlay') f.ui.rendered(f.surface, 'same', false);
+        if (mode === 'drag') f.surface.classList.add('is-browser-interacting');
+        f.surface.fire('touchstart', f.touch());
+        f.surface.fire('touchmove', f.touch(850));
+        await f.surface.fire('touchend', f.touch(850, 100, { touches: [] }));
+        assert.equal(f.navigation().length, mode === 'reduce' ? 1 : 0);
+        assert.equal(f.motions.length, 0);
+        f.ui.dispose(f.surface);
+        assert.equal(f.surface.handlers.size, 0);
+        assert.equal(f.window.handlers.size, 0);
+    }
+});
+
+test('边缘拖动期间第二根手指放下后直接抬起，也立即取消位移', async () => {
+    const f = setup({ overflow: true });
+    f.surface.fire('touchstart', f.touch());
+    f.surface.fire('touchmove', f.touch(850));
+    assert.equal(f.surface.classList.contains('is-period-paging'), true);
+    f.surface.fire('touchstart', f.touch(850, 100, { touches: [
+        { identifier: 7, clientX: 850, clientY: 100 }, { identifier: 8, clientX: 900, clientY: 100 }
+    ] }));
+    await f.surface.fire('touchend', f.touch(850, 100, { touches: [] }));
+    assert.equal(f.surface.classList.contains('is-period-paging'), false);
+    assert.equal(f.navigation().length, 0);
 });
 
 test('超宽表格横向滚轮不拦截；宽度恢复后重新允许翻页', async () => {

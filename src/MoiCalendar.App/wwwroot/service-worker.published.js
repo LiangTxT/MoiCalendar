@@ -2,6 +2,7 @@
 // offline support. See https://aka.ms/blazor-offline-considerations
 
 self.importScripts('./service-worker-assets.js');
+self.importScripts('./pwaUpdateWorker.js');
 self.importScripts('./_content/MoiCalendar.Storage/reminderNotifications.js', './reminderWorker.js');
 self.addEventListener('install', event => event.waitUntil(onInstall(event)));
 self.addEventListener('activate', event => event.waitUntil(onActivate(event)));
@@ -27,17 +28,16 @@ async function onInstall(event) {
         .filter(asset => offlineAssetsInclude.some(pattern => pattern.test(asset.url)))
         .filter(asset => !offlineAssetsExclude.some(pattern => pattern.test(asset.url)))
         .map(asset => new Request(asset.url, { integrity: asset.hash, cache: 'no-cache' }));
-    await caches.open(cacheName).then(cache => cache.addAll(assetsRequests));
+    const populate = () => caches.open(cacheName).then(cache => cache.addAll(assetsRequests));
+    if (navigator.locks?.request) await navigator.locks.request('moicalendar-app-cache', {}, populate);
+    else await populate();
 }
 
 async function onActivate(event) {
     console.info('Service worker: Activate');
 
-    // Delete unused caches
-    const cacheKeys = await caches.keys();
-    await Promise.all(cacheKeys
-        .filter(key => key.startsWith(cacheNamePrefix) && key !== cacheName)
-        .map(key => caches.delete(key)));
+    // 旧缓存由 pwaUpdateWorker 在所有页面完成重新加载后回收。
+    // 激活时删除会使仍在退出旧版的窗口发生延迟加载资源失败。
 }
 
 async function onFetch(event) {
