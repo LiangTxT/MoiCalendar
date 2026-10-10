@@ -38,7 +38,7 @@
                     <dd>@FormatTimestamp(backupStatus.LastSuccessfulSyncAtUtc)</dd>
                 }
             </dl>
-            <p>@DescribeState(status.State)</p>
+            <p>@(CloudSyncFailureHelp.Message(status.FailureReason) ?? DescribeState(status.State))</p>
         }
         else
         {

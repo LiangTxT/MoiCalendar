@@ -524,8 +524,65 @@ public sealed class CloudSyncServiceTests
         Assert.Equal(1, notifications);
     }
 
+    [Fact]
+    public async Task RestoreProtection_IsDiagnosableAndDoesNotTouchCloudOrLocalChanges()
+    {
+        var diagnostics = new RecordingDiagnosticsSink();
+        var guard = new ToggleRestoreGuard();
+        var context = CreateContext(diagnostics, restoreGuard: guard);
+        await CreateLocalEventAsync(context, "保留本地修改");
+        var pending = await context.Outbox.GetPendingAsync();
+
+        var blocked = await context.Sync.SynchronizeAsync();
+
+        Assert.Equal(CloudSyncFailureReason.RestoreProtection, blocked.FailureReason);
+        Assert.Same(blocked, context.Sync.LastResult);
+        Assert.Equal(0, context.CloudDevices.RegistrationCount);
+        Assert.Equal(pending, await context.Outbox.GetPendingAsync());
+        Assert.Contains(diagnostics.Events, e => e.ErrorCode == "restore_sync_protected" &&
+            e.FailureCategory == OperationalFailureCategory.Configuration);
+
+        await guard.AllowSyncAsync();
+        var resumed = await context.Sync.SynchronizeAsync();
+        Assert.True(resumed.IsSuccess);
+        Assert.Equal(CloudSyncFailureReason.None, context.Sync.LastResult!.FailureReason);
+        Assert.Empty(await context.Outbox.GetPendingAsync());
+    }
+
+    [Fact]
+    public async Task DifferentAccount_IsDiagnosedWithoutRebindingOrUploading()
+    {
+        var binding = new InMemoryCloudSyncBindingRepository();
+        await binding.BindAsync("original-account", Now);
+        var diagnostics = new RecordingDiagnosticsSink();
+        var context = CreateContext(diagnostics, binding: binding);
+        await CreateLocalEventAsync(context, "保留原账户日历");
+
+        var result = await context.Sync.SynchronizeAsync();
+
+        Assert.Equal(CloudSyncOutcome.AccountMismatch, result.Outcome);
+        Assert.Equal(CloudSyncFailureReason.AccountMismatch, result.FailureReason);
+        Assert.Equal("original-account", (await binding.GetAsync())!.AccountId);
+        Assert.Equal(0, context.CloudDevices.RegistrationCount);
+        Assert.Single(await context.Outbox.GetPendingAsync());
+        Assert.Contains(diagnostics.Events, e => e.ErrorCode == "account_binding_mismatch");
+    }
+
+    [Fact]
+    public async Task LocalBindingFailure_IsNotMisreportedAsAnotherAccount()
+    {
+        var context = CreateContext(binding: new FailingBindingRepository());
+        var result = await context.Sync.SynchronizeAsync();
+        Assert.Equal(CloudSyncOutcome.Failed, result.Outcome);
+        Assert.Equal(CloudSyncFailureReason.LocalAccountBinding, result.FailureReason);
+        Assert.Null(result.Message);
+        Assert.Equal(0, context.CloudDevices.RegistrationCount);
+    }
+
     private static TestContext CreateContext(IOperationalDiagnosticsSink? diagnostics = null,
-        ICalendarDataChangeNotifier? dataChanges = null)
+        ICalendarDataChangeNotifier? dataChanges = null,
+        IRestoreSyncGuard? restoreGuard = null,
+        ICloudSyncBindingRepository? binding = null)
     {
         var events = new InMemoryEventRepository();
         var operations = new InMemoryOperationRepository();
@@ -548,10 +605,10 @@ public sealed class CloudSyncServiceTests
             cloudDevices,
             outbox,
             state,
-            new InMemoryCloudSyncBindingRepository(),
+            binding ?? new InMemoryCloudSyncBindingRepository(),
             new InMemoryCloudChangeApplyRepository(events, state, outbox),
             NoOpLocalDataOperationLock.Instance,
-            new AllowSyncGuard(),
+            restoreGuard ?? new AllowSyncGuard(),
             clock,
             new FakeRetryPolicy(),
             delay,
@@ -629,6 +686,20 @@ public sealed class CloudSyncServiceTests
             Task.FromResult(false);
 
         public Task AllowSyncAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class ToggleRestoreGuard : IRestoreSyncGuard
+    {
+        private bool blocked = true;
+        public Task<bool> IsSyncBlockedAsync(CancellationToken cancellationToken = default) => Task.FromResult(blocked);
+        public Task AllowSyncAsync(CancellationToken cancellationToken = default) { blocked = false; return Task.CompletedTask; }
+    }
+
+    private sealed class FailingBindingRepository : ICloudSyncBindingRepository
+    {
+        public Task<CloudSyncBinding?> GetAsync(CancellationToken cancellationToken = default) => Task.FromResult<CloudSyncBinding?>(null);
+        public Task<CloudSyncBinding> BindAsync(string accountId, DateTimeOffset boundAtUtc, CancellationToken cancellationToken = default) =>
+            throw new SyncOperationException("Bearer secret-must-not-leak");
     }
 
     private sealed class InterruptingApplyRepository(ICloudChangeApplyRepository inner)

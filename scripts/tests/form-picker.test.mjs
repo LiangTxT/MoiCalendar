@@ -118,3 +118,26 @@ test('纯时间两列占满可用宽度，不留右侧空白且保持分钟输�
     assert.ok(css.includes('.form-picker[data-mode="time"] .form-picker-time { width: 100%; }'));
     assert.ok(css.includes('.form-picker[data-mode="time"] .form-picker-time-number { width: 100%; }'));
 });
+
+test('24 小时文本字段显示 23 点并可确认 00:22，不转换为 12 小时制', () => {
+    const f = fixture(), input = f.input('time'); input.type = 'text'; input.dataset.temporalType = 'time'; input.value = '23:52';
+    f.window.moicalendarFormPicker.open(input);
+    assert.equal(f.popup().dataset.mode, 'time');
+    assert.equal(f.popup().querySelector('.form-picker-summary').textContent, '23:52');
+    assert.equal(f.popup().querySelectorAll('.form-picker-time-number')[0].value, '23');
+    assert.equal(f.popup().querySelectorAll('.form-picker-time-option').length, 84);
+    for (const [index, value] of ['0','22'].entries()) {
+        const field = f.popup().querySelectorAll('.form-picker-time-number')[index]; field.value = value; field.dispatchEvent({type:'input'});
+    }
+    assert.equal(input.value, '23:52');
+    f.popup().querySelector('.form-picker-apply').click(); assert.equal(input.value, '00:22');
+    assert.deepEqual(input.events, ['input','change']);
+});
+
+test('24 小时文本字段取消草稿不改变时间，移除类型标记关闭弹层', () => {
+    const f = fixture(), input = f.input('time'); input.type = 'text'; input.dataset.temporalType = 'time'; input.value = '23:52';
+    f.window.moicalendarFormPicker.open(input);
+    f.fire('keydown', f.document.activeElement, {key:'Escape'}); assert.equal(input.value, '23:52');
+    f.window.moicalendarFormPicker.open(input); delete input.dataset.temporalType; f.observer();
+    assert.equal(f.popup(), undefined); assert.equal(input.value, '23:52');
+});

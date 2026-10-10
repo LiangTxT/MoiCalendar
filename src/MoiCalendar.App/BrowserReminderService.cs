@@ -33,7 +33,7 @@ public sealed class BrowserReminderService(IJSRuntime js, IReminderStateStore st
         var key = await cloud.GetPublicKeyAsync();
         // Ensures active device registration and pushes reminder fields before subscribing.
         var result = await sync.SynchronizeAsync();
-        if (!result.IsSuccess) throw new InvalidOperationException("请先解决同步问题，再开启后台提醒；本地提醒仍可使用。");
+        if (!result.IsSuccess) throw new ReminderSyncRequiredException(result);
         var subscription = await (await ModuleAsync()).InvokeAsync<string>("subscribe", key);
         try
         {

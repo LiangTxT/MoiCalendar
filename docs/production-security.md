@@ -26,7 +26,8 @@ CSP 不允许第三方脚本、对象嵌入或页面被 frame 嵌入。Blazor We
 
 ## 凭据与错误
 
-- Supabase session 只保存在浏览器 `sessionStorage`，不进入 IndexedDB、备份、Outbox 或诊断。
+- Supabase session 保存在当前站点的浏览器 `localStorage`（v2），用于手机网页 App 关闭后恢复登录；不保存密码，不进入 IndexedDB、备份、Outbox 或诊断。读取旧版 `sessionStorage` 时仅迁移一次。主动退出删除令牌并保留无凭据的退出标记，避免旧标签页重新迁移已退出的会话。不要在共享浏览器资料中长期保持登录。
+- 会话恢复遇到断网、超时、限流或服务暂时异常不会清除保存的会话；只有明确的认证拒绝才清除，恢复联网后可重试。清除站点数据、使用不同站点域名／浏览器资料或无痕模式不属于可保证持久登录的场景。
 - WebDAV 密码只存在于当前运行时设置对象和 Basic Authorization 请求头；URL 内嵌凭据被拒绝。
 - OneDrive token 由 MSAL 提供，不进入备份或诊断。
 - OneDrive/WebDAV 远端失败响应正文不再拼接到异常。用户界面和本地诊断只显示状态码、通用提示和安全分类。

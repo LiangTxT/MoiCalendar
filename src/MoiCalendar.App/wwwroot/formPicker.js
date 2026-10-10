@@ -3,7 +3,8 @@
     window.moicalendarFormPicker?.dispose();
     const model = window.moicalendarPickerModel;
     let active = null, sequence = 0, positionFrame = 0;
-    const eligible = input => input?.matches?.('input[data-date-time-picker]') && ['date', 'time', 'datetime-local'].includes(input.type) && !input.matches(':disabled') && !input.readOnly;
+    const temporalType = input => input?.type === 'text' && input?.dataset?.temporalType === 'time' ? 'time' : input?.type;
+    const eligible = input => input?.matches?.('input[data-date-time-picker]') && ['date', 'time', 'datetime-local'].includes(temporalType(input)) && !input.matches(':disabled') && !input.readOnly;
     const eligibleSelect = input => input?.matches?.('.calendar-overlay select, .settings-shell select') && !input.matches(':disabled') && !input.multiple;
     const element = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
     const button = (text, label, action, className = '') => {
@@ -87,10 +88,11 @@
         const state = mount(input, 'date');
         const now = new Date();
         const today = `${now.getFullYear().toString().padStart(4, '0')}-${model.pad(now.getMonth() + 1)}-${model.pad(now.getDate())}`;
-        state.hasDate = input.type !== 'time'; state.hasTime = input.type !== 'date';
-        state.popup.dataset.mode = input.type;
+        const type = temporalType(input);
+        state.hasDate = type !== 'time'; state.hasTime = type !== 'date';
+        state.popup.dataset.mode = type;
         state.date = model.parseDate(input.value.slice(0, 10)) ? input.value.slice(0, 10) : today;
-        const time = input.type === 'time' ? input.value : input.value.split('T')[1];
+        const time = type === 'time' ? input.value : input.value.split('T')[1];
         state.time = model.validTime(time) ? time : `${model.pad(now.getHours())}:${model.pad(now.getMinutes())}`;
         state.month = state.date; state.cursor = state.date; state.invalidTime = new Set();
         const draftValue = () => state.hasDate ? state.hasTime ? `${state.date}T${state.time}` : state.date : state.time;
@@ -203,7 +205,7 @@
         } else if (eligibleSelect(event.target) && ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) { event.preventDefault(); event.stopPropagation(); selectOpen(event.target); }
     };
     const observer = new MutationObserver(() => { if (active && (!active.input.isConnected || active.input.matches(':disabled') || active.kind !== 'select' && !eligible(active.input))) close(false); });
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'type'] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'type', 'data-temporal-type'] });
     document.addEventListener('pointerdown', pointerdown, true); document.addEventListener('click', click, true); document.addEventListener('keydown', keydown, true);
     const pagehide = () => close(false);
     document.addEventListener('scroll', positionSoon, true); window.addEventListener('resize', positionSoon); window.addEventListener('pagehide', pagehide); window.visualViewport?.addEventListener('resize', positionSoon);

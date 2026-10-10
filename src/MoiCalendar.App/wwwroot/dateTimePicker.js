@@ -1,10 +1,11 @@
-/* 仅负责原生输入交互；值和校验仍由现有 Blazor 表单管理。 */
+/* 日期沿用原生输入，时间使用明确的 24 小时文本；值仍由现有 Blazor 表单管理。 */
 (() => {
     window.moicalendarDateTimePicker?.dispose();
     const manual = new WeakSet();
     const supported = !!window.moicalendarFormPicker || typeof HTMLInputElement.prototype.showPicker === 'function';
+    const temporalType = input => input?.type === 'text' && input?.dataset?.temporalType === 'time' ? 'time' : input?.type;
     const eligible = input => input?.matches?.('input[data-date-time-picker]') &&
-        ['date', 'time', 'datetime-local'].includes(input.type) && !input.disabled && !input.readOnly;
+        ['date', 'time', 'datetime-local'].includes(temporalType(input)) && !input.disabled && !input.readOnly;
     const enterManual = input => {
         window.moicalendarFormPicker?.close(false);
         manual.add(input);
@@ -12,7 +13,7 @@
     };
     const open = (input, preserveFocus = false) => {
         if (!eligible(input) || !input.isConnected || document.activeElement !== input) return;
-        try { if (window.moicalendarFormPicker) window.moicalendarFormPicker.open(input, preserveFocus); else input.showPicker(); }
+        try { if (window.moicalendarFormPicker) window.moicalendarFormPicker.open(input, preserveFocus); else if (input.type !== 'text') input.showPicker(); }
         catch {
             // 缺少用户激活、嵌入限制或平台不支持时保留原生图标与键盘输入。
             input.classList.add('picker-native-fallback');

@@ -31,7 +31,8 @@ public sealed record CloudSyncSnapshot(
     DateTimeOffset? NextRetryAtUtc,
     long ServerCursor,
     RealtimeConnectionState RealtimeState,
-    bool IsRealtimeAvailable);
+    bool IsRealtimeAvailable,
+    CloudSyncFailureReason FailureReason = CloudSyncFailureReason.None);
 
 public sealed record CloudSyncConflictDetails(
     Guid MutationId,
@@ -144,7 +145,10 @@ public sealed class CloudSyncStatusService(
             nextRetry,
             syncState?.LastSuccessfulServerRevision ?? 0,
             realtimeNotifier.ConnectionState,
-            realtimeNotifier.IsAvailable);
+            realtimeNotifier.IsAvailable,
+            displayState == CloudSyncDisplayState.Error
+                ? cloudSyncService.LastResult?.FailureReason ?? CloudSyncFailureReason.None
+                : CloudSyncFailureReason.None);
     }
 
     public async Task<CloudSyncSnapshot> SynchronizeNowAsync(

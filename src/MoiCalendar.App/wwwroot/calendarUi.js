@@ -269,9 +269,11 @@ window.moicalendarUi = {
 
         let frame = 0;
         let changing = true;
+        let extending = false;
         let pendingAnchor = null;
         let disposed = false;
         let reportedMonth = panels[centerIndex].dataset.month;
+        let centerMonth = reportedMonth;
         let reportVersion = 0;
         frame = requestAnimationFrame(() => {
             frame = 0;
@@ -284,12 +286,14 @@ window.moicalendarUi = {
         const handler = () => {
             if (disposed) return;
             if (pendingAnchor) pendingAnchor.scrollTop = stream.scrollTop;
-            if (frame || changing || activity.busy()) return;
+            if (frame) return;
             frame = requestAnimationFrame(async () => {
                 frame = 0;
-                if (disposed || activity.busy()) return;
+                if (disposed) return;
                 const currentPanels = getPanels();
-                if (currentPanels.length !== panels.length) return;
+                if (currentPanels.length < 5) return;
+                const currentCenter = Math.max(0, currentPanels.findIndex(panel =>
+                    panel.dataset.month === (stream.dataset?.centerMonth ?? centerMonth)));
                 const top = stream.scrollTop;
                 const viewportCenter = top + stream.clientHeight / 2;
                 const positions = currentPanels.map(panel => ({ panel, top: panelTop(panel), height: panel.offsetHeight }));
@@ -308,16 +312,32 @@ window.moicalendarUi = {
                         if (!disposed && reportVersion === requestVersion) reportedMonth = null;
                     });
                 }
-                const previousBoundary = positions[centerIndex - 1].top;
-                const nextBoundary = positions[centerIndex + 1].top;
-                if (top > previousBoundary + 2 && top < nextBoundary - 2) return;
+                // 标题逐帧跟随，不能与等待松手/惯性结束的节点回收共用闸门。
+                if (changing || extending) return;
                 const targetIndex = currentPanels.indexOf(displayedPanel);
-                if (targetIndex === centerIndex) return;
+                if (activity.busy() && targetIndex >= currentPanels.length - 3) {
+                    const [year, month] = currentPanels.at(-1).dataset.month.split('-').map(Number);
+                    if (year === 9999 && month === 12) return;
+                    extending = true;
+                    try {
+                        await dotnetReference.invokeMethodAsync('ExtendMonthStream', year, month);
+                    } catch { /* 保留当前内容，下一次滚动重试。 */ }
+                    finally {
+                        extending = false;
+                        if (!disposed && !activity.busy()) handler();
+                    }
+                    return;
+                }
+                if (activity.busy()) return;
+                const previousBoundary = positions[Math.max(0, currentCenter - 1)].top;
+                const nextBoundary = positions[Math.min(currentPanels.length - 1, currentCenter + 1)].top;
+                if (top > previousBoundary + 2 && top < nextBoundary - 2) return;
+                if (targetIndex === currentCenter) return;
                 changing = true;
                 const anchorMonth = currentPanels[targetIndex].dataset.month;
                 pendingAnchor = { month: anchorMonth, contentTop: positions[targetIndex].top, scrollTop: top };
                 try {
-                    await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex - centerIndex);
+                    await dotnetReference.invokeMethodAsync("ChangeVisibleMonth", targetIndex - currentCenter);
                     preserveAnchor();
                 } catch {
                     pendingAnchor = null;
@@ -330,19 +350,24 @@ window.moicalendarUi = {
         const preserveAnchor = () => {
             if (disposed || !pendingAnchor) return;
             const updatedPanels = getPanels();
-            if (updatedPanels[centerIndex]?.dataset.month !== pendingAnchor.month) return;
-            const anchor = updatedPanels[centerIndex];
+            const anchor = updatedPanels.find(panel => panel.dataset.month === pendingAnchor.month);
+            const updatedCenter = stream.dataset?.centerMonth ?? updatedPanels[Math.floor(updatedPanels.length / 2)]?.dataset.month;
+            if (!anchor || updatedCenter !== pendingAnchor.month) return;
             const expectedViewportTop = pendingAnchor.contentTop - pendingAnchor.scrollTop;
             stream.scrollTop = panelTop(anchor) - expectedViewportTop;
             pendingAnchor = null;
             changing = false;
+            centerMonth = updatedCenter;
             resizeAnchor.refresh();
             handler();
         };
         const activity = observeCalendarScrollActivity(stream, handler);
         const resizeAnchor = observeCalendarResizeAnchor(stream, ':scope > .month-panel .month-week-row', activity);
         stream._moicalendarScrollActivity = activity;
-        const observer = new MutationObserver(preserveAnchor);
+        const observer = new MutationObserver(() => {
+            preserveAnchor();
+            resizeAnchor.refresh();
+        });
         observer.observe(stream, { childList: true });
         stream._moicalendarMonthStreamDispose = () => {
             disposed = true;

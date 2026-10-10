@@ -369,7 +369,9 @@ internal sealed class SupabaseAccountService : IAccountService, ISupabaseAccessT
                 currentAccount = await GetUserAsync(currentSession.AccessToken, cancellationToken);
                 return currentAccount;
             }
-            catch (AccountServiceException)
+            catch (SupabaseAuthRequestException refreshException)
+                when (refreshException.StatusCode is HttpStatusCode.BadRequest or
+                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 await ClearSessionCoreAsync(cancellationToken);
                 return null;

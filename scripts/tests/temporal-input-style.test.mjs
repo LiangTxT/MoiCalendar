@@ -15,7 +15,8 @@ test('日期与时间无图标，统一居中 D-DIN 字体与字号', () => {
     assert.match(rule, /padding: 12px;/);
     assert.doesNotMatch(css, /\.temporal-input-time input\s*\{/);
     assert.ok(component.includes('data-date-time-picker'));
-    assert.ok(component.includes('"60"'));
+    assert.ok(component.includes('data-temporal-type="@Type"'));
+    assert.ok(component.includes('"([01][0-9]|2[0-3]):[0-5][0-9]"'));
 });
 
 test('D-DIN 使用有效本地字体和授权文件，纳入现有离线缓存规则', () => {

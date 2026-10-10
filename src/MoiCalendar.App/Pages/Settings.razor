@@ -301,6 +301,8 @@
             }
             else
             {
+                <details class="cloud-device-disclosure" @key="cloudAccount.Id">
+                    <summary>设备列表 · @cloudDevices.Count 台</summary>
                 <div class="cloud-device-list">
                     @foreach (var device in cloudDevices)
                     {
@@ -354,11 +356,12 @@
                         </article>
                     }
                 </div>
+                    <p class="settings-note">
+                        “移除设备”只会阻止该设备 ID 继续使用 MoiCalendar 云同步，不会撤销底层云账户登录会话。
+                    </p>
+                </details>
             }
 
-            <p class="settings-note">
-                “移除设备”只会阻止该设备 ID 继续使用 MoiCalendar 云同步，不会撤销底层云账户登录会话。
-            </p>
             @if (!string.IsNullOrWhiteSpace(cloudDeviceMessage))
             {
                 <p class="settings-status @(cloudDeviceSucceeded ? "success" : "failure")" role="status">
@@ -575,8 +578,8 @@
             <section class="restore-confirmation" aria-labelledby="sync-protection-heading">
                 <h3 id="sync-protection-heading">恢复后同步保护已启用</h3>
                 <p>
-                    OneDrive 和 WebDAV 的 Push/Pull 均已暂停，其他标签页也不能绕过此保护。
-                    检查恢复结果后，再明确允许下一次手动同步；远端内容届时仍可能按现有冲突规则合并回来。
+                    云账户同步、OneDrive 和 WebDAV 的 Push/Pull 均已暂停，后台提醒也无法完成登记。
+                    检查恢复结果后再明确解除保护；自动同步可能随之恢复，远端内容仍可能按现有冲突规则合并回来。
                 </p>
                 <button type="button"
                         disabled="@isRestoringBackup"
@@ -1105,7 +1108,7 @@
                 CloudSyncDisplayState.AuthenticationRequired => "云账户会话已失效，请重新登录。",
                 CloudSyncDisplayState.SignedOut => "请先登录云账户。",
                 CloudSyncDisplayState.LocalOnly => "云同步未启用，本地日历仍可正常使用。",
-                _ => "云同步未完成，本地修改已保留。"
+                _ => CloudSyncFailureHelp.Message(status.FailureReason) ?? "云同步未完成，本地修改已保留。请查看“同步状态”中的运行诊断。"
             };
             if (cloudAccountSucceeded)
             {
@@ -1621,7 +1624,7 @@
             await LocalBackupRestoreService.AllowSyncAfterRestoreAsync();
             isSyncBlockedAfterRestore = false;
             backupSucceeded = true;
-            backupMessage = "同步保护已解除。同步仍不会自动开始；只有点击“立即同步”或“重试失败项”才会访问远端。";
+            backupMessage = "同步保护已解除。已登录的云账户可恢复自动同步；你也可以点击“同步云端”。OneDrive/WebDAV 仍需手动同步。";
         }
         catch (SyncOperationException)
         {

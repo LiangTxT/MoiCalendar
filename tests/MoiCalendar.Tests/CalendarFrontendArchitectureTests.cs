@@ -237,7 +237,10 @@ public sealed class CalendarFrontendArchitectureTests
         Assert.Contains("SetDisplayedMonth", script, StringComparison.Ordinal);
         Assert.Contains("BufferedLayouts", component, StringComparison.Ordinal);
         Assert.Contains("activity.busy()", script, StringComparison.Ordinal);
-        Assert.Contains("targetIndex - centerIndex", script, StringComparison.Ordinal);
+        Assert.Contains("targetIndex - currentCenter", script, StringComparison.Ordinal);
+        Assert.Contains("data-center-month", component, StringComparison.Ordinal);
+        Assert.Contains("ExtendMonthStream", script, StringComparison.Ordinal);
+        Assert.Contains("monthBufferLayouts.Concat", home, StringComparison.Ordinal);
         Assert.Contains("Enumerable.Range(-4, 9)", home, StringComparison.Ordinal);
         Assert.Contains("moicalendarUi.waitForScrollIdle", home, StringComparison.Ordinal);
         Assert.DoesNotContain("ignoreUntil", script, StringComparison.Ordinal);

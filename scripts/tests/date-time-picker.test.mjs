@@ -79,3 +79,17 @@ test('主题弹层单击同步打开且保持源字段焦点，双击撤销未�
     f.fire('click', e); assert.equal(opened, 1); assert.equal(f.timers.size, 0); assert.equal(f.document.activeElement, e);
     f.fire('click', e, { detail: 2 }); assert.equal(closed, 1); assert.equal(e.value, '2026-10-06');
 });
+
+test('24 小时文本字段仍支持单击主题选择、双击直接输入', () => {
+    const f = fixture(), e = f.input('text'); e.dataset = {temporalType:'time'}; e.value = '23:52';
+    let opened = 0, closed = 0;
+    f.window.moicalendarFormPicker = {open: () => opened++, close: () => closed++};
+    f.fire('click', e); assert.equal(opened, 1);
+    f.fire('dblclick', e); assert.equal(closed, 1);
+    f.fire('click', e); assert.equal(opened, 1); assert.equal(e.value, '23:52');
+});
+
+test('24 小时文本字段缺少主题选择器时保留直接输入，不调用原生 showPicker', () => {
+    const f = fixture(), e = f.input('text'); e.dataset = {temporalType:'time'};
+    f.fire('click', e); assert.equal(e.calls, 0); assert.equal(f.document.activeElement, e);
+});
