@@ -28,6 +28,8 @@ public sealed class CloudSyncService(
 
     public CloudSyncStatus CurrentStatus { get; private set; } = CloudSyncStatus.Idle;
 
+    public CloudSyncResult? LastResult { get; private set; }
+
     public async Task<CloudSyncResult> SynchronizeAsync(CancellationToken cancellationToken = default)
     {
         var startedTimestamp = timeProvider.GetTimestamp();
@@ -37,10 +39,12 @@ public sealed class CloudSyncService(
             Outcome = OperationalDiagnosticOutcome.Started
         }, cancellationToken);
         CurrentStatus = CloudSyncStatus.Syncing;
+        LastResult = null;
         try
         {
             var result = await SynchronizeCoreAsync(cancellationToken);
             CurrentStatus = result.Status;
+            LastResult = result;
             if (result.PulledCount > 0)
             {
                 try { dataChanges?.NotifyChanged(); }
@@ -108,7 +112,8 @@ public sealed class CloudSyncService(
             return Result(
                 CloudSyncOutcome.Failed,
                 CloudSyncStatus.Error,
-                message: "备份恢复后的同步保护仍处于启用状态。");
+                message: "备份恢复后的同步保护仍处于启用状态。",
+                failureReason: CloudSyncFailureReason.RestoreProtection);
         }
 
         CloudAccount? account;
@@ -130,14 +135,20 @@ public sealed class CloudSyncService(
 
         try
         {
+            var binding = await bindingRepository.GetAsync(cancellationToken);
+            if (binding is not null && !string.Equals(binding.AccountId, account.Id, StringComparison.Ordinal))
+            {
+                return Result(CloudSyncOutcome.AccountMismatch, CloudSyncStatus.Error,
+                    failureReason: CloudSyncFailureReason.AccountMismatch);
+            }
             await bindingRepository.BindAsync(account.Id, timeProvider.GetUtcNow(), cancellationToken);
         }
-        catch (SyncOperationException exception)
+        catch (SyncOperationException)
         {
             return Result(
-                CloudSyncOutcome.AccountMismatch,
+                CloudSyncOutcome.Failed,
                 CloudSyncStatus.Error,
-                message: exception.Message);
+                failureReason: CloudSyncFailureReason.LocalAccountBinding);
         }
 
         Guid currentDeviceId;
@@ -700,7 +711,8 @@ public sealed class CloudSyncService(
         long cursor = 0,
         IReadOnlyList<CloudSyncConflict>? conflicts = null,
         DateTimeOffset? nextRetryAtUtc = null,
-        string? message = null) =>
+        string? message = null,
+        CloudSyncFailureReason failureReason = CloudSyncFailureReason.None) =>
         new(
             outcome,
             status,
@@ -709,7 +721,8 @@ public sealed class CloudSyncService(
             cursor,
             conflicts,
             nextRetryAtUtc,
-            message);
+            message,
+            failureReason);
 
     private async ValueTask RecordTransportFailureAsync(
         OperationalDiagnosticKind kind,
@@ -776,7 +789,12 @@ public sealed class CloudSyncService(
         _ => OperationalDiagnosticOutcome.Failed
     };
 
-    private static OperationalFailureCategory MapFailureCategory(CloudSyncResult result) => result.Status switch
+    private static OperationalFailureCategory MapFailureCategory(CloudSyncResult result) => result.FailureReason switch
+    {
+        CloudSyncFailureReason.RestoreProtection => OperationalFailureCategory.Configuration,
+        CloudSyncFailureReason.AccountMismatch => OperationalFailureCategory.Authentication,
+        CloudSyncFailureReason.LocalAccountBinding => OperationalFailureCategory.LocalStorage,
+        _ => result.Status switch
     {
         CloudSyncStatus.Offline => OperationalFailureCategory.Network,
         CloudSyncStatus.AuthenticationRequired => OperationalFailureCategory.Authentication,
@@ -784,9 +802,15 @@ public sealed class CloudSyncService(
         CloudSyncStatus.RetryScheduled => OperationalFailureCategory.Network,
         CloudSyncStatus.Error => OperationalFailureCategory.Unknown,
         _ => OperationalFailureCategory.None
+        }
     };
 
-    private static string? SafeResultCode(CloudSyncResult result) => result.Status switch
+    private static string? SafeResultCode(CloudSyncResult result) => result.FailureReason switch
+    {
+        CloudSyncFailureReason.RestoreProtection => "restore_sync_protected",
+        CloudSyncFailureReason.AccountMismatch => "account_binding_mismatch",
+        CloudSyncFailureReason.LocalAccountBinding => "local_account_binding_failed",
+        _ => result.Status switch
     {
         CloudSyncStatus.Offline => "offline",
         CloudSyncStatus.AuthenticationRequired => "authentication_required",
@@ -794,6 +818,7 @@ public sealed class CloudSyncService(
         CloudSyncStatus.RetryScheduled => "retry_scheduled",
         CloudSyncStatus.Error => "sync_error",
         _ => null
+        }
     };
 
     private static void ValidateBatch(CloudChangeBatch batch, long previousCursor)

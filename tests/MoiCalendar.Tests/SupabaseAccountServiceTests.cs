@@ -111,6 +111,74 @@ public sealed class SupabaseAccountServiceTests
         Assert.Equal(1, store.ClearCount);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task RestoreSession_AccessRejectedButRefreshTemporarilyFails_KeepsSession(HttpStatusCode status)
+    {
+        var original = new SupabaseStoredSession("access-1", "refresh-1", Now.AddHours(1));
+        var store = new FakeSessionStore { Session = original };
+        var handler = new QueueHttpMessageHandler(
+            new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") },
+            new HttpResponseMessage(status) { Content = new StringContent("{}") },
+            JsonResponse(UserJson(emailConfirmed: true)));
+        using var service = CreateService(handler, store);
+
+        await Assert.ThrowsAnyAsync<AccountServiceException>(() => service.RestoreSessionAsync());
+        Assert.Same(original, store.Session);
+        Assert.Equal(0, store.ClearCount);
+        Assert.NotNull(await service.RestoreSessionAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RestoreSession_NetworkFailsAfterAccessRejected_KeepsSession(bool timeout)
+    {
+        var original = new SupabaseStoredSession("access-1", "refresh-1", Now.AddHours(1));
+        var store = new FakeSessionStore { Session = original };
+        using var service = new SupabaseAccountService(
+            new HttpClient(new RejectedThenNetworkFailureHandler(timeout))
+                { BaseAddress = new Uri("https://example.supabase.co/auth/v1/") },
+            "public-test-key", store, new FixedTimeProvider(Now));
+        await Assert.ThrowsAnyAsync<AccountServiceException>(() => service.RestoreSessionAsync());
+        Assert.Same(original, store.Session);
+        Assert.Equal(0, store.ClearCount);
+    }
+
+    [Fact]
+    public async Task RestoreSession_RefreshRejectedAfterAccessRejected_ClearsSession()
+    {
+        var store = new FakeSessionStore
+            { Session = new SupabaseStoredSession("access-1", "refresh-1", Now.AddHours(1)) };
+        var handler = new QueueHttpMessageHandler(
+            new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") },
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+                { Content = new StringContent("{\"code\":\"refresh_token_not_found\"}") });
+        using var service = CreateService(handler, store);
+        Assert.Null(await service.RestoreSessionAsync());
+        Assert.Null(store.Session);
+        Assert.Equal(1, store.ClearCount);
+    }
+
+    [Fact]
+    public async Task RestoreSession_NewServiceInstanceUsesSavedSessionWithoutPasswordLogin()
+    {
+        var store = new FakeSessionStore();
+        using (var first = CreateService(new QueueHttpMessageHandler(JsonResponse(
+            """
+            {"access_token":"access-1","refresh_token":"refresh-1","expires_in":3600,
+             "user":{"id":"11111111-1111-4111-8111-111111111111","email":"user@example.com"}}
+            """)), store))
+            await first.LoginAsync("user@example.com", "test-only-password");
+        var handler = new QueueHttpMessageHandler(JsonResponse(UserJson(emailConfirmed: true)));
+        using var reopened = CreateService(handler, store);
+        Assert.NotNull(await reopened.RestoreSessionAsync());
+        Assert.EndsWith("/user", Assert.Single(handler.Requests).Uri);
+        Assert.Equal(0, store.ClearCount);
+    }
+
     [Fact]
     public async Task RefreshSession_ForcesTokenRotationAndReturnsAccount()
     {
@@ -321,6 +389,15 @@ public sealed class SupabaseAccountServiceTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromException<HttpResponseMessage>(timeout ? new TaskCanceledException() : new HttpRequestException());
+    }
+
+    private sealed class RejectedThenNetworkFailureHandler(bool timeout) : HttpMessageHandler
+    {
+        private int calls;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            ++calls == 1
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") })
+                : Task.FromException<HttpResponseMessage>(timeout ? new TaskCanceledException() : new HttpRequestException());
     }
 
     private static string UserJson(bool emailConfirmed) => $$"""

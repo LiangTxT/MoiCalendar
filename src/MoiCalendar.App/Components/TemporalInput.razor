@@ -1,6 +1,9 @@
 <span class="temporal-input temporal-input-@Type">
-    <input id="@Id" type="@Type" value="@Value" min="@Min" required="@Required"
-           step="@(Type == "time" ? "60" : "1")" data-date-time-picker
+    @* 可见入口不能是原生 date/time 控件；聚焦按钮不会唤起 iOS 系统选择器。 *@
+    <button id="@Id" type="button" class="temporal-input-trigger" data-temporal-target="@(Id + "-value")"
+            aria-haspopup="dialog" aria-expanded="false" aria-label="@AccessibleLabel" aria-describedby="@HintId">@DisplayValue</button>
+    <input id="@(Id + "-value")" type="hidden" value="@Value" min="@Min" required="@Required"
+           data-picker-value data-date-time-picker data-temporal-type="@Type"
            aria-label="@AccessibleLabel" aria-describedby="@HintId"
            @oninput="args => ValueChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)" />
 </span>
@@ -14,4 +17,5 @@
     [Parameter] public string? AccessibleLabel { get; set; }
     [Parameter] public string? HintId { get; set; }
     [Parameter] public bool Required { get; set; }
+    private string DisplayValue => string.IsNullOrEmpty(Value) ? (Type == "time" ? "选择时间" : "选择日期") : Value.Replace('-', '/').Replace('T', ' ');
 }

@@ -29,6 +29,14 @@ public enum CloudSyncFailureKind
     Permanent
 }
 
+public enum CloudSyncFailureReason
+{
+    None,
+    RestoreProtection,
+    AccountMismatch,
+    LocalAccountBinding
+}
+
 public sealed record CloudSyncConflict(
     Guid MutationId,
     Guid EntityId,
@@ -46,7 +54,8 @@ public sealed record CloudSyncResult(
     long Cursor,
     IReadOnlyList<CloudSyncConflict>? Conflicts = null,
     DateTimeOffset? NextRetryAtUtc = null,
-    string? Message = null)
+    string? Message = null,
+    CloudSyncFailureReason FailureReason = CloudSyncFailureReason.None)
 {
     public bool IsSuccess => Outcome == CloudSyncOutcome.Succeeded;
 
@@ -58,6 +67,8 @@ public interface ICloudSyncService
     bool IsAvailable { get; }
 
     CloudSyncStatus CurrentStatus { get; }
+
+    CloudSyncResult? LastResult => null;
 
     Task<CloudSyncResult> SynchronizeAsync(CancellationToken cancellationToken = default);
 }

@@ -11,6 +11,7 @@
     </div>
 
     <div class="month-stream app-scrollable scrollbar-hidden" @ref="streamElement"
+         data-center-month="@($"{Layout.Month.Month.Year:D4}-{Layout.Month.Month.Month:D2}")"
          @onclick="BackgroundClicked"
          @onpointermove="PointerMove" @onpointerup="PointerUp" @onpointercancel="PointerCancel">
         @foreach (var panel in Panels)
@@ -62,6 +63,7 @@
     [Parameter] public EventCallback<PointerEventArgs> PointerUp { get; set; }
     [Parameter] public EventCallback<PointerEventArgs> PointerCancel { get; set; }
     [Parameter] public EventCallback<int> VisibleMonthChanged { get; set; }
+    [Parameter] public EventCallback<CalendarMonth> ExtendMonths { get; set; }
     [Parameter] public EventCallback<CalendarMonth> DisplayedMonthChanged { get; set; }
 
     public ElementReference GridElement => streamElement;
@@ -87,6 +89,9 @@
 
     [JSInvokable]
     public Task ChangeVisibleMonth(int direction) => VisibleMonthChanged.InvokeAsync(direction);
+
+    [JSInvokable]
+    public Task ExtendMonthStream(int year, int month) => ExtendMonths.InvokeAsync(new CalendarMonth(year, month));
 
     [JSInvokable]
     public Task SetDisplayedMonth(int year, int month) =>

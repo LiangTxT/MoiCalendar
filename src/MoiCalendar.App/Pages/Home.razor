@@ -118,6 +118,7 @@
                                                    EventEdit="OpenEventEditorAsync"
                                                    MoreRequested="OpenDayOverflow"
                                                    VisibleMonthChanged="ChangeVisibleMonthAsync"
+                                                   ExtendMonths="ExtendMonthStreamAsync"
                                                    DisplayedMonthChanged="SetDisplayedMonth"
                                                    PointerMove="HandleMonthPointerMoveAsync"
                                                    BackgroundClicked="() => suppressNextMonthClick = false"
@@ -363,7 +364,7 @@
                 </div>
 
                 <EventDateTimeFields Draft="editor" />
-                <p id="editor-date-time-hint" class="date-time-input-hint">单击选择日期或时间，双击直接输入</p>
+                <p id="editor-date-time-hint" class="date-time-input-hint">点击选择日期或时间，也可在选择器中手动输入</p>
                 </section>
 
                 <section class="editor-group" aria-label="更多信息">
@@ -1040,11 +1041,40 @@
 
     private Task ChangeVisibleMonthAsync(int direction)
     {
-        var date = new DateOnly(monthView.Month.Year, monthView.Month.Month, 1).AddMonths(Math.Clamp(direction, -4, 4));
+        var date = new DateOnly(monthView.Month.Year, monthView.Month.Month, 1).AddMonths(direction);
         return ShowMonthAsync(CalendarMonth.FromDate(date), seamless: true);
     }
 
     private void SetDisplayedMonth(CalendarMonth month) => displayedMonth = month;
+
+    private async Task ExtendMonthStreamAsync(CalendarMonth lastMonth)
+    {
+        // 向下滚动时只追加，不移除上方节点、不写 scrollTop，保留原生惯性。
+        // JS 在末尾前两个月发起预加载；停止滚动后再由正常窗口切换回收。
+        if (displayMode != CalendarViewMode.Month || monthBufferLayouts.Count == 0
+            || monthBufferLayouts[^1].Month.Month != lastMonth) return;
+        var version = timelineNavigationVersion;
+        var first = new DateOnly(lastMonth.Year, lastMonth.Month, 1);
+        var remaining = Math.Min(4, (9999 - lastMonth.Year) * 12 + 12 - lastMonth.Month);
+        if (remaining == 0) return;
+        var views = Enumerable.Range(1, remaining)
+            .Select(offset => CalendarMonth.FromDate(first.AddMonths(offset)).CreateView(today)).ToArray();
+        try
+        {
+            var missing = views.Where(view => !monthEventCache.ContainsKey(view.Month)).ToArray();
+            var loaded = missing.Length == 0 ? null : await EventService.GetMonthViewsAsync(missing, displayTimeZoneId);
+            if (disposed || version != timelineNavigationVersion || displayMode != CalendarViewMode.Month
+                || monthBufferLayouts.Count == 0 || monthBufferLayouts[^1].Month.Month != lastMonth) return;
+            if (loaded is not null)
+                foreach (var pair in loaded) monthEventCache[pair.Key] = pair.Value;
+            monthBufferLayouts = monthBufferLayouts.Concat(views.Select(view =>
+                GetCachedMonthLayout(view, monthEventCache[view.Month]))).ToArray();
+        }
+        catch (EventRepositoryException)
+        {
+            // 预加载失败不覆盖当前本地画面；真实窗口切换会重试并显示错误。
+        }
+    }
 
     private async Task ShowWeekAsync(CalendarWeek week)
     {

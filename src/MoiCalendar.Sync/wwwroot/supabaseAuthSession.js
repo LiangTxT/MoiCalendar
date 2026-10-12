@@ -1,7 +1,13 @@
-const sessionKey = "moicalendar.supabase.auth.session.v1";
+const legacySessionKey = "moicalendar.supabase.auth.session.v1";
+const sessionKey = "moicalendar.supabase.auth.session.v2";
 
 export function readSession() {
-    return sessionStorage.getItem(sessionKey);
+    const saved = localStorage.getItem(sessionKey);
+    // 空字符串是主动退出标记，防止另一旧标签页重新迁入已退出的会话。
+    if (saved !== null) return saved || null;
+    const legacy = sessionStorage.getItem(legacySessionKey);
+    if (legacy) writeSession(legacy);
+    return legacy;
 }
 
 export function writeSession(json) {
@@ -9,11 +15,14 @@ export function writeSession(json) {
         throw new Error("认证会话格式无效。");
     }
 
-    sessionStorage.setItem(sessionKey, json);
+    // PWA / 手机浏览器关闭后仍可恢复；不保存密码、不放入日历备份。
+    localStorage.setItem(sessionKey, json);
+    sessionStorage.removeItem(legacySessionKey);
 }
 
 export function clearSession() {
-    sessionStorage.removeItem(sessionKey);
+    localStorage.setItem(sessionKey, "");
+    sessionStorage.removeItem(legacySessionKey);
 }
 
 export function readAuthCallback() {

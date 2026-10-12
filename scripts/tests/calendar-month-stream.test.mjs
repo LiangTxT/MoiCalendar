@@ -9,8 +9,9 @@ test('手指未松开时，即使滚动间隔超过静默时间也不回收月�
     const f = setup(); f.initialize(); f.takeFrame()();
     f.handlers.get('touchstart')();
     f.scrollTo(0); f.flushTimers();
-    assert.equal(f.frames.size, 0);
-    assert.equal(f.calls.length, 0);
+    await f.takeFrame()();
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
+    assert.deepEqual(f.calls.filter(c => c[0] === 'SetDisplayedMonth'), [['SetDisplayedMonth', 2026, 8]]);
     assert.equal(f.stream.scrollTop, 0);
     f.handlers.get('touchend')();
     await f.takeFrame()();
@@ -51,7 +52,8 @@ test('多指操作只抬起一根手指时，仍不允许回收月份', async ()
     const f = setup(); f.initialize(); f.takeFrame()();
     f.handlers.get('touchstart')(); f.scrollTo(0);
     f.handlers.get('touchend')({touches:[{}]}); f.flushTimers();
-    assert.equal(f.frames.size, 0); assert.equal(f.calls.length, 0);
+    await f.takeFrame()();
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
     f.handlers.get('touchend')({touches:[]}); await f.takeFrame()();
     assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 1);
 });
@@ -66,6 +68,7 @@ function setup() {
     let heights = [600, 600, 600, 600, 600];
     let pendingChange;
     let pendingDisplay;
+    let pendingExtend;
     const stream = {
         scrollTop: 0, clientHeight: 600,
         getBoundingClientRect: () => ({ top: 0 }),
@@ -96,6 +99,7 @@ function setup() {
         invokeMethodAsync(name, ...args) {
             calls.push([name, ...args]);
             if (name === 'SetDisplayedMonth' && pendingDisplay) return pendingDisplay;
+            if (name === 'ExtendMonthStream' && pendingExtend) return pendingExtend;
             return name === 'ChangeVisibleMonth' && pendingChange ? pendingChange : Promise.resolve();
         }
     };
@@ -115,6 +119,12 @@ function setup() {
         scrollTo(top) { stream.scrollTop = top; for (const handler of listeners) handler(); },
         deferChange(promise) { pendingChange = promise; },
         deferDisplay(promise) { pendingDisplay = promise; },
+        deferExtend(promise) { pendingExtend = promise; },
+        takeLiveFrame() {
+            const [id, callback] = frames.entries().next().value;
+            frames.delete(id);
+            return callback;
+        },
         setMonths(value, panelHeights = heights) { months = value; heights = panelHeights; },
         mutate() { for (const observer of observers) if (observer.connected) observer.callback(); }
     };
@@ -128,6 +138,64 @@ test('卸载取消尚未执行的月份首次定位', () => {
     assert.equal(f.stream.scrollTop, 0);
     assert.equal(f.listeners.size, 0);
     assert.equal(f.observers[0].connected, false);
+});
+
+test('惯性滚动未结束也立即更新月份标题和年份，不回收节点', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.scrollTo(1850);
+    await f.takeLiveFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'SetDisplayedMonth'), [['SetDisplayedMonth', 2026, 11]]);
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
+    assert.equal(f.stream.scrollTop, 1850);
+});
+
+test('触摸快滑接近末尾时提前追加月份，既不等待松手也不写滚动位置', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.handlers.get('touchstart')(); f.scrollTo(2400);
+    await f.takeLiveFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'ExtendMonthStream'), [['ExtendMonthStream', 2026, 12]]);
+    f.setMonths(['2026-08','2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03','2027-04'], Array(9).fill(600));
+    f.mutate();
+    assert.equal(f.stream.scrollTop, 2400);
+    f.scrollTo(4800); await f.takeLiveFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'SetDisplayedMonth').at(-1), ['SetDisplayedMonth', 2027, 4]);
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
+    f.handlers.get('touchend')(); await f.takeFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'ChangeVisibleMonth'), [['ChangeVisibleMonth', 6]]);
+});
+
+test('追加查询期间标题继续跟随，松手后查询完成可回收窗口', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    let finish;
+    f.deferExtend(new Promise(resolve => { finish = resolve; }));
+    f.scrollTo(1800); const loading = f.takeLiveFrame()();
+    f.scrollTo(2400); await f.takeLiveFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'SetDisplayedMonth').at(-1), ['SetDisplayedMonth', 2026, 12]);
+    f.flushTimers(); await f.takeLiveFrame()();
+    finish(); await loading; await f.takeLiveFrame()();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'ChangeVisibleMonth'), [['ChangeVisibleMonth', 2]]);
+});
+
+test('追加失败后下一次滚动可重试，卸载期间不再安排帧', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    f.deferExtend(Promise.reject(new Error('追加失败')));
+    f.scrollTo(2400); await f.takeLiveFrame()();
+    f.deferExtend(null); f.scrollTo(2410); await f.takeLiveFrame()();
+    assert.equal(f.calls.filter(c => c[0] === 'ExtendMonthStream').length, 2);
+    f.ui.disposeMonthStream(f.stream);
+    assert.equal(f.frames.size, 0);
+});
+
+test('追加请求在卸载后完成，不报告月份或重设位置', async () => {
+    const f = setup(); f.initialize(); f.takeFrame()();
+    let finish;
+    f.deferExtend(new Promise(resolve => { finish = resolve; }));
+    f.scrollTo(2400); const loading = f.takeLiveFrame()();
+    f.ui.disposeMonthStream(f.stream);
+    finish(); await loading;
+    assert.equal(f.frames.size, 0);
+    assert.equal(f.stream.scrollTop, 2400);
+    assert.equal(f.calls.filter(c => c[0] === 'ChangeVisibleMonth').length, 0);
 });
 
 test('重复初始化只保留一个首次定位回调和监听器', () => {

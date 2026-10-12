@@ -83,6 +83,9 @@ test("SQL worker functions are service-role only; subscriptions are private and 
 });
 test("custom reminder time uses strongly typed immediate-input binding",()=> {
     const picker=readFileSync(new URL("../../src/MoiCalendar.App/Components/EventReminderPicker.razor",import.meta.url),"utf8");
-    assert.match(picker,/<input[^>]*type="time"[^>]*@bind="Draft.AllDayReminderTime"/);
-    assert.match(picker,/@bind:event="oninput"/);
+    assert.match(picker,/<TemporalInput[^>]*Type="time"[^>]*@bind-Value="Draft.AllDayReminderTimeInput"/);
+    assert.match(picker,/<button[^>]*data-select-target/);
+    assert.match(picker,/<select[^>]*hidden data-picker-value/);
+    const temporal=readFileSync(new URL("../../src/MoiCalendar.App/Components/TemporalInput.razor",import.meta.url),"utf8");
+    assert.match(temporal,/@oninput="args => ValueChanged.InvokeAsync/);
 });

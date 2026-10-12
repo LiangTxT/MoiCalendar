@@ -36,6 +36,10 @@
             </dl>
 
             <div class="settings-actions">
+                @if (status.FailureReason != CloudSyncFailureReason.None)
+                {
+                    <a class="button-link" href="@CloudSyncFailureHelp.Link(status.FailureReason)">@CloudSyncFailureHelp.LinkLabel(status.FailureReason)</a>
+                }
                 <button class="primary-button" type="button" disabled="@(!CanSynchronize || isBusy)" @onclick="SyncNowAsync">
                     @(isBusy ? "正在同步…" : "立即同步")
                 </button>
@@ -344,7 +348,7 @@
         CloudSyncDisplayState.AuthenticationRequired => "云账户会话已失效，请重新登录。",
         CloudSyncDisplayState.SignedOut => "请先登录云账户。",
         CloudSyncDisplayState.LocalOnly => "云同步未启用，本地日历仍可正常使用。",
-        _ => "同步未完成，本地修改仍安全保留。"
+        _ => CloudSyncFailureHelp.Message(snapshot.FailureReason) ?? "同步未完成，本地修改仍安全保留。请查看下方运行诊断。"
     };
 
     private static string FormatRealtimeState(RealtimeConnectionState state) => state switch

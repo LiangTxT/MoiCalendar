@@ -6,6 +6,19 @@ namespace MoiCalendar.Tests;
 public sealed class QuickCreateScheduleTests
 {
     [Fact]
+    public void LateNightTimes_Stay24HourAndEndOnNextDay()
+    {
+        var draft = Draft();
+        var fields = new QuickCreateSchedule(draft);
+        fields.StartTimeInput = "23:52";
+        fields.EndTimeInput = "00:22";
+        Assert.Equal("23:52", fields.StartTimeInput);
+        Assert.Equal("00:22", fields.EndTimeInput);
+        Assert.Equal(new DateTime(2026, 10, 3, 0, 22, 0), draft.EndLocal);
+        Assert.Equal("持续 30 分钟 · 次日结束", fields.Summary);
+    }
+
+    [Fact]
     public void ArbitraryMinuteInput_PreservesExactTimesWithoutQuarterHourRounding()
     {
         var draft = Draft();

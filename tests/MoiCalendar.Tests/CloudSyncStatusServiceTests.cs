@@ -251,6 +251,26 @@ public sealed class CloudSyncStatusServiceTests
         Assert.Empty(await context.Service.GetConflictsAsync());
     }
 
+    [Theory]
+    [InlineData(CloudSyncFailureReason.RestoreProtection)]
+    [InlineData(CloudSyncFailureReason.AccountMismatch)]
+    [InlineData(CloudSyncFailureReason.LocalAccountBinding)]
+    public async Task Status_PreservesSafeFailureReasonAndClearsItAfterSuccess(CloudSyncFailureReason reason)
+    {
+        var context = CreateContext();
+        context.Cloud.Status = CloudSyncStatus.Error;
+        context.Cloud.LastResult = new CloudSyncResult(CloudSyncOutcome.Failed, CloudSyncStatus.Error, 0, 0, 0,
+            Message: "Bearer private-server-response", FailureReason: reason);
+        var status = await context.Service.GetStatusAsync();
+        Assert.Equal(reason, status.FailureReason);
+        Assert.DoesNotContain("private-server-response", status.ToString());
+
+        context.Cloud.Status = CloudSyncStatus.Idle;
+        status = await context.Service.SynchronizeNowAsync();
+        Assert.Equal(CloudSyncDisplayState.Synced, status.State);
+        Assert.Equal(CloudSyncFailureReason.None, status.FailureReason);
+    }
+
     private static TestContext CreateContext(
         InMemoryEventRepository? events = null,
         InMemorySyncOutboxRepository? outbox = null,
@@ -332,13 +352,15 @@ public sealed class CloudSyncStatusServiceTests
         public bool IsAvailable { get; set; } = true;
         public CloudSyncStatus Status { get; set; }
         public CloudSyncStatus CurrentStatus => Status;
+        public CloudSyncResult? LastResult { get; set; }
         public int CallCount { get; private set; }
         public Func<CancellationToken, Task<CloudSyncResult>>? Handler { get; set; }
 
-        public Task<CloudSyncResult> SynchronizeAsync(CancellationToken cancellationToken = default)
+        public async Task<CloudSyncResult> SynchronizeAsync(CancellationToken cancellationToken = default)
         {
             CallCount++;
-            return Handler?.Invoke(cancellationToken) ?? Task.FromResult(SuccessResult());
+            LastResult = Handler is null ? SuccessResult() : await Handler(cancellationToken);
+            return LastResult;
         }
     }
 

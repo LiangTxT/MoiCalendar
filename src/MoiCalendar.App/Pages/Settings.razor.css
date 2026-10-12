@@ -192,6 +192,17 @@
     border-top: 1px solid var(--v4-line-strong);
 }
 .account-deletion-local-option { display: flex; align-items: center; gap: var(--space-3); }
+.cloud-device-disclosure > summary {
+    min-height: 44px;
+    padding-block: var(--space-3);
+    color: var(--v4-ink);
+    cursor: pointer;
+}
+.cloud-device-disclosure > summary:focus-visible {
+    outline: 2px solid var(--v4-information);
+    outline-offset: 2px;
+}
+.cloud-device-disclosure > .cloud-device-list { padding-top: var(--space-3); }
 .cloud-device-card + .cloud-device-card { margin-top: var(--space-5); }
 .cloud-device-title { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .device-badge { font-size: 12px; color: var(--v4-ink-secondary); }

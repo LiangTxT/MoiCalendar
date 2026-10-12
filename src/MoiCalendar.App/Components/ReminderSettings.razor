@@ -15,12 +15,17 @@
     @if (state?.Permission == "denied") { <p class="settings-note">系统通知已被阻止，请在浏览器的网站权限中改为允许。</p> }
     @if (!Reminders.CloudAvailable) { <p class="settings-note">未配置云后端；本地提醒仍可使用。</p> }
     @if (message is not null) { <p class="settings-status" role="status">@message</p> }
+    @if (syncFailureReason is not null)
+    {
+        <a href="@CloudSyncFailureHelp.Link(syncFailureReason.Value)">@CloudSyncFailureHelp.LinkLabel(syncFailureReason.Value)</a>
+    }
 </section>
 
 @code {
     private BrowserReminderStatus? state;
     private string? message;
     private bool busy;
+    private MoiCalendar.Sync.Cloud.CloudSyncFailureReason? syncFailureReason;
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
@@ -38,9 +43,13 @@
     {
         if (busy) return;
         busy = true;
+        syncFailureReason = null;
         try { await action(); state = await Reminders.StatusAsync(); }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or MoiCalendar.Sync.Cloud.AccountServiceException or HttpRequestException or TaskCanceledException)
-        { message = ex is InvalidOperationException or MoiCalendar.Sync.Cloud.AccountServiceException ? ex.Message : "提醒设置未完成。请检查网络和浏览器通知权限后重试。"; }
+        {
+            if (ex is ReminderSyncRequiredException syncFailure) syncFailureReason = syncFailure.FailureReason;
+            message = ex is InvalidOperationException or MoiCalendar.Sync.Cloud.AccountServiceException ? ex.Message : "提醒设置未完成。请检查网络和浏览器通知权限后重试。";
+        }
         finally { busy = false; StateHasChanged(); }
     }
 }
