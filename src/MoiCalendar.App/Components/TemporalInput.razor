@@ -1,10 +1,9 @@
 <span class="temporal-input temporal-input-@Type">
-    @* 原生 time 的可见格式由浏览器／系统决定，不能用 lang 保证 24 小时制。 *@
-    <input id="@Id" type="@(Type == "time" ? "text" : Type)" value="@Value" min="@Min" required="@Required"
-           step="@(Type == "time" ? null : "1")" data-date-time-picker data-temporal-type="@Type"
-           pattern="@(Type == "time" ? "([01][0-9]|2[0-3]):[0-5][0-9]" : null)"
-           maxlength="@(Type == "time" ? 5 : (int?)null)" placeholder="@(Type == "time" ? "HH:mm" : null)"
-           title="@(Type == "time" ? "24 小时制，格式为 HH:mm，例如 23:52" : null)"
+    @* 可见入口不能是原生 date/time 控件；聚焦按钮不会唤起 iOS 系统选择器。 *@
+    <button id="@Id" type="button" class="temporal-input-trigger" data-temporal-target="@(Id + "-value")"
+            aria-haspopup="dialog" aria-expanded="false" aria-label="@AccessibleLabel" aria-describedby="@HintId">@DisplayValue</button>
+    <input id="@(Id + "-value")" type="hidden" value="@Value" min="@Min" required="@Required"
+           data-picker-value data-date-time-picker data-temporal-type="@Type"
            aria-label="@AccessibleLabel" aria-describedby="@HintId"
            @oninput="args => ValueChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)" />
 </span>
@@ -18,4 +17,5 @@
     [Parameter] public string? AccessibleLabel { get; set; }
     [Parameter] public string? HintId { get; set; }
     [Parameter] public bool Required { get; set; }
+    private string DisplayValue => string.IsNullOrEmpty(Value) ? (Type == "time" ? "选择时间" : "选择日期") : Value.Replace('-', '/').Replace('T', ' ');
 }

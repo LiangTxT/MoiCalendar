@@ -25,11 +25,12 @@ public sealed class TemporalInputTests
                 [nameof(TemporalInput.Value)] = value, [nameof(TemporalInput.Required)] = true
             }))).ToHtmlString());
         Assert.Contains($"value=\"{value}\"", html);
-        Assert.Contains("type=\"text\"", html);
+        Assert.Contains("type=\"button\"", html);
+        Assert.Contains("type=\"hidden\"", html);
+        Assert.Contains($">{value}</button>", html);
+        Assert.Contains("data-temporal-target=\"test-time-value\"", html);
+        Assert.DoesNotContain(" type=\"time\"", html);
         Assert.Contains("data-temporal-type=\"time\"", html);
-        Assert.Contains("maxlength=\"5\"", html);
-        Assert.Contains("placeholder=\"HH:mm\"", html);
-        Assert.Contains("pattern=\"([01][0-9]|2[0-3]):[0-5][0-9]\"", html);
     }
 
     [Theory]
@@ -56,9 +57,9 @@ public sealed class TemporalInputTests
             Assert.Contains("value=\"23:34\"", html);
             Assert.Contains("value=\"01:19\"", html);
             Assert.Contains("data-temporal-type=\"time\"", html);
-            Assert.Contains("type=\"text\"", html);
+            Assert.Contains("type=\"button\"", html);
             Assert.DoesNotContain(" type=\"time\"", html);
-            Assert.Contains("pattern=\"([01][0-9]|2[0-3]):[0-5][0-9]\"", html);
+            Assert.DoesNotContain(" type=\"date\"", html);
         }
         Assert.DoesNotContain("<svg", html);
         Assert.Contains("aria-describedby=\"editor-date-time-hint\"", html);

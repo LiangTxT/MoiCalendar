@@ -1,6 +1,7 @@
 <div class="editor-row">
     <label for="@Id">提醒</label>
-    <select id="@Id" @bind="Draft.ReminderChoice">
+    <button id="@Id" type="button" class="form-select-trigger" data-select-target="@(Id + "-value")" aria-haspopup="listbox" aria-expanded="false">@(Draft.ReminderChoice < 0 ? "不提醒" : ReminderPolicy.Label(Draft.ReminderChoice))</button>
+    <select id="@(Id + "-value")" hidden data-picker-value @bind="Draft.ReminderChoice">
         <option value="-1">不提醒</option>
         @foreach (var minutes in ReminderPolicy.Minutes) { <option value="@minutes">@ReminderPolicy.Label(minutes)</option> }
     </select>
@@ -9,7 +10,7 @@
 {
     <div class="editor-row">
         <label for="@(Id + "-time")">当天提醒时间</label>
-        <input id="@(Id + "-time")" type="time" step="60" @bind="Draft.AllDayReminderTime" @bind:event="oninput" required />
+        <TemporalInput Id="@(Id + "-time")" Type="time" @bind-Value="Draft.AllDayReminderTimeInput" AccessibleLabel="当天提醒时间" Required="true" />
     </div>
     <p class="date-time-input-hint">默认 07:00，可自定义；按 @Draft.ReminderTimeZoneId 计算，再减去提前时间。</p>
 }

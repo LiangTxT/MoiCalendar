@@ -7,7 +7,7 @@ const component = readFileSync(new URL('../../src/MoiCalendar.App/Components/Tem
 
 test('日期与时间无图标，统一居中 D-DIN 字体与字号', () => {
     assert.doesNotMatch(component, /<svg|temporal-input-icon/);
-    const rule = css.match(/:is\(\.quick-create-popover, \.event-editor\) \.temporal-input input \{([^}]+)\}/)[1];
+    const rule = css.match(/:is\(\.quick-create-popover, \.event-editor\) \.temporal-input-trigger \{([^}]+)\}/)[1];
     assert.match(rule, /font-family: "D-DIN", var\(--font-ui\)/);
     assert.match(rule, /font-size: 24px/);
     assert.match(rule, /font-weight: 400/);
@@ -16,7 +16,9 @@ test('日期与时间无图标，统一居中 D-DIN 字体与字号', () => {
     assert.doesNotMatch(css, /\.temporal-input-time input\s*\{/);
     assert.ok(component.includes('data-date-time-picker'));
     assert.ok(component.includes('data-temporal-type="@Type"'));
-    assert.ok(component.includes('"([01][0-9]|2[0-3]):[0-5][0-9]"'));
+    assert.match(component, /type="button"[^>]*data-temporal-target/);
+    assert.match(component, /type="hidden"/);
+    assert.ok(css.includes('[data-picker-value][hidden]'));
 });
 
 test('D-DIN 使用有效本地字体和授权文件，纳入现有离线缓存规则', () => {
